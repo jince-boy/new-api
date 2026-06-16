@@ -27,6 +27,7 @@ import { useThemeCustomization } from '@/context/theme-customization-provider'
 import { useTheme } from '@/context/theme-provider'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -35,10 +36,6 @@ import {
 } from '@/components/ui/toggle-group'
 import { getUserQuotaDataByUsers } from '@/features/dashboard/api'
 import {
-  DASHBOARD_RANK_BASE_COUNT,
-  DASHBOARD_RANK_CHART_HEADER_HEIGHT,
-  DASHBOARD_RANK_DESKTOP_CHART_HEIGHT,
-  DASHBOARD_RANK_DESKTOP_ROW_HEIGHT,
   DASHBOARD_QUICK_RANGE_PRESETS,
   DEFAULT_DASHBOARD_QUICK_RANGE,
   DEFAULT_TIME_GRANULARITY,
@@ -74,6 +71,108 @@ const USER_CHARTS: {
 ]
 
 const TOP_USER_LIMIT_OPTIONS = [5, 10, 20, 50]
+const RANK_COLORS = [
+  'var(--chart-1)',
+  'var(--chart-2)',
+  'var(--chart-3)',
+  'var(--chart-4)',
+  'var(--chart-5)',
+] as const
+
+function isRankPlaceholder(datum: Record<string, unknown>) {
+  return Boolean(datum.__rankPlaceholder)
+}
+
+function getRankValues(spec: unknown): Record<string, unknown>[] {
+  const values = (spec as { data?: Array<{ values?: unknown[] }> })?.data?.[0]
+    ?.values
+  return Array.isArray(values)
+    ? (values.filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item) &&
+          typeof item === 'object' &&
+          !isRankPlaceholder(item as Record<string, unknown>)
+      ) as Record<string, unknown>[])
+    : []
+}
+
+function getRankValueLabel(
+  spec: unknown,
+  value: number,
+  datum: Record<string, unknown>
+) {
+  const formatter = (spec as {
+    label?: {
+      formatMethod?: (
+        value: number,
+        datum?: Record<string, unknown>
+      ) => string
+    }
+  })?.label?.formatMethod
+  return formatter ? formatter(value, datum) : String(value)
+}
+
+function getRankBadgeClass(rank: number) {
+  if (rank === 1) return 'border-primary/30 bg-primary/5 text-primary'
+  if (rank === 2) return 'border-muted-foreground/25 bg-muted text-foreground'
+  if (rank === 3) return 'border-accent/40 bg-accent/20 text-accent-foreground'
+  return 'border-border bg-background text-muted-foreground'
+}
+
+function UserRankList({ spec }: { spec: unknown }) {
+  const rows = getRankValues(spec)
+  const maxValue = Math.max(
+    ...rows.map((item) => Number(item.rawQuota) || 0),
+    1
+  )
+  const colorMap =
+    (spec as { color?: { specified?: Record<string, string> } })?.color
+      ?.specified ?? {}
+
+  return (
+    <ScrollArea className='h-full pr-3'>
+      <div className='flex flex-col gap-1.5 pb-2'>
+        {rows.map((item, index) => {
+          const name = String(item.User || '-')
+          const rawValue = Number(item.rawQuota) || 0
+          const width = `${Math.max((rawValue / maxValue) * 100, 2)}%`
+          const color = colorMap[name] || RANK_COLORS[index % RANK_COLORS.length]
+
+          return (
+            <div
+              key={`${index}-${name}`}
+              className='grid min-h-8 items-center gap-2 rounded-md border border-transparent px-2 py-1 transition-[background-color,border-color] hover:border-border hover:bg-muted/35'
+              style={{
+                gridTemplateColumns:
+                  'minmax(6.5rem, 9rem) minmax(5rem, 1fr) max-content',
+              }}
+            >
+              <div className='flex min-w-0 items-center gap-2'>
+                <span
+                  className={`flex size-5 shrink-0 items-center justify-center rounded-md border text-[11px] font-medium tabular-nums ${getRankBadgeClass(index + 1)}`}
+                >
+                  {index + 1}
+                </span>
+                <span className='truncate text-sm font-medium' title={name}>
+                  {name}
+                </span>
+              </div>
+              <div className='bg-muted h-2.5 overflow-hidden rounded-full'>
+                <div
+                  className='h-full rounded-full'
+                  style={{ width, backgroundColor: color }}
+                />
+              </div>
+              <div className='text-muted-foreground min-w-16 text-right text-[11px] font-medium tabular-nums'>
+                {getRankValueLabel(spec, rawValue, item)}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </ScrollArea>
+  )
+}
 
 export function UserCharts() {
   const { t } = useTranslation()
@@ -271,15 +370,6 @@ export function UserCharts() {
         {USER_CHARTS.map((chart) => {
           const spec = chartData[chart.specKey]
           const isRankChart = chart.value === 'rank'
-          const rankValueCount =
-            isRankChart && Array.isArray(spec?.data?.[0]?.values)
-              ? spec.data[0].values.length
-              : 0
-          const rankChartHeight = isRankChart
-            ? DASHBOARD_RANK_CHART_HEADER_HEIGHT +
-              Math.max(rankValueCount, DASHBOARD_RANK_BASE_COUNT) *
-                DASHBOARD_RANK_DESKTOP_ROW_HEIGHT
-            : undefined
           const chartElement =
             themeReady &&
             spec && (
@@ -304,18 +394,17 @@ export function UserCharts() {
                 <div className='text-sm font-semibold'>{t(chart.labelKey)}</div>
               </div>
 
-              <div className='h-[300px] p-1.5 sm:h-96 sm:p-2'>
+              <div
+                className={
+                  isRankChart
+                    ? 'h-[240px] p-1.5 sm:h-[280px] sm:p-2'
+                    : 'h-[300px] p-1.5 sm:h-96 sm:p-2'
+                }
+              >
                 {isLoading ? (
                   <Skeleton className='h-full w-full' />
                 ) : isRankChart ? (
-                  <div
-                    className='overflow-y-auto'
-                    style={{ height: DASHBOARD_RANK_DESKTOP_CHART_HEIGHT }}
-                  >
-                    <div style={{ height: rankChartHeight }}>
-                      {chartElement}
-                    </div>
-                  </div>
+                  <UserRankList spec={spec} />
                 ) : (
                   chartElement
                 )}

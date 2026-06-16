@@ -22,12 +22,64 @@ import { Card, Tabs, TabPane } from '@douyinfe/semi-ui';
 import { PieChart } from 'lucide-react';
 import { VChart } from '@visactor/react-vchart';
 
-const USER_RANK_BASE_COUNT = 10;
-const USER_RANK_BAR_HEIGHT = 20;
-const USER_RANK_ROW_HEIGHT = USER_RANK_BAR_HEIGHT + 4;
-const USER_RANK_CHART_HEADER_HEIGHT = 60;
-const USER_RANK_CHART_HEIGHT =
-  USER_RANK_CHART_HEADER_HEIGHT + USER_RANK_ROW_HEIGHT * USER_RANK_BASE_COUNT;
+const getRankRows = (spec) =>
+  (spec?.data?.[0]?.values || []).filter((item) => !item?.__rankPlaceholder);
+
+const getRankValue = (row) => Number(row?.rawTokens ?? row?.rawQuota ?? 0) || 0;
+
+const getRankLabel = (spec, row) => {
+  const value = getRankValue(row);
+  return spec?.label?.formatMethod ? spec.label.formatMethod(value, row) : String(value);
+};
+
+const getRankColor = (spec, row, index) => {
+  const name = row?.User;
+  return (
+    spec?.color?.specified?.[name] ||
+    (Array.isArray(spec?.color?.range) ? spec.color.range[index % spec.color.range.length] : null) ||
+    'var(--semi-color-primary)'
+  );
+};
+
+const RankBarList = ({ spec }) => {
+  const rows = getRankRows(spec);
+  const maxValue = Math.max(...rows.map(getRankValue), 1);
+
+  return (
+    <div className='dashboard-rank-scroll'>
+      <div className='dashboard-rank-list'>
+        {rows.map((row, index) => {
+          const name = row?.User || '-';
+          const value = getRankValue(row);
+          const width = `${Math.max((value / maxValue) * 100, 2)}%`;
+          const color = getRankColor(spec, row, index);
+
+          return (
+            <div
+              key={`${index}-${name}`}
+              className='dashboard-rank-row'
+            >
+              <div className='dashboard-rank-user'>
+                <span className='dashboard-rank-index'>
+                  {index + 1}
+                </span>
+                <span className='dashboard-rank-name' title={name}>
+                  {name}
+                </span>
+              </div>
+              <div className='dashboard-rank-track'>
+                <div className='dashboard-rank-bar' style={{ width, backgroundColor: color }} />
+              </div>
+              <div className='dashboard-rank-value'>
+                {getRankLabel(spec, row)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 const ChartsPanel = ({
   activeChartTab,
@@ -46,18 +98,7 @@ const ChartsPanel = ({
   hasApiInfoPanel,
   t,
 }) => {
-  const getVisibleRankCount = (spec) =>
-    (spec?.data?.[0]?.values || []).filter((item) => !item?.__rankPlaceholder)
-      .length;
-
-  const tokenRankCount = getVisibleRankCount(spec_token_rank);
-  const userRankCount = getVisibleRankCount(spec_user_rank);
-  const tokenRankHeight =
-    USER_RANK_CHART_HEADER_HEIGHT +
-    Math.max(tokenRankCount, USER_RANK_BASE_COUNT) * USER_RANK_ROW_HEIGHT;
-  const userRankHeight =
-    USER_RANK_CHART_HEADER_HEIGHT +
-    Math.max(userRankCount, USER_RANK_BASE_COUNT) * USER_RANK_ROW_HEIGHT;
+  const isCompactRankTab = activeChartTab === '5' || (activeChartTab === '6' && isAdminUser);
 
   return (
     <Card
@@ -90,7 +131,7 @@ const ChartsPanel = ({
       }
       bodyStyle={{ padding: 0 }}
     >
-      <div className='h-96 p-2'>
+      <div className={`${isCompactRankTab ? 'h-64' : 'h-96'} p-2`}>
         {activeChartTab === '1' && (
           <VChart spec={spec_line} option={CHART_CONFIG} />
         )}
@@ -104,18 +145,10 @@ const ChartsPanel = ({
           <VChart spec={spec_rank_bar} option={CHART_CONFIG} />
         )}
         {activeChartTab === '5' && (
-          <div className='overflow-y-auto' style={{ height: USER_RANK_CHART_HEIGHT }}>
-            <div style={{ height: tokenRankHeight }}>
-              <VChart spec={spec_token_rank} option={CHART_CONFIG} />
-            </div>
-          </div>
+          <RankBarList spec={spec_token_rank} />
         )}
         {activeChartTab === '6' && isAdminUser && (
-          <div className='overflow-y-auto' style={{ height: USER_RANK_CHART_HEIGHT }}>
-            <div style={{ height: userRankHeight }}>
-              <VChart spec={spec_user_rank} option={CHART_CONFIG} />
-            </div>
-          </div>
+          <RankBarList spec={spec_user_rank} />
         )}
         {activeChartTab === '7' && isAdminUser && (
           <VChart spec={spec_user_trend} option={CHART_CONFIG} />

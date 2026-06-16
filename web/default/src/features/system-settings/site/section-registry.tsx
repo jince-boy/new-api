@@ -23,6 +23,7 @@ import {
   serializeHeaderNavModules,
   serializeSidebarModulesAdmin,
 } from '../maintenance/config'
+import { CustomNavigationSection } from '../maintenance/custom-navigation-section'
 import { HeaderNavigationSection } from '../maintenance/header-navigation-section'
 import { NoticeSection } from '../maintenance/notice-section'
 import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
@@ -73,6 +74,13 @@ const SITE_SECTIONS = [
         />
       )
     },
+  },
+  {
+    id: 'custom-navigation',
+    titleKey: 'Navigation management',
+    build: (settings: SiteSettings) => (
+      <CustomNavigationSection data={settings.CustomNavLinks ?? '[]'} />
+    ),
   },
   {
     id: 'sidebar-modules',

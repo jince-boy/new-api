@@ -133,6 +133,68 @@ func TestProcessInviterReward_SkipsWhenComplianceUnconfirmed(t *testing.T) {
 	assert.Zero(t, inviter.AffHistoryQuota)
 }
 
+func TestGetInvitationDetails(t *testing.T) {
+	truncateTables(t)
+	configureInviterRewardForTest(t, "fixed", 500, true)
+
+	insertInviterRewardUser(t, 41, "details_inviter", 0)
+	insertInviterRewardUser(t, 42, "details_invitee", 41)
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", 42).Update("created_at", int64(1779783729)).Error)
+	topUp := insertInviterRewardTopUp(t, 42, "reward-details")
+
+	require.NoError(t, ProcessInviterReward(42, 10000, topUp.Id))
+
+	invitedUsers, invitedTotal, err := GetInvitedUserDetails(41, 200)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, invitedTotal)
+	require.Len(t, invitedUsers, 1)
+	assert.Equal(t, 42, invitedUsers[0].Id)
+	assert.Equal(t, "details_invitee", invitedUsers[0].Username)
+	assert.EqualValues(t, 1779783729, invitedUsers[0].CreatedAt)
+
+	rebates, rebateTotal, err := GetInviterRebateDetails(41, 200)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, rebateTotal)
+	require.Len(t, rebates, 1)
+	assert.Equal(t, 42, rebates[0].InviteeId)
+	assert.Equal(t, "details_invitee", rebates[0].InviteeUsername)
+	assert.Equal(t, "reward-details", rebates[0].TradeNo)
+	assert.Equal(t, 500, rebates[0].RewardQuota)
+	assert.Equal(t, topUp.CreateTime, rebates[0].CompleteTime)
+}
+
+func TestDeletingInvitedUserRefreshesAffCount(t *testing.T) {
+	truncateTables(t)
+
+	insertInviterRewardUser(t, 51, "delete_inviter", 0)
+	insertInviterRewardUser(t, 52, "delete_invitee", 51)
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", 51).Update("aff_count", 1).Error)
+
+	invitee := User{Id: 52}
+	require.NoError(t, invitee.Delete())
+
+	inviter := loadInviterRewardUser(t, 51)
+	assert.Equal(t, 0, inviter.AffCount)
+
+	invitedUsers, invitedTotal, err := GetInvitedUserDetails(51, 200)
+	require.NoError(t, err)
+	assert.Zero(t, invitedTotal)
+	assert.Empty(t, invitedUsers)
+}
+
+func TestHardDeletingInvitedUserRefreshesAffCount(t *testing.T) {
+	truncateTables(t)
+
+	insertInviterRewardUser(t, 61, "hard_delete_inviter", 0)
+	insertInviterRewardUser(t, 62, "hard_delete_invitee", 61)
+	require.NoError(t, DB.Model(&User{}).Where("id = ?", 61).Update("aff_count", 1).Error)
+
+	require.NoError(t, HardDeleteUserById(62))
+
+	inviter := loadInviterRewardUser(t, 61)
+	assert.Equal(t, 0, inviter.AffCount)
+}
+
 func TestTransferAffQuotaToQuota_UsesConfiguredMinimum(t *testing.T) {
 	truncateTables(t)
 	configureMinAffTransferQuotaForTest(t, 1000)

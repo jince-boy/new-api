@@ -62,7 +62,12 @@ const HeaderBar = ({ onMobileMenuToggle, drawerOpen }) => {
     getUnreadKeys,
   } = useNotifications(statusState);
 
-  const { mainNavLinks } = useNavigation(t, docsLink, headerNavModules);
+  const { mainNavLinks } = useNavigation(
+    t,
+    docsLink,
+    headerNavModules,
+    statusState?.status?.CustomNavLinks,
+  );
 
   return (
     <header className='text-semi-color-text-0 sticky top-0 z-50 transition-colors duration-300 bg-white/75 dark:bg-zinc-900/75 backdrop-blur-lg'>
@@ -99,30 +104,32 @@ const HeaderBar = ({ onMobileMenuToggle, drawerOpen }) => {
             />
           </div>
 
-          <Navigation
-            mainNavLinks={mainNavLinks}
-            isMobile={isMobile}
-            isLoading={isLoading}
-            userState={userState}
-            pricingRequireAuth={pricingRequireAuth}
-          />
+          <div className='flex min-w-0 flex-1 items-center justify-end'>
+            <Navigation
+              mainNavLinks={mainNavLinks}
+              isMobile={isMobile}
+              isLoading={isLoading}
+              userState={userState}
+              pricingRequireAuth={pricingRequireAuth}
+            />
 
-          <ActionButtons
-            isNewYear={isNewYear}
-            unreadCount={unreadCount}
-            onNoticeOpen={handleNoticeOpen}
-            theme={theme}
-            onThemeToggle={handleThemeToggle}
-            currentLang={currentLang}
-            onLanguageChange={handleLanguageChange}
-            userState={userState}
-            isLoading={isLoading}
-            isMobile={isMobile}
-            isSelfUseMode={isSelfUseMode}
-            logout={logout}
-            navigate={navigate}
-            t={t}
-          />
+            <ActionButtons
+              isNewYear={isNewYear}
+              unreadCount={unreadCount}
+              onNoticeOpen={handleNoticeOpen}
+              theme={theme}
+              onThemeToggle={handleThemeToggle}
+              currentLang={currentLang}
+              onLanguageChange={handleLanguageChange}
+              userState={userState}
+              isLoading={isLoading}
+              isMobile={isMobile}
+              isSelfUseMode={isSelfUseMode}
+              logout={logout}
+              navigate={navigate}
+              t={t}
+            />
+          </div>
         </div>
       </div>
     </header>

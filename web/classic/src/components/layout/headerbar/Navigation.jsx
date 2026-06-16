@@ -30,9 +30,10 @@ const Navigation = ({
 }) => {
   const renderNavLinks = () => {
     const baseClasses =
-      'flex-shrink-0 flex items-center gap-1 font-semibold rounded-md transition-all duration-200 ease-in-out';
-    const hoverClasses = 'hover:text-semi-color-primary';
-    const spacingClasses = isMobile ? 'p-1' : 'p-2';
+      'inline-flex h-8 flex-shrink-0 items-center rounded-full text-[14px] font-medium text-semi-color-text-1 transition-all duration-200 ease-in-out';
+    const hoverClasses =
+      'hover:bg-semi-color-fill-0 hover:text-semi-color-text-0 hover:shadow-sm dark:hover:bg-semi-color-fill-1';
+    const spacingClasses = isMobile ? 'px-2.5' : 'px-3';
 
     const commonLinkClasses = `${baseClasses} ${spacingClasses} ${hoverClasses}`;
 
@@ -44,8 +45,8 @@ const Navigation = ({
           <a
             key={link.itemKey}
             href={link.externalLink}
-            target='_blank'
-            rel='noopener noreferrer'
+            target={link.openInNewTab ? '_blank' : undefined}
+            rel={link.openInNewTab ? 'noopener noreferrer' : undefined}
             className={commonLinkClasses}
           >
             {linkContent}
@@ -70,7 +71,7 @@ const Navigation = ({
   };
 
   return (
-    <nav className='flex flex-1 items-center gap-1 lg:gap-2 mx-2 md:mx-4 overflow-x-auto whitespace-nowrap scrollbar-hide'>
+    <nav className='mx-2 flex min-w-0 items-center justify-end gap-1 overflow-x-auto whitespace-nowrap scrollbar-hide md:mx-3'>
       <SkeletonWrapper
         loading={isLoading}
         type='navigation'

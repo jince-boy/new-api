@@ -362,6 +362,9 @@ export const useDashboardCharts = (
       autoRegionSize: true,
       label: {
         visible: true,
+        autoHide: false,
+        autoLimit: false,
+        sampling: false,
         formatMethod: (value) => (isRankPlaceholderKey(value) ? '' : value),
       },
     }, {
@@ -439,6 +442,9 @@ export const useDashboardCharts = (
       autoRegionSize: true,
       label: {
         visible: true,
+        autoHide: false,
+        autoLimit: false,
+        sampling: false,
         formatMethod: (value) => (isRankPlaceholderKey(value) ? '' : value),
       },
     }, {

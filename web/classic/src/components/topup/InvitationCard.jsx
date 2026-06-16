@@ -27,7 +27,7 @@ import {
   Badge,
   Space,
 } from '@douyinfe/semi-ui';
-import { Copy, Users, BarChart2, TrendingUp, Gift, Zap } from 'lucide-react';
+import { Copy, Users, BarChart2, TrendingUp, Gift, Zap, List } from 'lucide-react';
 
 const { Text } = Typography;
 
@@ -36,6 +36,7 @@ const InvitationCard = ({
   userState,
   renderQuota,
   setOpenTransfer,
+  onOpenDetails,
   affLink,
   handleAffLinkClick,
   complianceConfirmed = true,
@@ -116,22 +117,35 @@ const InvitationCard = ({
                   <Text strong style={{ color: 'white', fontSize: '16px' }}>
                     {t('收益统计')}
                   </Text>
-                  <Button
-                    type='primary'
-                    theme='solid'
-                    size='small'
-                    disabled={transferDisabled}
-                    title={
-                      transferDisabled && minTransferQuota > 0
-                        ? t('返利余额未达到最低划转门槛')
-                        : undefined
-                    }
-                    onClick={() => setOpenTransfer(true)}
-                    className='!rounded-lg'
-                  >
-                    <Zap size={12} className='mr-1' />
-                    {t('划转到余额')}
-                  </Button>
+                  <div className='flex items-center gap-2'>
+                    <Button
+                      type='tertiary'
+                      theme='solid'
+                      size='small'
+                      onClick={onOpenDetails}
+                      className='!rounded-lg'
+                      style={{ color: 'white', background: 'rgba(255,255,255,0.18)' }}
+                    >
+                      <List size={12} className='mr-1' />
+                      {t('邀请明细')}
+                    </Button>
+                    <Button
+                      type='primary'
+                      theme='solid'
+                      size='small'
+                      disabled={transferDisabled}
+                      title={
+                        transferDisabled && minTransferQuota > 0
+                          ? t('返利余额未达到最低划转门槛')
+                          : undefined
+                      }
+                      onClick={() => setOpenTransfer(true)}
+                      className='!rounded-lg'
+                    >
+                      <Zap size={12} className='mr-1' />
+                      {t('划转到余额')}
+                    </Button>
+                  </div>
                 </div>
                 {!complianceConfirmed && (
                   <Text

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Share2 } from 'lucide-react'
+import { List, Share2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { formatQuota } from '@/lib/format'
 import { Badge } from '@/components/ui/badge'
@@ -31,6 +31,7 @@ interface AffiliateRewardsCardProps {
   user: UserWalletData | null
   affiliateLink: string
   onTransfer: () => void
+  onOpenDetails: () => void
   complianceConfirmed?: boolean
   rewardType?: '' | 'fixed' | 'percentage'
   rewardValue?: number
@@ -42,6 +43,7 @@ export function AffiliateRewardsCard({
   user,
   affiliateLink,
   onTransfer,
+  onOpenDetails,
   complianceConfirmed = true,
   rewardType = '',
   rewardValue = 0,
@@ -147,6 +149,15 @@ export function AffiliateRewardsCard({
             tooltip={t('Copy referral link')}
             aria-label={t('Copy referral link')}
           />
+          <Button
+            onClick={onOpenDetails}
+            variant='outline'
+            className='bg-background h-9 shrink-0 px-3'
+            size='sm'
+          >
+            <List data-icon='inline-start' />
+            {t('Invitation Details')}
+          </Button>
           {hasRewards && (
             <Button
               onClick={onTransfer}

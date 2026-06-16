@@ -19,7 +19,60 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { useMemo } from 'react';
 
-export const useNavigation = (t, docsLink, headerNavModules) => {
+const parseCustomNavLinks = (raw) => {
+  try {
+    const parsed = JSON.parse(raw || '[]');
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .map((item, index) => {
+        const text = typeof item?.name === 'string' ? item.name.trim() : '';
+        const externalLink =
+          typeof item?.url === 'string' ? item.url.trim() : '';
+        if (
+          !text ||
+          (!externalLink.startsWith('http://') &&
+            !externalLink.startsWith('https://'))
+        ) {
+          return null;
+        }
+        return {
+          text,
+          itemKey: `custom-${index}`,
+          isExternal: true,
+          externalLink,
+          openInNewTab: Boolean(item?.openInNewTab),
+        };
+      })
+      .filter(Boolean);
+  } catch (error) {
+    return [];
+  }
+};
+
+const getCachedCustomNavLinks = () => {
+  try {
+    const customNavLinks = localStorage.getItem('custom_nav_links');
+    if (customNavLinks) {
+      return customNavLinks;
+    }
+    const raw = localStorage.getItem('status');
+    if (!raw) {
+      return undefined;
+    }
+    return JSON.parse(raw)?.CustomNavLinks;
+  } catch (error) {
+    return undefined;
+  }
+};
+
+export const useNavigation = (
+  t,
+  docsLink,
+  headerNavModules,
+  customNavLinksConfig,
+) => {
   const mainNavLinks = useMemo(() => {
     // 默认配置，如果没有传入配置则显示所有模块
     const defaultModules = {
@@ -67,7 +120,7 @@ export const useNavigation = (t, docsLink, headerNavModules) => {
     ];
 
     // 根据配置过滤导航链接
-    return allLinks.filter((link) => {
+    const builtinLinks = allLinks.filter((link) => {
       if (link.itemKey === 'docs') {
         return docsLink && modules.docs;
       }
@@ -79,7 +132,14 @@ export const useNavigation = (t, docsLink, headerNavModules) => {
       }
       return modules[link.itemKey] === true;
     });
-  }, [t, docsLink, headerNavModules]);
+
+    return [
+      ...builtinLinks,
+      ...parseCustomNavLinks(
+        customNavLinksConfig ?? getCachedCustomNavLinks(),
+      ),
+    ];
+  }, [t, docsLink, headerNavModules, customNavLinksConfig]);
 
   return {
     mainNavLinks,

@@ -3,6 +3,7 @@ package controller
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -73,6 +74,51 @@ func buildCompletionRatioMetaValue(optionValues map[string]string) string {
 		return "{}"
 	}
 	return string(jsonBytes)
+}
+
+type customNavLinkOption struct {
+	Name         string `json:"name"`
+	URL          string `json:"url"`
+	OpenInNewTab bool   `json:"openInNewTab"`
+}
+
+func validateCustomNavLinksOption(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+
+	var links []customNavLinkOption
+	if err := common.UnmarshalJsonStr(raw, &links); err != nil {
+		return fmt.Errorf("CustomNavLinks must be a JSON array")
+	}
+	if len(links) > 50 {
+		return fmt.Errorf("custom navigation supports at most 50 links")
+	}
+	for index, link := range links {
+		name := strings.TrimSpace(link.Name)
+		linkURL := strings.TrimSpace(link.URL)
+		if name == "" {
+			return fmt.Errorf("navigation name at index %d is required", index+1)
+		}
+		if len(name) > 64 {
+			return fmt.Errorf("navigation name at index %d must be 64 characters or fewer", index+1)
+		}
+		if linkURL == "" {
+			return fmt.Errorf("navigation URL at index %d is required", index+1)
+		}
+		if len(linkURL) > 2048 {
+			return fmt.Errorf("navigation URL at index %d must be 2048 characters or fewer", index+1)
+		}
+		parsedURL, err := url.ParseRequestURI(linkURL)
+		if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+			return fmt.Errorf("navigation URL at index %d is invalid", index+1)
+		}
+		if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+			return fmt.Errorf("navigation URL at index %d must start with http:// or https://", index+1)
+		}
+	}
+	return nil
 }
 
 func GetOptions(c *gin.Context) {
@@ -161,6 +207,15 @@ func UpdateOption(c *gin.Context) {
 		}
 	}
 	switch option.Key {
+	case "CustomNavLinks":
+		err = validateCustomNavLinksOption(option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": err.Error(),
+			})
+			return
+		}
 	case "GitHubOAuthEnabled":
 		if option.Value == "true" && common.GitHubClientId == "" {
 			c.JSON(http.StatusOK, gin.H{

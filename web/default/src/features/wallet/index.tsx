@@ -25,6 +25,7 @@ import { SectionPageLayout } from '@/components/layout'
 import { AffiliateRewardsCard } from './components/affiliate-rewards-card'
 import { BillingHistoryDialog } from './components/dialogs/billing-history-dialog'
 import { CreemConfirmDialog } from './components/dialogs/creem-confirm-dialog'
+import { InvitationDetailsDialog } from './components/dialogs/invitation-details-dialog'
 import { PaymentConfirmDialog } from './components/dialogs/payment-confirm-dialog'
 import { TransferDialog } from './components/dialogs/transfer-dialog'
 import { RechargeFormCard } from './components/recharge-form-card'
@@ -67,6 +68,7 @@ export function Wallet(props: WalletProps) {
   const [paymentLoading, setPaymentLoading] = useState<string | null>(null)
   const [confirmDialogOpen, setConfirmDialogOpen] = useState(false)
   const [transferDialogOpen, setTransferDialogOpen] = useState(false)
+  const [invitationDetailsOpen, setInvitationDetailsOpen] = useState(false)
   const [billingDialogOpen, setBillingDialogOpen] = useState(false)
   const [redemptionCode, setRedemptionCode] = useState('')
   const [creemDialogOpen, setCreemDialogOpen] = useState(false)
@@ -328,6 +330,7 @@ export function Wallet(props: WalletProps) {
               user={user}
               affiliateLink={affiliateLink}
               onTransfer={() => setTransferDialogOpen(true)}
+              onOpenDetails={() => setInvitationDetailsOpen(true)}
               complianceConfirmed={
                 topupInfo?.payment_compliance_confirmed !== false
               }
@@ -365,6 +368,11 @@ export function Wallet(props: WalletProps) {
       <BillingHistoryDialog
         open={billingDialogOpen}
         onOpenChange={setBillingDialogOpen}
+      />
+
+      <InvitationDetailsDialog
+        open={invitationDetailsOpen}
+        onOpenChange={setInvitationDetailsOpen}
       />
 
       <CreemConfirmDialog

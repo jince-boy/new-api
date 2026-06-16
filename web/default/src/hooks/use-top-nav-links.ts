@@ -28,6 +28,66 @@ export type TopNavLink = {
   disabled?: boolean
   requiresAuth?: boolean
   external?: boolean
+  openInNewTab?: boolean
+}
+
+type CustomNavLink = {
+  name?: unknown
+  url?: unknown
+  openInNewTab?: unknown
+}
+
+const parseCustomNavLinks = (raw: unknown): TopNavLink[] => {
+  if (typeof raw !== 'string' || raw.trim() === '') {
+    return []
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as CustomNavLink[]
+    if (!Array.isArray(parsed)) {
+      return []
+    }
+
+    return parsed
+      .map((item) => {
+        const title = typeof item.name === 'string' ? item.name.trim() : ''
+        const href = typeof item.url === 'string' ? item.url.trim() : ''
+        if (
+          !title ||
+          !(href.startsWith('http://') || href.startsWith('https://'))
+        ) {
+          return null
+        }
+        return {
+          title,
+          href,
+          external: true,
+          openInNewTab: Boolean(item.openInNewTab),
+        }
+      })
+      .filter((item): item is TopNavLink => Boolean(item))
+  } catch {
+    return []
+  }
+}
+
+const getCachedCustomNavLinks = (): unknown => {
+  try {
+    if (typeof window === 'undefined') {
+      return undefined
+    }
+    const customNavLinks = window.localStorage.getItem('custom_nav_links')
+    if (customNavLinks) {
+      return customNavLinks
+    }
+    const raw = window.localStorage.getItem('status')
+    if (!raw) {
+      return undefined
+    }
+    return (JSON.parse(raw) as Record<string, unknown>).CustomNavLinks
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -60,6 +120,9 @@ export function useTopNavLinks(): TopNavLink[] {
   const isAuthed = !!auth?.user
 
   const links: TopNavLink[] = []
+  const customLinks = parseCustomNavLinks(
+    status?.CustomNavLinks ?? getCachedCustomNavLinks()
+  )
 
   // Home
   if (modules?.home !== false) {
@@ -99,5 +162,5 @@ export function useTopNavLinks(): TopNavLink[] {
     links.push({ title: t('About'), href: '/about' })
   }
 
-  return links
+  return [...links, ...customLinks]
 }

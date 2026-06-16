@@ -318,6 +318,38 @@ func GetUserById(id int, selectAll bool) (*User, error) {
 	return &user, err
 }
 
+type InvitedUserDetail struct {
+	Id          int    `json:"id"`
+	Username    string `json:"username"`
+	DisplayName string `json:"display_name"`
+	Status      int    `json:"status"`
+	CreatedAt   int64  `json:"created_at,omitempty"`
+}
+
+func GetInvitedUserDetails(inviterId int, limit int) (users []*InvitedUserDetail, total int64, err error) {
+	if inviterId == 0 {
+		return nil, 0, errors.New("id is empty")
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+
+	query := DB.Model(&User{}).Where("inviter_id = ?", inviterId)
+	if err = query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	columns := "id, username, display_name, status"
+	if DB.Migrator().HasColumn(&User{}, "created_at") {
+		columns += ", created_at"
+	}
+	err = query.
+		Select(columns).
+		Order("id desc").
+		Limit(limit).
+		Find(&users).Error
+	return users, total, err
+}
+
 func GetUserIdByAffCode(affCode string) (int, error) {
 	if affCode == "" {
 		return 0, errors.New("affCode 为空！")
@@ -339,8 +371,19 @@ func HardDeleteUserById(id int) error {
 	if id == 0 {
 		return errors.New("id 为空！")
 	}
-	err := DB.Unscoped().Delete(&User{}, "id = ?", id).Error
-	return err
+	user := User{Id: id}
+	return user.HardDelete()
+}
+
+func refreshInviterAffCountTx(tx *gorm.DB, inviterId int) error {
+	if inviterId == 0 {
+		return nil
+	}
+	var activeInvitedCount int64
+	if err := tx.Model(&User{}).Where("inviter_id = ?", inviterId).Count(&activeInvitedCount).Error; err != nil {
+		return err
+	}
+	return tx.Model(&User{}).Where("id = ?", inviterId).Update("aff_count", int(activeInvitedCount)).Error
 }
 
 func inviteUser(inviterId int) (err error) {
@@ -599,7 +642,16 @@ func (user *User) Delete() error {
 	if user.Id == 0 {
 		return errors.New("id 为空！")
 	}
-	if err := DB.Delete(user).Error; err != nil {
+	var deletedUser User
+	if err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Select("id", "inviter_id").First(&deletedUser, user.Id).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&deletedUser).Error; err != nil {
+			return err
+		}
+		return refreshInviterAffCountTx(tx, deletedUser.InviterId)
+	}); err != nil {
 		return err
 	}
 
@@ -611,8 +663,16 @@ func (user *User) HardDelete() error {
 	if user.Id == 0 {
 		return errors.New("id 为空！")
 	}
-	err := DB.Unscoped().Delete(user).Error
-	return err
+	var deletedUser User
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Unscoped().Select("id", "inviter_id").First(&deletedUser, user.Id).Error; err != nil {
+			return err
+		}
+		if err := tx.Unscoped().Delete(&deletedUser).Error; err != nil {
+			return err
+		}
+		return refreshInviterAffCountTx(tx, deletedUser.InviterId)
+	})
 }
 
 // ValidateAndFill check password & user status

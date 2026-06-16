@@ -16,83 +16,25 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { VChart } from '@visactor/react-vchart'
 import { KeyRound, Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { computeTimeRange } from '@/lib/time'
-import { VCHART_OPTION } from '@/lib/vchart'
-import { useThemeCustomization } from '@/context/theme-customization-provider'
-import { useTheme } from '@/context/theme-provider'
 import { Badge } from '@/components/ui/badge'
+import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getTokenRanking } from '@/features/dashboard/api'
-import {
-  DASHBOARD_RANK_BAR_HEIGHT,
-  DASHBOARD_RANK_BASE_COUNT,
-  DASHBOARD_RANK_CHART_HEADER_HEIGHT,
-  DASHBOARD_RANK_DESKTOP_CHART_HEIGHT,
-  DASHBOARD_RANK_DESKTOP_ROW_HEIGHT,
-} from '@/features/dashboard/constants'
 import { buildQueryParams, getDefaultDays } from '@/features/dashboard/lib'
 import type { DashboardFilters } from '@/features/dashboard/types'
 
-let themeManagerPromise: Promise<
-  (typeof import('@visactor/vchart'))['ThemeManager']
-> | null = null
-
-const CHART_COLOR_VARIABLES = [
-  '--chart-1',
-  '--chart-2',
-  '--chart-3',
-  '--chart-4',
-  '--chart-5',
+const RANK_COLORS = [
+  'var(--chart-1)',
+  'var(--chart-2)',
+  'var(--chart-3)',
+  'var(--chart-4)',
+  'var(--chart-5)',
 ] as const
-
-const RANK_PLACEHOLDER_PREFIX = '__rank_placeholder__'
-
-function isRankPlaceholder(datum: Record<string, unknown> | undefined) {
-  return Boolean(datum?.__rankPlaceholder)
-}
-
-function isRankPlaceholderKey(value: unknown) {
-  return typeof value === 'string' && value.startsWith(RANK_PLACEHOLDER_PREFIX)
-}
-
-function padRankValues<T extends Record<string, unknown>>(values: T[]) {
-  if (values.length >= DASHBOARD_RANK_BASE_COUNT) return values
-
-  return [
-    ...values,
-    ...Array.from(
-      { length: DASHBOARD_RANK_BASE_COUNT - values.length },
-      (_, index) =>
-        ({
-          User: `${RANK_PLACEHOLDER_PREFIX}${index}`,
-          rawTokens: 0,
-          Usage: 0,
-          Rank: null,
-          IsSelf: false,
-          __rankPlaceholder: true,
-        }) as T
-    ),
-  ]
-}
-
-function getThemeChartColors(themeKey?: string): string[] {
-  if (typeof document === 'undefined') return []
-  void themeKey
-
-  const bodyStyle = window.getComputedStyle(document.body)
-  const rootStyle = window.getComputedStyle(document.documentElement)
-
-  return CHART_COLOR_VARIABLES.map((name) => {
-    return (
-      bodyStyle.getPropertyValue(name) || rootStyle.getPropertyValue(name)
-    ).trim()
-  }).filter(Boolean)
-}
 
 interface TokenRankingPanelProps {
   filters?: DashboardFilters
@@ -114,30 +56,15 @@ function maskUsername(username: string | null | undefined, fallback: string) {
   return `${chars[0]}***${chars[chars.length - 1]}`
 }
 
+function getRankBadgeClass(rank: number) {
+  if (rank === 1) return 'border-primary/30 bg-primary/5 text-primary'
+  if (rank === 2) return 'border-muted-foreground/25 bg-muted text-foreground'
+  if (rank === 3) return 'border-accent/40 bg-accent/20 text-accent-foreground'
+  return 'border-border bg-background text-muted-foreground'
+}
+
 export function TokenRankingPanel(props: TokenRankingPanelProps) {
   const { t } = useTranslation()
-  const { resolvedTheme } = useTheme()
-  const { customization } = useThemeCustomization()
-  const [themeReady, setThemeReady] = useState(false)
-  const themeManagerRef = useRef<
-    (typeof import('@visactor/vchart'))['ThemeManager'] | null
-  >(null)
-
-  useEffect(() => {
-    const updateTheme = async () => {
-      setThemeReady(false)
-      if (!themeManagerPromise) {
-        themeManagerPromise = import('@visactor/vchart').then(
-          (m) => m.ThemeManager
-        )
-      }
-      const ThemeManager = await themeManagerPromise
-      themeManagerRef.current = ThemeManager
-      ThemeManager.setCurrentTheme(resolvedTheme === 'dark' ? 'dark' : 'light')
-      setThemeReady(true)
-    }
-    updateTheme()
-  }, [resolvedTheme])
 
   const queryParams = useMemo(() => {
     const timeRange = computeTimeRange(
@@ -162,18 +89,10 @@ export function TokenRankingPanel(props: TokenRankingPanelProps) {
 
   const ranking = data?.ranking ?? []
   const isLimited = Boolean(data?.is_limited)
-  const chartHeight =
-    DASHBOARD_RANK_CHART_HEADER_HEIGHT +
-    Math.max(ranking.length, DASHBOARD_RANK_BASE_COUNT) *
-      DASHBOARD_RANK_DESKTOP_ROW_HEIGHT
-  const chartColorRange = useMemo(
-    () => getThemeChartColors(customization.preset),
-    [customization.preset]
-  )
 
-  const chartValues = useMemo(() => {
+  const rankRows = useMemo(() => {
     const maskedNames = new Map<string, number>()
-    const values = ranking.map((item) => {
+    return ranking.map((item, index) => {
       let displayName =
         isLimited && !item.is_self
           ? maskUsername(item.username, t('User'))
@@ -186,140 +105,20 @@ export function TokenRankingPanel(props: TokenRankingPanelProps) {
       }
 
       return {
-        User: displayName,
-        rawTokens: item.token_used,
-        Usage: Number(((item.token_used || 0) / 1_000_000).toFixed(4)),
-        Rank: item.rank,
-        IsSelf: item.is_self,
+        name: displayName,
+        rank: item.rank ?? index + 1,
+        tokens: item.token_used || 0,
+        isSelf: item.is_self,
+        color: RANK_COLORS[index % RANK_COLORS.length],
       }
     })
-    return padRankValues(values)
   }, [isLimited, ranking, t])
 
-  const totalTokens = chartValues.reduce(
-    (sum, item) => sum + (Number(item.rawTokens) || 0),
+  const totalTokens = rankRows.reduce(
+    (sum, item) => sum + (Number(item.tokens) || 0),
     0
   )
-
-  const tokenColorMap = useMemo(
-    () =>
-      chartValues.reduce<Record<string, string>>((acc, item, index) => {
-        if (isRankPlaceholder(item)) {
-          acc[item.User] = 'rgba(0, 0, 0, 0)'
-          return acc
-        }
-
-        const palette = chartColorRange.length > 0 ? chartColorRange : []
-        if (palette.length > 0) {
-          acc[item.User] = palette[index % palette.length]
-        }
-        return acc
-      }, {}),
-    [chartColorRange, chartValues]
-  )
-
-  const chartSpec = useMemo(
-    () => ({
-      type: 'bar',
-      data: [
-        {
-          id: 'tokenRanking',
-          values: chartValues,
-        },
-      ],
-      xField: 'rawTokens',
-      yField: 'User',
-      seriesField: 'User',
-      direction: 'horizontal',
-      title: {
-        visible: true,
-        text: t('Token Usage Ranking'),
-        subtext: `${t('Total:')} ${formatTokenMillions(totalTokens)}`,
-      },
-      legends: { visible: false },
-      barWidth: DASHBOARD_RANK_BAR_HEIGHT,
-      barMinWidth: DASHBOARD_RANK_BAR_HEIGHT,
-      barMaxWidth: DASHBOARD_RANK_BAR_HEIGHT,
-      color:
-        Object.keys(tokenColorMap).length > 0
-          ? { specified: tokenColorMap }
-          : undefined,
-      axes: [
-        {
-          orient: 'left',
-          type: 'band',
-          bandSize: DASHBOARD_RANK_DESKTOP_ROW_HEIGHT,
-          minBandSize: DASHBOARD_RANK_DESKTOP_ROW_HEIGHT,
-          maxBandSize: DASHBOARD_RANK_DESKTOP_ROW_HEIGHT,
-          autoRegionSize: true,
-          label: {
-            formatMethod: (value: unknown) =>
-              isRankPlaceholderKey(value) ? '' : String(value),
-          },
-        },
-        { orient: 'bottom', type: 'linear', visible: false },
-      ],
-      label: {
-        visible: true,
-        position: 'outside',
-        formatMethod: (value: number, datum?: Record<string, unknown>) =>
-          isRankPlaceholder(datum) ? '' : formatTokenMillions(value),
-        style: { fontSize: 11 },
-      },
-      tooltip: {
-        mark: {
-          content: [
-            {
-              key: (datum: Record<string, unknown>) => datum?.User,
-              value: (datum: Record<string, unknown>) =>
-                formatTokenMillions(Number(datum?.rawTokens) || 0),
-            },
-          ],
-          updateContent: (
-            array: Array<{
-              key: string
-              value: string | number
-              datum?: Record<string, unknown>
-            }>
-          ) => {
-            array = array.filter((item) => !isRankPlaceholder(item.datum))
-            for (let i = 0; i < array.length; i++) {
-              const rawTokens = array[i].datum?.rawTokens
-              const value =
-                rawTokens === undefined ? array[i].value : Number(rawTokens)
-              array[i].value = formatTokenMillions(Number(value) || 0)
-            }
-            return array
-          },
-        },
-      },
-      bar: {
-        style: {
-          height: DASHBOARD_RANK_BAR_HEIGHT,
-        },
-        state: { hover: { stroke: '#000', lineWidth: 1 } },
-      },
-      crosshair: {
-        yField: { visible: false },
-      },
-      barBackground: {
-        visible: true,
-        style: {
-          fill: 'rgba(0, 0, 0, 0)',
-          height: DASHBOARD_RANK_BAR_HEIGHT,
-        },
-        state: {
-          hover: {
-            fill: 'rgba(100, 116, 139, 0.10)',
-            height: DASHBOARD_RANK_BAR_HEIGHT,
-          },
-        },
-      },
-      background: { fill: 'transparent' },
-      animation: true,
-    }),
-    [chartValues, tokenColorMap, t, totalTokens]
-  )
+  const maxTokens = Math.max(...rankRows.map((item) => item.tokens), 1)
 
   return (
     <div className='overflow-hidden rounded-lg border'>
@@ -352,7 +151,7 @@ export function TokenRankingPanel(props: TokenRankingPanelProps) {
 
       {isLoading ? (
         <div className='p-1.5 sm:p-2'>
-          <Skeleton className='h-[300px] w-full sm:h-96' />
+          <Skeleton className='h-[240px] w-full sm:h-[280px]' />
         </div>
       ) : isError || !data ? (
         <div className='text-muted-foreground p-6 text-sm'>
@@ -364,24 +163,50 @@ export function TokenRankingPanel(props: TokenRankingPanelProps) {
         </div>
       ) : (
         <div className='p-1.5 sm:p-2'>
-          <div
-            className='overflow-y-auto'
-            style={{ height: DASHBOARD_RANK_DESKTOP_CHART_HEIGHT }}
-          >
-            <div style={{ height: chartHeight }}>
-              {themeReady && (
-                <VChart
-                  key={`token-ranking-${ranking.length}-${resolvedTheme}-${customization.preset}`}
-                  spec={{
-                    ...chartSpec,
-                    theme: resolvedTheme === 'dark' ? 'dark' : 'light',
-                    background: 'transparent',
-                  }}
-                  option={VCHART_OPTION}
-                />
-              )}
+          <ScrollArea className='h-[240px] pr-3 sm:h-[280px]'>
+            <div className='flex flex-col gap-1.5 pb-2'>
+              <div className='text-muted-foreground flex items-center justify-between px-2 pb-1 text-xs'>
+                <span>{t('Token Usage Ranking')}</span>
+                <span>{`${t('Total:')} ${formatTokenMillions(totalTokens)}`}</span>
+              </div>
+              {rankRows.map((item) => {
+                const width = `${Math.max((item.tokens / maxTokens) * 100, 2)}%`
+                return (
+                  <div
+                    key={`${item.rank}-${item.name}`}
+                    className='grid min-h-8 items-center gap-2 rounded-md border border-transparent px-2 py-1 transition-[background-color,border-color] hover:border-border hover:bg-muted/35'
+                    style={{
+                      gridTemplateColumns:
+                        'minmax(6.5rem, 9rem) minmax(5rem, 1fr) max-content',
+                    }}
+                  >
+                    <div className='flex min-w-0 items-center gap-2'>
+                      <span
+                        className={`flex size-5 shrink-0 items-center justify-center rounded-md border text-[11px] font-medium tabular-nums ${getRankBadgeClass(item.rank)}`}
+                      >
+                        {item.rank}
+                      </span>
+                      <span
+                        className='truncate text-sm font-medium'
+                        title={item.name}
+                      >
+                        {item.name}
+                      </span>
+                    </div>
+                    <div className='bg-muted h-2.5 overflow-hidden rounded-full'>
+                      <div
+                        className='h-full rounded-full'
+                        style={{ width, backgroundColor: item.color }}
+                      />
+                    </div>
+                    <div className='text-muted-foreground min-w-16 text-right text-[11px] font-medium tabular-nums'>
+                      {formatTokenMillions(item.tokens)}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
-          </div>
+          </ScrollArea>
         </div>
       )}
     </div>

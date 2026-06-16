@@ -423,6 +423,11 @@ func TransferAffQuota(c *gin.Context) {
 }
 
 func GetAffCode(c *gin.Context) {
+	if c.Query("details") == "1" || c.Query("with_details") == "1" {
+		getInvitationDetails(c)
+		return
+	}
+
 	id := c.GetInt("id")
 	user, err := model.GetUserById(id, true)
 	if err != nil {
@@ -445,6 +450,51 @@ func GetAffCode(c *gin.Context) {
 		"data":    user.AffCode,
 	})
 	return
+}
+
+func GetInvitationDetails(c *gin.Context) {
+	getInvitationDetails(c)
+}
+
+func getInvitationDetails(c *gin.Context) {
+	id := c.GetInt("id")
+	limit := 200
+	if rawLimit := c.Query("limit"); rawLimit != "" {
+		if parsedLimit, err := strconv.Atoi(rawLimit); err == nil && parsedLimit > 0 {
+			limit = parsedLimit
+		}
+	}
+	if limit > 500 {
+		limit = 500
+	}
+
+	user, err := model.GetUserById(id, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	invitedUsers, invitedTotal, err := model.GetInvitedUserDetails(id, limit)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to get invited user details for user %d: %s", id, err.Error()))
+		invitedUsers = []*model.InvitedUserDetail{}
+		invitedTotal = 0
+	}
+	rebates, rebateTotal, err := model.GetInviterRebateDetails(id, limit)
+	if err != nil {
+		common.SysLog(fmt.Sprintf("failed to get invitation rebate details for user %d: %s", id, err.Error()))
+		rebates = []*model.InviterRebateDetail{}
+		rebateTotal = 0
+	}
+
+	common.ApiSuccess(c, gin.H{
+		"invited_users":     invitedUsers,
+		"invited_total":     invitedTotal,
+		"rebate_details":    rebates,
+		"rebate_total":      rebateTotal,
+		"aff_count":         user.AffCount,
+		"aff_quota":         user.AffQuota,
+		"aff_history_quota": user.AffHistoryQuota,
+	})
 }
 
 func GetSelf(c *gin.Context) {

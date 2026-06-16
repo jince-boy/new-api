@@ -39,6 +39,7 @@ import InvitationCard from './InvitationCard';
 import TransferModal from './modals/TransferModal';
 import PaymentConfirmModal from './modals/PaymentConfirmModal';
 import TopupHistoryModal from './modals/TopupHistoryModal';
+import InvitationDetailsModal from './modals/InvitationDetailsModal';
 
 // Reject non-navigable schemes (e.g. javascript:, data:) and relative URLs.
 // Only http / https are allowed for backend-provided redirect targets.
@@ -110,6 +111,7 @@ const TopUp = () => {
 
   // 账单Modal状态
   const [openHistory, setOpenHistory] = useState(false);
+  const [openInvitationDetails, setOpenInvitationDetails] = useState(false);
 
   // 订阅相关
   const [subscriptionPlans, setSubscriptionPlans] = useState([]);
@@ -894,6 +896,10 @@ const TopUp = () => {
     setOpenHistory(false);
   };
 
+  const handleInvitationDetailsCancel = () => {
+    setOpenInvitationDetails(false);
+  };
+
   const handleCreemCancel = () => {
     setCreemOpen(false);
     setSelectedCreemProduct(null);
@@ -961,6 +967,13 @@ const TopUp = () => {
         visible={openHistory}
         onCancel={handleHistoryCancel}
         t={t}
+      />
+
+      <InvitationDetailsModal
+        visible={openInvitationDetails}
+        onCancel={handleInvitationDetailsCancel}
+        t={t}
+        renderQuota={renderQuota}
       />
 
       {/* Creem 充值确认模态框 */}
@@ -1044,6 +1057,7 @@ const TopUp = () => {
           userState={userState}
           renderQuota={renderQuota}
           setOpenTransfer={setOpenTransfer}
+          onOpenDetails={() => setOpenInvitationDetails(true)}
           affLink={affLink}
           handleAffLinkClick={handleAffLinkClick}
           complianceConfirmed={topupInfo.payment_compliance_confirmed !== false}

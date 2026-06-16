@@ -300,6 +300,126 @@ func GetUserTopUps(userId int, pageInfo *common.PageInfo) (topups []*TopUp, tota
 	return topups, total, nil
 }
 
+type InviterRebateDetail struct {
+	Id              int     `json:"id"`
+	InviteeId       int     `json:"invitee_id"`
+	InviteeUsername string  `json:"invitee_username"`
+	InviteeName     string  `json:"invitee_name"`
+	Amount          int64   `json:"amount"`
+	RechargeQuota   int     `json:"recharge_quota"`
+	Money           float64 `json:"money"`
+	RewardQuota     int     `json:"reward_quota"`
+	TradeNo         string  `json:"trade_no"`
+	PaymentMethod   string  `json:"payment_method"`
+	PaymentProvider string  `json:"payment_provider"`
+	CreateTime      int64   `json:"create_time"`
+	CompleteTime    int64   `json:"complete_time"`
+	Status          string  `json:"status"`
+}
+
+func estimateTopUpRechargeQuota(topUp *TopUp) int {
+	if topUp == nil {
+		return 0
+	}
+	switch topUp.PaymentProvider {
+	case PaymentProviderCreem:
+		return int(topUp.Amount)
+	case PaymentProviderStripe:
+		return int(decimal.NewFromFloat(topUp.Money).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
+	default:
+		return int(decimal.NewFromInt(topUp.Amount).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).IntPart())
+	}
+}
+
+func getTopUpCompleteTime(topUp *TopUp) int64 {
+	if topUp == nil {
+		return 0
+	}
+	if topUp.CompleteTime > 0 {
+		return topUp.CompleteTime
+	}
+	return topUp.CreateTime
+}
+
+func GetInviterRebateDetails(inviterId int, limit int) (rebates []*InviterRebateDetail, total int64, err error) {
+	if inviterId == 0 {
+		return nil, 0, errors.New("id is empty")
+	}
+	if limit <= 0 || limit > 500 {
+		limit = 200
+	}
+
+	var invitees []*InvitedUserDetail
+	if err = DB.Model(&User{}).
+		Where("inviter_id = ?", inviterId).
+		Select("id, username, display_name").
+		Find(&invitees).Error; err != nil {
+		return nil, 0, err
+	}
+	if len(invitees) == 0 {
+		return []*InviterRebateDetail{}, 0, nil
+	}
+
+	inviteeIds := make([]int, 0, len(invitees))
+	inviteeMap := make(map[int]*InvitedUserDetail, len(invitees))
+	for _, invitee := range invitees {
+		inviteeIds = append(inviteeIds, invitee.Id)
+		inviteeMap[invitee.Id] = invitee
+	}
+
+	query := DB.Model(&TopUp{}).Where("user_id IN ? AND status = ?", inviteeIds, common.TopUpStatusSuccess)
+	if DB.Migrator().HasColumn(&TopUp{}, "inviter_reward_sent") {
+		query = query.Where("inviter_reward_sent = ?", true)
+	}
+	if err = query.Count(&total).Error; err != nil {
+		common.SysLog(fmt.Sprintf("failed to query sent invite recharge rebates for inviter %d, falling back to successful topups: %s", inviterId, err.Error()))
+		query = DB.Model(&TopUp{}).Where("user_id IN ? AND status = ?", inviteeIds, common.TopUpStatusSuccess)
+		if err = query.Count(&total).Error; err != nil {
+			return nil, 0, err
+		}
+	}
+
+	var topups []*TopUp
+	err = query.
+		Select("id, user_id, amount, money, trade_no, payment_method, payment_provider, create_time, complete_time, status").
+		Order("id desc").
+		Limit(limit).
+		Find(&topups).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	rebates = make([]*InviterRebateDetail, 0, len(topups))
+	for _, topup := range topups {
+		invitee := inviteeMap[topup.UserId]
+		inviteeUsername := ""
+		inviteeName := ""
+		if invitee != nil {
+			inviteeUsername = invitee.Username
+			inviteeName = invitee.DisplayName
+		}
+		rechargeQuota := estimateTopUpRechargeQuota(topup)
+		rewardQuota, _ := calculateInviterRewardQuota(rechargeQuota)
+		rebates = append(rebates, &InviterRebateDetail{
+			Id:              topup.Id,
+			InviteeId:       topup.UserId,
+			InviteeUsername: inviteeUsername,
+			InviteeName:     inviteeName,
+			Amount:          topup.Amount,
+			RechargeQuota:   rechargeQuota,
+			Money:           topup.Money,
+			RewardQuota:     rewardQuota,
+			TradeNo:         topup.TradeNo,
+			PaymentMethod:   topup.PaymentMethod,
+			PaymentProvider: topup.PaymentProvider,
+			CreateTime:      topup.CreateTime,
+			CompleteTime:    getTopUpCompleteTime(topup),
+			Status:          topup.Status,
+		})
+	}
+	return rebates, total, nil
+}
+
 // GetAllTopUps 获取全平台的充值记录（管理员使用，不限制时间窗口）
 func GetAllTopUps(pageInfo *common.PageInfo) (topups []*TopUp, total int64, err error) {
 	tx := DB.Begin()
