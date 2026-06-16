@@ -47,6 +47,7 @@ const UsersTable = (usersData) => {
     setEditingUser,
     setShowEditUser,
     manageUser,
+    deleteUser,
     refresh,
     resetUserPasskey,
     resetUserTwoFA,
@@ -233,7 +234,7 @@ const UsersTable = (usersData) => {
         users={users}
         activePage={activePage}
         refresh={refresh}
-        manageUser={manageUser}
+        deleteUser={deleteUser}
         t={t}
       />
 

@@ -23,6 +23,14 @@ export const DASHBOARD_CHART_PREFERENCES_STORAGE_KEY =
   'dashboard_models_chart_preferences'
 export const DEFAULT_TIME_GRANULARITY = 'hour' as const
 export const MAX_CHART_TREND_POINTS = 7
+export const DASHBOARD_RANK_BASE_COUNT = 10
+export const DASHBOARD_RANK_BAR_HEIGHT = 20
+export const DASHBOARD_RANK_DESKTOP_ROW_HEIGHT =
+  DASHBOARD_RANK_BAR_HEIGHT + 4
+export const DASHBOARD_RANK_CHART_HEADER_HEIGHT = 60
+export const DASHBOARD_RANK_DESKTOP_CHART_HEIGHT =
+  DASHBOARD_RANK_CHART_HEADER_HEIGHT +
+  DASHBOARD_RANK_DESKTOP_ROW_HEIGHT * DASHBOARD_RANK_BASE_COUNT
 
 export const DEFAULT_DASHBOARD_CHART_PREFERENCES: DashboardChartPreferences = {
   consumptionDistributionChart: 'bar',
@@ -44,11 +52,56 @@ export const TIME_GRANULARITY_OPTIONS = [
 ] as const
 
 export const TIME_RANGE_PRESETS = [
-  { label: '1 Day', days: 1 },
+  { label: '24 Hours', days: 1 },
   { label: '7 Days', days: 7 },
   { label: '14 Days', days: 14 },
-  { label: '29 Days', days: 29 },
+  { label: '30 Days', days: 30 },
 ] as const
+
+export const DASHBOARD_QUICK_RANGE_PRESETS = [
+  {
+    key: 'today',
+    label: 'Current Day',
+    granularity: 'hour',
+    mode: 'today',
+    amount: 1,
+    unit: 'day',
+  },
+  {
+    key: 'last_24_hours',
+    label: '24 Hours',
+    granularity: 'hour',
+    mode: 'rolling',
+    amount: 24,
+    unit: 'hour',
+  },
+  {
+    key: 'last_7_days',
+    label: '7 Days',
+    granularity: 'day',
+    mode: 'rolling',
+    amount: 7,
+    unit: 'day',
+  },
+  {
+    key: 'last_14_days',
+    label: '14 Days',
+    granularity: 'day',
+    mode: 'rolling',
+    amount: 14,
+    unit: 'day',
+  },
+  {
+    key: 'last_30_days',
+    label: '30 Days',
+    granularity: 'day',
+    mode: 'rolling',
+    amount: 30,
+    unit: 'day',
+  },
+] as const
+
+export const DEFAULT_DASHBOARD_QUICK_RANGE = 'today'
 
 export const CONSUMPTION_DISTRIBUTION_CHART_OPTIONS = [
   { value: 'bar', labelKey: 'Bar Chart' },

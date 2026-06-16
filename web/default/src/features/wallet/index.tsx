@@ -77,6 +77,7 @@ export function Wallet(props: WalletProps) {
   const { status } = useStatus()
   const { currency } = useSystemConfig()
   const { topupInfo, presetAmounts, loading: topupLoading } = useTopupInfo()
+  const minAffTransferQuota = topupInfo?.min_aff_transfer_quota ?? 0
 
   // Calculate effective exchange rate - when display type is USD, use rate of 1
   const effectiveUsdExchangeRate = useMemo(() => {
@@ -209,6 +210,15 @@ export function Wallet(props: WalletProps) {
 
   // Handle transfer
   const handleTransfer = async (amount: number) => {
+    if (
+      !Number.isFinite(amount) ||
+      amount <= 0 ||
+      amount > (user?.aff_quota ?? 0) ||
+      (minAffTransferQuota > 0 && amount < minAffTransferQuota)
+    ) {
+      return false
+    }
+
     const success = await transferQuota(amount)
     if (success) {
       await fetchUser()
@@ -321,6 +331,9 @@ export function Wallet(props: WalletProps) {
               complianceConfirmed={
                 topupInfo?.payment_compliance_confirmed !== false
               }
+              rewardType={topupInfo?.inviter_reward_type ?? ''}
+              rewardValue={topupInfo?.inviter_reward_value ?? 0}
+              minTransferQuota={minAffTransferQuota}
               loading={affiliateLoading}
             />
           </div>
@@ -346,6 +359,7 @@ export function Wallet(props: WalletProps) {
         onConfirm={handleTransfer}
         availableQuota={user?.aff_quota ?? 0}
         transferring={transferring}
+        minTransferQuota={minAffTransferQuota}
       />
 
       <BillingHistoryDialog

@@ -17,20 +17,32 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useCallback, useMemo, lazy, Suspense } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
+import { RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
 import { ROLE } from '@/lib/roles'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from '@/components/ui/toggle-group'
 import { SectionPageLayout } from '@/components/layout'
 import { FadeIn } from '@/components/page-transition'
 import { ModelsChartPreferences } from './components/models/models-chart-preferences'
 import { ModelsFilter } from './components/models/models-filter-dialog'
 import { OverviewDashboard } from './components/overview/overview-dashboard'
-import { DEFAULT_TIME_GRANULARITY } from './constants'
 import {
-  buildDefaultDashboardFilters,
+  DASHBOARD_QUICK_RANGE_PRESETS,
+  DEFAULT_DASHBOARD_QUICK_RANGE,
+  DEFAULT_TIME_GRANULARITY,
+} from './constants'
+import {
+  buildQuickRangeDashboardFilters,
   getSavedChartPreferences,
   saveChartPreferences,
 } from './lib'
@@ -56,6 +68,12 @@ const LazyLogStatCards = lazy(() =>
 const LazyModelCharts = lazy(() =>
   import('./components/models/model-charts').then((m) => ({
     default: m.ModelCharts,
+  }))
+)
+
+const LazyTokenRankingPanel = lazy(() =>
+  import('./components/models/token-ranking-panel').then((m) => ({
+    default: m.TokenRankingPanel,
   }))
 )
 
@@ -107,6 +125,23 @@ function ModelChartsFallback() {
   )
 }
 
+function TokenRankingFallback() {
+  return (
+    <div className='overflow-hidden rounded-lg border'>
+      <div className='flex items-center justify-between border-b px-4 py-3 sm:px-5'>
+        <Skeleton className='h-5 w-40' />
+        <div className='flex gap-2'>
+          <Skeleton className='h-5 w-16 rounded-full' />
+          <Skeleton className='h-5 w-20 rounded-full' />
+        </div>
+      </div>
+      <div className='p-3'>
+        <Skeleton className='h-80 w-full' />
+      </div>
+    </div>
+  )
+}
+
 function PerformanceOverviewFallback() {
   return (
     <div className='overflow-hidden rounded-lg border'>
@@ -142,9 +177,14 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
   },
 }
 
+function buildDefaultQuickRangeFilters(): DashboardFilters {
+  return buildQuickRangeDashboardFilters(DEFAULT_DASHBOARD_QUICK_RANGE).filters
+}
+
 export function Dashboard() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const params = route.useParams()
   const userRole = useAuthStore((state) => state.auth.user?.role)
   const activeSection = (params.section ??
@@ -152,19 +192,42 @@ export function Dashboard() {
 
   const [modelData, setModelData] = useState<QuotaDataItem[]>([])
   const [dataLoading, setDataLoading] = useState(false)
+  const [modelRefreshKey, setModelRefreshKey] = useState(0)
+  const [activeQuickRange, setActiveQuickRange] = useState<string | null>(
+    DEFAULT_DASHBOARD_QUICK_RANGE
+  )
   const [chartPreferences, setChartPreferences] =
     useState<DashboardChartPreferences>(() => getSavedChartPreferences())
   const [modelFilters, setModelFilters] = useState<DashboardFilters>(() =>
-    buildDefaultDashboardFilters(getSavedChartPreferences())
+    buildDefaultQuickRangeFilters()
   )
 
   const handleFilterChange = useCallback((filters: DashboardFilters) => {
+    setActiveQuickRange(null)
     setModelFilters(filters)
   }, [])
 
   const handleResetFilters = useCallback(() => {
-    setModelFilters(buildDefaultDashboardFilters(chartPreferences))
-  }, [chartPreferences])
+    setActiveQuickRange(DEFAULT_DASHBOARD_QUICK_RANGE)
+    setModelFilters(buildDefaultQuickRangeFilters())
+  }, [])
+
+  const handleQuickRangeChange = useCallback(
+    (value: string[]) => {
+      const next = value.find((item) => item !== activeQuickRange)
+      if (!next) return
+      const result = buildQuickRangeDashboardFilters(next, modelFilters)
+      setActiveQuickRange(result.presetKey)
+      setModelFilters(result.filters)
+    },
+    [activeQuickRange, modelFilters]
+  )
+
+  const handleRefreshDashboard = useCallback(() => {
+    setModelRefreshKey((value) => value + 1)
+    void queryClient.invalidateQueries({ queryKey: ['dashboard'] })
+    void queryClient.invalidateQueries({ queryKey: ['perf-metrics-summary'] })
+  }, [queryClient])
 
   const handleDataUpdate = useCallback(
     (data: QuotaDataItem[], loading: boolean) => {
@@ -177,7 +240,8 @@ export function Dashboard() {
   const handleChartPreferencesChange = useCallback(
     (preferences: DashboardChartPreferences) => {
       setChartPreferences(preferences)
-      setModelFilters(buildDefaultDashboardFilters(preferences))
+      setActiveQuickRange(DEFAULT_DASHBOARD_QUICK_RANGE)
+      setModelFilters(buildDefaultQuickRangeFilters())
       saveChartPreferences(preferences)
     },
     []
@@ -206,6 +270,32 @@ export function Dashboard() {
   const modelActions =
     activeSection === 'models' ? (
       <>
+        <ToggleGroup
+          value={activeQuickRange ? [activeQuickRange] : []}
+          onValueChange={handleQuickRangeChange}
+          aria-label={t('Quick Range')}
+          variant='outline'
+          size='sm'
+          spacing={0}
+          className='max-w-full overflow-x-auto'
+        >
+          {DASHBOARD_QUICK_RANGE_PRESETS.map((preset) => (
+            <ToggleGroupItem
+              key={preset.key}
+              value={preset.key}
+              className={cn(
+                'px-2.5 text-xs',
+                activeQuickRange === preset.key && 'bg-muted'
+              )}
+            >
+              {t(preset.label)}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        <Button variant='outline' size='sm' onClick={handleRefreshDashboard}>
+          <RefreshCw data-icon='inline-start' />
+          {t('Refresh')}
+        </Button>
         <ModelsChartPreferences
           preferences={chartPreferences}
           onPreferencesChange={handleChartPreferencesChange}
@@ -223,7 +313,7 @@ export function Dashboard() {
       <SectionPageLayout.Title>{t(meta.titleKey)}</SectionPageLayout.Title>
       <SectionPageLayout.Content>
         <div className='space-y-3 sm:space-y-4'>
-          {activeSection !== 'overview' && (
+          {activeSection !== 'overview' ? (
             <div className='flex flex-wrap items-center justify-between gap-1.5 sm:gap-2'>
               {showSectionTabs ? (
                 <Tabs value={activeSection} onValueChange={handleSectionChange}>
@@ -244,6 +334,17 @@ export function Dashboard() {
                 </div>
               )}
             </div>
+          ) : (
+            <div className='flex justify-end'>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={handleRefreshDashboard}
+              >
+                <RefreshCw data-icon='inline-start' />
+                {t('Refresh')}
+              </Button>
+            </div>
           )}
           {activeSection === 'overview' && <OverviewDashboard />}
           {activeSection === 'models' && (
@@ -252,6 +353,7 @@ export function Dashboard() {
                 <Suspense fallback={<LogStatCardsFallback />}>
                   <LazyLogStatCards
                     filters={modelFilters}
+                    refreshKey={modelRefreshKey}
                     onDataUpdate={handleDataUpdate}
                   />
                 </Suspense>
@@ -264,6 +366,14 @@ export function Dashboard() {
                 </FadeIn>
               )}
               <FadeIn delay={0.1}>
+                <Suspense fallback={<TokenRankingFallback />}>
+                  <LazyTokenRankingPanel
+                    filters={modelFilters}
+                    refreshKey={modelRefreshKey}
+                  />
+                </Suspense>
+              </FadeIn>
+              <FadeIn delay={0.15}>
                 <Suspense fallback={<ModelChartsFallback />}>
                   <LazyConsumptionDistributionChart
                     data={modelData}
@@ -277,7 +387,7 @@ export function Dashboard() {
                   />
                 </Suspense>
               </FadeIn>
-              <FadeIn delay={0.15}>
+              <FadeIn delay={0.2}>
                 <Suspense fallback={<ModelChartsFallback />}>
                   <LazyModelCharts
                     data={modelData}
@@ -286,6 +396,10 @@ export function Dashboard() {
                     timeGranularity={
                       modelFilters.time_granularity || DEFAULT_TIME_GRANULARITY
                     }
+                    quickRangePresets={DASHBOARD_QUICK_RANGE_PRESETS}
+                    activeQuickRange={activeQuickRange}
+                    onQuickRangeChange={handleQuickRangeChange}
+                    onRefresh={handleRefreshDashboard}
                   />
                 </Suspense>
               </FadeIn>

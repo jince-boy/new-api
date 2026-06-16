@@ -1,0 +1,172 @@
+package model
+
+import (
+	"testing"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/logger"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func configureInviterRewardForTest(t *testing.T, rewardType string, rewardValue int, complianceConfirmed bool) {
+	t.Helper()
+
+	oldRewardType := common.InviterRewardType
+	oldRewardValue := common.InviterRewardValue
+	paymentSetting := operation_setting.GetPaymentSetting()
+	oldComplianceConfirmed := paymentSetting.ComplianceConfirmed
+	oldComplianceTermsVersion := paymentSetting.ComplianceTermsVersion
+
+	common.InviterRewardType = rewardType
+	common.InviterRewardValue = rewardValue
+	paymentSetting.ComplianceConfirmed = complianceConfirmed
+	if complianceConfirmed {
+		paymentSetting.ComplianceTermsVersion = operation_setting.CurrentComplianceTermsVersion
+	} else {
+		paymentSetting.ComplianceTermsVersion = ""
+	}
+
+	t.Cleanup(func() {
+		common.InviterRewardType = oldRewardType
+		common.InviterRewardValue = oldRewardValue
+		paymentSetting.ComplianceConfirmed = oldComplianceConfirmed
+		paymentSetting.ComplianceTermsVersion = oldComplianceTermsVersion
+	})
+}
+
+func configureMinAffTransferQuotaForTest(t *testing.T, minTransferQuota int) {
+	t.Helper()
+
+	oldMinTransferQuota := common.MinAffTransferQuota
+	common.MinAffTransferQuota = minTransferQuota
+
+	t.Cleanup(func() {
+		common.MinAffTransferQuota = oldMinTransferQuota
+	})
+}
+
+func insertInviterRewardUser(t *testing.T, id int, username string, inviterId int) {
+	t.Helper()
+	require.NoError(t, DB.Create(&User{
+		Id:        id,
+		Username:  username,
+		Status:    common.UserStatusEnabled,
+		InviterId: inviterId,
+		AffCode:   username,
+	}).Error)
+}
+
+func insertInviterRewardTopUp(t *testing.T, userId int, tradeNo string) *TopUp {
+	t.Helper()
+	topUp := &TopUp{
+		UserId:          userId,
+		Amount:          2,
+		Money:           2,
+		TradeNo:         tradeNo,
+		PaymentMethod:   PaymentMethodStripe,
+		PaymentProvider: PaymentProviderStripe,
+		Status:          common.TopUpStatusSuccess,
+		CreateTime:      time.Now().Unix(),
+	}
+	require.NoError(t, topUp.Insert())
+	return topUp
+}
+
+func loadInviterRewardUser(t *testing.T, id int) User {
+	t.Helper()
+	var user User
+	require.NoError(t, DB.First(&user, id).Error)
+	return user
+}
+
+func TestProcessInviterReward_FixedRewardIsIdempotent(t *testing.T) {
+	truncateTables(t)
+	configureInviterRewardForTest(t, "fixed", 500, true)
+
+	insertInviterRewardUser(t, 1, "reward_inviter", 0)
+	insertInviterRewardUser(t, 2, "reward_invitee", 1)
+	topUp := insertInviterRewardTopUp(t, 2, "reward-fixed")
+
+	require.NoError(t, ProcessInviterReward(2, 10000, topUp.Id))
+	require.NoError(t, ProcessInviterReward(2, 10000, topUp.Id))
+
+	inviter := loadInviterRewardUser(t, 1)
+	assert.Equal(t, 500, inviter.AffQuota)
+	assert.Equal(t, 500, inviter.AffHistoryQuota)
+
+	reloadedTopUp := GetTopUpByTradeNo("reward-fixed")
+	require.NotNil(t, reloadedTopUp)
+	assert.True(t, reloadedTopUp.InviterRewardSent)
+}
+
+func TestProcessInviterReward_PercentageReward(t *testing.T) {
+	truncateTables(t)
+	configureInviterRewardForTest(t, "percentage", 15, true)
+
+	insertInviterRewardUser(t, 21, "reward_percent_inviter", 0)
+	insertInviterRewardUser(t, 22, "reward_percent_invitee", 21)
+	topUp := insertInviterRewardTopUp(t, 22, "reward-percentage")
+
+	require.NoError(t, ProcessInviterReward(22, 20000, topUp.Id))
+	require.NoError(t, ProcessInviterReward(22, 20000, topUp.Id))
+
+	inviter := loadInviterRewardUser(t, 21)
+	assert.Equal(t, 3000, inviter.AffQuota)
+	assert.Equal(t, 3000, inviter.AffHistoryQuota)
+}
+
+func TestProcessInviterReward_SkipsWhenComplianceUnconfirmed(t *testing.T) {
+	truncateTables(t)
+	configureInviterRewardForTest(t, "percentage", 10, false)
+
+	insertInviterRewardUser(t, 11, "reward_inviter_unconfirmed", 0)
+	insertInviterRewardUser(t, 12, "reward_invitee_unconfirmed", 11)
+	topUp := insertInviterRewardTopUp(t, 12, "reward-unconfirmed")
+
+	require.NoError(t, ProcessInviterReward(12, 10000, topUp.Id))
+
+	inviter := loadInviterRewardUser(t, 11)
+	assert.Zero(t, inviter.AffQuota)
+	assert.Zero(t, inviter.AffHistoryQuota)
+}
+
+func TestTransferAffQuotaToQuota_UsesConfiguredMinimum(t *testing.T) {
+	truncateTables(t)
+	configureMinAffTransferQuotaForTest(t, 1000)
+
+	require.NoError(t, DB.Create(&User{
+		Id:       31,
+		Username: "reward_transfer_user",
+		Status:   common.UserStatusEnabled,
+		Quota:    100,
+		AffQuota: 700,
+		AffCode:  "reward_transfer_user",
+	}).Error)
+
+	user := loadInviterRewardUser(t, 31)
+	require.Error(t, user.TransferAffQuotaToQuota(700))
+
+	reloaded := loadInviterRewardUser(t, 31)
+	assert.Equal(t, 100, reloaded.Quota)
+	assert.Equal(t, 700, reloaded.AffQuota)
+	var logCount int64
+	require.NoError(t, LOG_DB.Model(&Log{}).Where("user_id = ? AND type = ?", 31, LogTypeTopup).Count(&logCount).Error)
+	assert.Zero(t, logCount)
+
+	configureMinAffTransferQuotaForTest(t, 500)
+
+	user = loadInviterRewardUser(t, 31)
+	require.NoError(t, user.TransferAffQuotaToQuota(500))
+
+	reloaded = loadInviterRewardUser(t, 31)
+	assert.Equal(t, 600, reloaded.Quota)
+	assert.Equal(t, 200, reloaded.AffQuota)
+	var logs []Log
+	require.NoError(t, LOG_DB.Where("user_id = ? AND type = ?", 31, LogTypeTopup).Find(&logs).Error)
+	require.Len(t, logs, 1)
+	assert.Contains(t, logs[0].Content, "划转邀请额度到余额")
+	assert.Contains(t, logs[0].Content, logger.LogQuota(500))
+}

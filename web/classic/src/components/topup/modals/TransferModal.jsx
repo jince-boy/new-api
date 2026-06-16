@@ -18,8 +18,19 @@ For commercial licensing, please contact support@quantumnous.com
 */
 
 import React from 'react';
-import { Modal, Typography, Input, InputNumber } from '@douyinfe/semi-ui';
+import {
+  Button,
+  Modal,
+  Typography,
+  Input,
+  InputNumber,
+} from '@douyinfe/semi-ui';
 import { CreditCard } from 'lucide-react';
+import { getCurrencyConfig } from '../../../helpers';
+import {
+  displayAmountToQuota,
+  quotaToDisplayAmount,
+} from '../../../helpers/quota';
 
 const TransferModal = ({
   t,
@@ -31,7 +42,23 @@ const TransferModal = ({
   getQuotaPerUnit,
   transferAmount,
   setTransferAmount,
+  minTransferQuota = 0,
 }) => {
+  const effectiveMinTransferQuota =
+    minTransferQuota > 0 ? minTransferQuota : getQuotaPerUnit();
+  const availableQuota = userState?.user?.aff_quota || 0;
+  const currencyConfig = getCurrencyConfig();
+  const amountPrefix =
+    currencyConfig.type === 'TOKENS' ? undefined : currencyConfig.symbol;
+  const minTransferAmount = Number(
+    quotaToDisplayAmount(effectiveMinTransferQuota).toFixed(6),
+  );
+  const availableAmount = Number(quotaToDisplayAmount(availableQuota).toFixed(6));
+  const transferDisplayAmount =
+    transferAmount === '' || transferAmount == null
+      ? ''
+      : Number(quotaToDisplayAmount(transferAmount).toFixed(6));
+
   return (
     <Modal
       title={
@@ -59,15 +86,36 @@ const TransferModal = ({
         </div>
         <div>
           <Typography.Text strong className='block mb-2'>
-            {t('划转额度')} · {t('最低') + renderQuota(getQuotaPerUnit())}
+            {t('金额')} · {t('最低') + renderQuota(effectiveMinTransferQuota)}
           </Typography.Text>
           <InputNumber
-            min={getQuotaPerUnit()}
-            max={userState?.user?.aff_quota || 0}
-            value={transferAmount}
-            onChange={(value) => setTransferAmount(value)}
+            prefix={amountPrefix}
+            min={minTransferAmount}
+            max={availableAmount}
+            value={transferDisplayAmount}
+            precision={6}
+            step={0.000001}
+            onChange={(value) => {
+              const amount = value === '' || value == null ? '' : value;
+              setTransferAmount(
+                amount === '' ? '' : displayAmountToQuota(amount),
+              );
+            }}
             className='w-full !rounded-lg'
           />
+          <div className='flex items-center justify-between mt-2'>
+            <Typography.Text type='tertiary' size='small'>
+              {t('最低')}: {renderQuota(effectiveMinTransferQuota)}
+            </Typography.Text>
+            <Button
+              size='small'
+              type='tertiary'
+              onClick={() => setTransferAmount(availableQuota)}
+              disabled={availableQuota <= 0}
+            >
+              {t('全部划转')}
+            </Button>
+          </div>
         </div>
       </div>
     </Modal>

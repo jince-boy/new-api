@@ -35,6 +35,7 @@ import type {
 
 interface LogStatCardsProps {
   filters?: DashboardFilters
+  refreshKey?: number
   onDataUpdate?: (data: QuotaDataItem[], loading: boolean) => void
 }
 
@@ -92,7 +93,7 @@ export function LogStatCards(props: LogStatCardsProps) {
     return () => {
       abortController.abort()
     }
-  }, [filters, isAdmin, onDataUpdate])
+  }, [filters, props.refreshKey, isAdmin, onDataUpdate])
 
   const adaptedStats = {
     rpm: stats?.totalCount ?? 0,

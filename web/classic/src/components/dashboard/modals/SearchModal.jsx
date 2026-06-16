@@ -26,6 +26,9 @@ const SearchModal = ({
   handleCloseModal,
   isMobile,
   isAdminUser,
+  quickRangePresets,
+  activeQuickRangePreset,
+  onQuickRangeSelect,
   inputs,
   dataExportDefaultTime,
   timeOptions,
@@ -54,6 +57,27 @@ const SearchModal = ({
       size={isMobile ? 'full-width' : 'small'}
       centered
     >
+      <div className='mb-3 max-w-full overflow-x-auto rounded-full bg-slate-100/80 p-0.5'>
+        <div className='inline-flex min-w-max items-center gap-0.5'>
+          {(quickRangePresets || []).map((preset) => {
+            const isActive = activeQuickRangePreset === preset.key;
+            return (
+              <button
+                key={preset.key}
+                type='button'
+                onClick={() => onQuickRangeSelect?.(preset.key)}
+                className={`rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap transition-colors ${
+                  isActive
+                    ? 'bg-blue-500 text-white shadow-md shadow-blue-200'
+                    : 'text-slate-500 hover:bg-white/70 hover:text-slate-700'
+                }`}
+              >
+                {preset.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
       <Form ref={formRef} layout='vertical' className='w-full'>
         {createFormField(Form.DatePicker, {
           field: 'start_timestamp',

@@ -17,24 +17,36 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { VChart } from '@visactor/react-vchart'
-import { Users, Loader2 } from 'lucide-react'
+import { Users, Loader2, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
 import { VCHART_OPTION } from '@/lib/vchart'
 import { useThemeCustomization } from '@/context/theme-customization-provider'
 import { useTheme } from '@/context/theme-provider'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from '@/components/ui/toggle-group'
 import { getUserQuotaDataByUsers } from '@/features/dashboard/api'
 import {
+  DASHBOARD_RANK_BASE_COUNT,
+  DASHBOARD_RANK_CHART_HEADER_HEIGHT,
+  DASHBOARD_RANK_DESKTOP_CHART_HEIGHT,
+  DASHBOARD_RANK_DESKTOP_ROW_HEIGHT,
+  DASHBOARD_QUICK_RANGE_PRESETS,
+  DEFAULT_DASHBOARD_QUICK_RANGE,
+  DEFAULT_TIME_GRANULARITY,
   TIME_GRANULARITY_OPTIONS,
-  TIME_RANGE_PRESETS,
 } from '@/features/dashboard/constants'
 import {
+  buildQuickRangeDashboardFilters,
   getDefaultDays,
-  getSavedGranularity,
   saveGranularity,
   processUserChartData,
 } from '@/features/dashboard/lib'
@@ -65,6 +77,7 @@ const TOP_USER_LIMIT_OPTIONS = [5, 10, 20, 50]
 
 export function UserCharts() {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const { resolvedTheme } = useTheme()
   const { customization } = useThemeCustomization()
   const [themeReady, setThemeReady] = useState(false)
@@ -72,16 +85,17 @@ export function UserCharts() {
     (typeof import('@visactor/vchart'))['ThemeManager'] | null
   >(null)
 
-  const [timeGranularity, setTimeGranularity] = useState<TimeGranularity>(() =>
-    getSavedGranularity()
+  const [timeGranularity, setTimeGranularity] = useState<TimeGranularity>(
+    DEFAULT_TIME_GRANULARITY
   )
-  const [selectedRange, setSelectedRange] = useState<number>(() =>
-    getDefaultDays(timeGranularity)
+  const [activeQuickRange, setActiveQuickRange] = useState<string | null>(
+    DEFAULT_DASHBOARD_QUICK_RANGE
   )
   const [topUserLimit, setTopUserLimit] = useState(10)
   const [timeRange, setTimeRange] = useState(() => {
-    const days = getDefaultDays(timeGranularity)
-    const { start, end } = getRollingDateRange(days)
+    const result = buildQuickRangeDashboardFilters(DEFAULT_DASHBOARD_QUICK_RANGE)
+    const start = result.filters.start_timestamp as Date
+    const end = result.filters.end_timestamp as Date
     return {
       start_timestamp: Math.floor(start.getTime() / 1000),
       end_timestamp: Math.floor(end.getTime() / 1000),
@@ -89,7 +103,7 @@ export function UserCharts() {
   })
 
   const handleRangeChange = useCallback((days: number) => {
-    setSelectedRange(days)
+    setActiveQuickRange(null)
     const { start, end } = getRollingDateRange(days)
     setTimeRange({
       start_timestamp: Math.floor(start.getTime() / 1000),
@@ -97,16 +111,37 @@ export function UserCharts() {
     })
   }, [])
 
+  const handleQuickRangeChange = useCallback(
+    (value: string[]) => {
+      const next = value.find((item) => item !== activeQuickRange)
+      if (!next) return
+
+      const result = buildQuickRangeDashboardFilters(next, {
+        time_granularity: timeGranularity,
+      })
+
+      setActiveQuickRange(result.presetKey)
+      setTimeGranularity(result.filters.time_granularity || timeGranularity)
+      setTimeRange({
+        start_timestamp: Math.floor(
+          (result.filters.start_timestamp as Date).getTime() / 1000
+        ),
+        end_timestamp: Math.floor(
+          (result.filters.end_timestamp as Date).getTime() / 1000
+        ),
+      })
+    },
+    [activeQuickRange, timeGranularity]
+  )
+
   const handleGranularityChange = useCallback(
     (g: TimeGranularity) => {
       setTimeGranularity(g)
       saveGranularity(g)
       const days = getDefaultDays(g)
-      if (days !== selectedRange) {
-        handleRangeChange(days)
-      }
+      handleRangeChange(days)
     },
-    [selectedRange, handleRangeChange]
+    [handleRangeChange]
   )
 
   useEffect(() => {
@@ -132,6 +167,10 @@ export function UserCharts() {
     staleTime: 60_000,
   })
 
+  const handleRefresh = useCallback(() => {
+    void queryClient.invalidateQueries({ queryKey: ['dashboard', 'user-quota'] })
+  }, [queryClient])
+
   const chartData = useMemo(
     () =>
       processUserChartData(
@@ -148,30 +187,39 @@ export function UserCharts() {
       t,
       topUserLimit,
       customization.preset,
-      customization.radius,
     ]
   )
 
   return (
     <div className='space-y-3'>
-      <div className='flex items-center gap-1.5 overflow-x-auto pb-1 sm:gap-2'>
-        <Tabs
-          value={String(selectedRange)}
-          onValueChange={(value) => handleRangeChange(Number(value))}
-          className='shrink-0'
+      <div className='flex flex-wrap items-center gap-1.5 pb-1 sm:gap-2'>
+        <ToggleGroup
+          value={activeQuickRange ? [activeQuickRange] : []}
+          onValueChange={handleQuickRangeChange}
+          aria-label={t('Quick Range')}
+          variant='outline'
+          size='sm'
+          spacing={0}
+          className='max-w-full overflow-x-auto'
         >
-          <TabsList>
-            {TIME_RANGE_PRESETS.map((preset) => (
-              <TabsTrigger
-                key={preset.days}
-                value={String(preset.days)}
-                className='px-2.5 text-xs'
-              >
-                {t(preset.label)}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+          {DASHBOARD_QUICK_RANGE_PRESETS.map((preset) => (
+            <ToggleGroupItem
+              key={preset.key}
+              value={preset.key}
+              className={cn(
+                'px-2.5 text-xs',
+                activeQuickRange === preset.key && 'bg-muted'
+              )}
+            >
+              {t(preset.label)}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+
+        <Button variant='outline' size='sm' onClick={handleRefresh}>
+          <RefreshCw data-icon='inline-start' />
+          {t('Refresh')}
+        </Button>
 
         <Tabs
           value={timeGranularity}
@@ -222,6 +270,29 @@ export function UserCharts() {
       <div className='grid gap-3'>
         {USER_CHARTS.map((chart) => {
           const spec = chartData[chart.specKey]
+          const isRankChart = chart.value === 'rank'
+          const rankValueCount =
+            isRankChart && Array.isArray(spec?.data?.[0]?.values)
+              ? spec.data[0].values.length
+              : 0
+          const rankChartHeight = isRankChart
+            ? DASHBOARD_RANK_CHART_HEADER_HEIGHT +
+              Math.max(rankValueCount, DASHBOARD_RANK_BASE_COUNT) *
+                DASHBOARD_RANK_DESKTOP_ROW_HEIGHT
+            : undefined
+          const chartElement =
+            themeReady &&
+            spec && (
+              <VChart
+                key={`user-${chart.value}-${topUserLimit}-${resolvedTheme}-${customization.preset}`}
+                spec={{
+                  ...spec,
+                  theme: resolvedTheme === 'dark' ? 'dark' : 'light',
+                  background: 'transparent',
+                }}
+                option={VCHART_OPTION}
+              />
+            )
 
           return (
             <div
@@ -236,19 +307,17 @@ export function UserCharts() {
               <div className='h-[300px] p-1.5 sm:h-96 sm:p-2'>
                 {isLoading ? (
                   <Skeleton className='h-full w-full' />
+                ) : isRankChart ? (
+                  <div
+                    className='overflow-y-auto'
+                    style={{ height: DASHBOARD_RANK_DESKTOP_CHART_HEIGHT }}
+                  >
+                    <div style={{ height: rankChartHeight }}>
+                      {chartElement}
+                    </div>
+                  </div>
                 ) : (
-                  themeReady &&
-                  spec && (
-                    <VChart
-                      key={`user-${chart.value}-${topUserLimit}-${resolvedTheme}-${customization.preset}`}
-                      spec={{
-                        ...spec,
-                        theme: resolvedTheme === 'dark' ? 'dark' : 'light',
-                        background: 'transparent',
-                      }}
-                      option={VCHART_OPTION}
-                    />
-                  )
+                  chartElement
                 )}
               </div>
             </div>

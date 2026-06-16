@@ -129,7 +129,15 @@ const TopUp = () => {
     discount: {},
     enable_redemption: true,
     payment_compliance_confirmed: true,
+    inviter_reward_type: '',
+    inviter_reward_value: 0,
+    min_aff_transfer_quota: 0,
   });
+  const minAffTransferQuota = Number(
+    topupInfo.min_aff_transfer_quota ||
+      statusState?.status?.min_aff_transfer_quota ||
+      0,
+  );
 
   const confirmPayMethods = [
     ...payMethods,
@@ -601,6 +609,9 @@ const TopUp = () => {
         setTopupInfo({
           amount_options: data.amount_options || [],
           discount: data.discount || {},
+          inviter_reward_type: data.inviter_reward_type || '',
+          inviter_reward_value: data.inviter_reward_value || 0,
+          min_aff_transfer_quota: data.min_aff_transfer_quota || 0,
         });
 
         // 处理支付方式
@@ -738,8 +749,16 @@ const TopUp = () => {
 
   // 划转邀请额度
   const transfer = async () => {
-    if (transferAmount < getQuotaPerUnit()) {
-      showError(t('划转金额最低为') + ' ' + renderQuota(getQuotaPerUnit()));
+    const effectiveMinTransferQuota =
+      minAffTransferQuota > 0 ? minAffTransferQuota : getQuotaPerUnit();
+    if (transferAmount < effectiveMinTransferQuota) {
+      showError(
+        t('划转金额最低为') + ' ' + renderQuota(effectiveMinTransferQuota),
+      );
+      return;
+    }
+    if (transferAmount > (userState?.user?.aff_quota || 0)) {
+      showError(t('划转额度不能超过可用邀请额度'));
       return;
     }
     const res = await API.post(`/api/user/aff_transfer`, {
@@ -773,8 +792,10 @@ const TopUp = () => {
   useEffect(() => {
     // 始终获取最新用户数据，确保余额等统计信息准确
     getUserQuota().then();
-    setTransferAmount(getQuotaPerUnit());
-  }, []);
+    setTransferAmount(
+      minAffTransferQuota > 0 ? minAffTransferQuota : getQuotaPerUnit(),
+    );
+  }, [minAffTransferQuota]);
 
   useEffect(() => {
     if (affFetchedRef.current) return;
@@ -915,6 +936,7 @@ const TopUp = () => {
         getQuotaPerUnit={getQuotaPerUnit}
         transferAmount={transferAmount}
         setTransferAmount={setTransferAmount}
+        minTransferQuota={minAffTransferQuota}
       />
 
       {/* 充值确认模态框 */}
@@ -1025,6 +1047,9 @@ const TopUp = () => {
           affLink={affLink}
           handleAffLinkClick={handleAffLinkClick}
           complianceConfirmed={topupInfo.payment_compliance_confirmed !== false}
+          rewardType={topupInfo.inviter_reward_type || ''}
+          rewardValue={topupInfo.inviter_reward_value || 0}
+          minTransferQuota={minAffTransferQuota}
         />
       </div>
     </div>

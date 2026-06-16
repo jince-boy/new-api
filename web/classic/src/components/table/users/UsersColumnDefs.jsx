@@ -247,7 +247,7 @@ const renderOperations = (
     },
     {
       node: 'item',
-      name: t('注销'),
+      name: t('删除'),
       type: 'danger',
       onClick: () => showDeleteModal(record),
     },

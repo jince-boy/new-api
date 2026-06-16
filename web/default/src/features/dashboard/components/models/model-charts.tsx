@@ -18,13 +18,19 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { VChart } from '@visactor/react-vchart'
-import { PieChart as PieChartIcon } from 'lucide-react'
+import { PieChart as PieChartIcon, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useThemeRadiusPx } from '@/lib/theme-radius'
 import type { TimeGranularity } from '@/lib/time'
 import { VCHART_OPTION } from '@/lib/vchart'
 import { useThemeCustomization } from '@/context/theme-customization-provider'
 import { useTheme } from '@/context/theme-provider'
+import { cn } from '@/lib/utils'
+import { Button } from '@/components/ui/button'
+import {
+  ToggleGroup,
+  ToggleGroupItem,
+} from '@/components/ui/toggle-group'
 import {
   DEFAULT_TIME_GRANULARITY,
   MODEL_ANALYTICS_CHART_OPTIONS,
@@ -52,6 +58,13 @@ interface ModelChartsProps {
   loading?: boolean
   timeGranularity?: TimeGranularity
   defaultChartTab?: ModelAnalyticsChartTab
+  quickRangePresets?: readonly {
+    key: string
+    label: string
+  }[]
+  activeQuickRange?: string | null
+  onQuickRangeChange?: (value: string[]) => void
+  onRefresh?: () => void
 }
 
 export function ModelCharts(props: ModelChartsProps) {
@@ -137,21 +150,54 @@ export function ModelCharts(props: ModelChartsProps) {
           </span>
         </div>
 
-        <div className='bg-muted/60 inline-flex h-7 w-full overflow-x-auto rounded-lg border p-0.5 sm:h-8 sm:w-auto'>
-          {MODEL_ANALYTICS_CHART_OPTIONS.map((tab) => (
-            <button
-              key={tab.value}
-              type='button'
-              onClick={() => setActiveTab(tab.value)}
-              className={`shrink-0 rounded-md px-3 text-xs font-medium transition-colors ${
-                activeTab === tab.value
-                  ? 'bg-background text-foreground shadow-sm'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
+        <div className='flex max-w-full flex-wrap items-center justify-start gap-1.5 sm:justify-end'>
+          {props.quickRangePresets && props.onQuickRangeChange && (
+            <ToggleGroup
+              value={props.activeQuickRange ? [props.activeQuickRange] : []}
+              onValueChange={props.onQuickRangeChange}
+              aria-label={t('Quick Range')}
+              variant='outline'
+              size='sm'
+              spacing={0}
+              className='max-w-full overflow-x-auto'
             >
-              {t(tab.labelKey)}
-            </button>
-          ))}
+              {props.quickRangePresets.map((preset) => (
+                <ToggleGroupItem
+                  key={preset.key}
+                  value={preset.key}
+                  className={cn(
+                    'px-2.5 text-xs',
+                    props.activeQuickRange === preset.key && 'bg-muted'
+                  )}
+                >
+                  {t(preset.label)}
+                </ToggleGroupItem>
+              ))}
+            </ToggleGroup>
+          )}
+          {props.onRefresh && (
+            <Button variant='outline' size='sm' onClick={props.onRefresh}>
+              <RefreshCw data-icon='inline-start' />
+              {t('Refresh')}
+            </Button>
+          )}
+          <div className='bg-muted/60 inline-flex h-7 max-w-full overflow-x-auto rounded-lg border p-0.5 sm:h-8'>
+            {MODEL_ANALYTICS_CHART_OPTIONS.map((tab) => (
+              <button
+                key={tab.value}
+                type='button'
+                onClick={() => setActiveTab(tab.value)}
+                className={cn(
+                  'shrink-0 rounded-md px-3 text-xs font-medium transition-colors',
+                  activeTab === tab.value
+                    ? 'bg-background text-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {t(tab.labelKey)}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 

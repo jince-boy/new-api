@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { Share2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { formatQuota } from '@/lib/format'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -31,6 +32,9 @@ interface AffiliateRewardsCardProps {
   affiliateLink: string
   onTransfer: () => void
   complianceConfirmed?: boolean
+  rewardType?: '' | 'fixed' | 'percentage'
+  rewardValue?: number
+  minTransferQuota?: number
   loading?: boolean
 }
 
@@ -39,6 +43,9 @@ export function AffiliateRewardsCard({
   affiliateLink,
   onTransfer,
   complianceConfirmed = true,
+  rewardType = '',
+  rewardValue = 0,
+  minTransferQuota = 0,
   loading,
 }: AffiliateRewardsCardProps) {
   const { t } = useTranslation()
@@ -58,6 +65,30 @@ export function AffiliateRewardsCard({
   }
 
   const hasRewards = (user?.aff_quota ?? 0) > 0
+  const effectiveMinTransferQuota = Math.max(0, minTransferQuota)
+  const transferDisabled =
+    !complianceConfirmed ||
+    !hasRewards ||
+    (effectiveMinTransferQuota > 0 &&
+      (user?.aff_quota ?? 0) < effectiveMinTransferQuota)
+  const rewardDescription =
+    rewardType === 'percentage' && rewardValue > 0
+      ? t('Friends top up and you receive {{value}}% as a rebate', {
+          value: rewardValue,
+        })
+      : rewardType === 'fixed' && rewardValue > 0
+        ? t('Friends top up and you receive {{quota}} as a fixed rebate', {
+            quota: formatQuota(rewardValue),
+          })
+        : t(
+            'Earn rewards when your referrals add funds. Transfer accumulated rewards to your balance anytime.'
+          )
+  const transferHint =
+    effectiveMinTransferQuota > 0
+      ? t('Minimum transfer: {{quota}}', {
+          quota: formatQuota(effectiveMinTransferQuota),
+        })
+      : t('Transfer accumulated rewards to your balance anytime.')
 
   return (
     <Card data-card-hover='false' className='bg-muted/20 py-0'>
@@ -67,13 +98,20 @@ export function AffiliateRewardsCard({
             <Share2 className='text-muted-foreground size-4' />
           </div>
           <div className='min-w-0'>
-            <h3 className='truncate text-sm font-semibold'>
-              {t('Referral Program')}
-            </h3>
+            <div className='flex min-w-0 items-center gap-2'>
+              <h3 className='truncate text-sm font-semibold'>
+                {t('Referral Program')}
+              </h3>
+              {rewardType && rewardValue > 0 ? (
+                <Badge variant='secondary' className='shrink-0'>
+                  {rewardType === 'percentage'
+                    ? t('{{value}}% rebate', { value: rewardValue })
+                    : t('Fixed rebate')}
+                </Badge>
+              ) : null}
+            </div>
             <p className='text-muted-foreground line-clamp-1 text-xs'>
-              {t(
-                'Earn rewards when your referrals add funds. Transfer accumulated rewards to your balance anytime.'
-              )}
+              {rewardDescription}
             </p>
           </div>
         </div>
@@ -112,14 +150,26 @@ export function AffiliateRewardsCard({
           {hasRewards && (
             <Button
               onClick={onTransfer}
-              disabled={!complianceConfirmed}
+              disabled={transferDisabled}
               className='h-9 shrink-0 px-3'
               size='sm'
+              title={
+                transferDisabled
+                  ? t(
+                      'Reward balance has not reached the minimum transfer threshold'
+                    )
+                  : undefined
+              }
             >
               {t('Transfer to Balance')}
             </Button>
           )}
         </div>
+        {complianceConfirmed ? (
+          <p className='text-muted-foreground text-xs lg:col-span-3'>
+            {transferHint}
+          </p>
+        ) : null}
         {!complianceConfirmed ? (
           <p className='text-muted-foreground text-xs lg:col-span-3'>
             {t(

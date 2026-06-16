@@ -72,6 +72,9 @@ func GetStatus(c *gin.Context) {
 		"turnstile_site_key":          common.TurnstileSiteKey,
 		"docs_link":                   operation_setting.GetGeneralSetting().DocsLink,
 		"quota_per_unit":              common.QuotaPerUnit,
+		"inviter_reward_type":         common.InviterRewardType,
+		"inviter_reward_value":        common.InviterRewardValue,
+		"min_aff_transfer_quota":      common.MinAffTransferQuota,
 		// 兼容旧前端：保留 display_in_currency，同时提供新的 quota_display_type
 		"display_in_currency":           operation_setting.IsCurrencyDisplay(),
 		"quota_display_type":            operation_setting.GetQuotaDisplayType(),

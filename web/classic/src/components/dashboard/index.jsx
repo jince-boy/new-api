@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useContext, useEffect } from 'react';
+import React, { useContext, useEffect, useRef } from 'react';
 import { getRelativeTime } from '../../helpers';
 import { UserContext } from '../../context/User';
 import { StatusContext } from '../../context/Status';
@@ -56,6 +56,7 @@ const Dashboard = () => {
   // ========== Context ==========
   const [userState, userDispatch] = useContext(UserContext);
   const [statusState, statusDispatch] = useContext(StatusContext);
+  const quickRangeRequestRef = useRef(0);
 
   // ========== 主要数据管理 ==========
   const dashboardData = useDashboardData(userState, userDispatch, statusState);
@@ -86,12 +87,19 @@ const Dashboard = () => {
   );
 
   // ========== 数据处理 ==========
-  const loadUserData = async () => {
+  const loadUserData = async (override = {}) => {
     if (dashboardData.isAdminUser) {
-      const userData = await dashboardData.loadUserQuotaData();
+      const userData = await dashboardData.loadUserQuotaData(override);
       if (userData && userData.length > 0) {
         dashboardCharts.updateUserChartData(userData);
       }
+    }
+  };
+
+  const loadTokenRankingData = async (override = {}) => {
+    const tokenRankingData = await dashboardData.loadTokenRanking(override);
+    if (tokenRankingData) {
+      dashboardCharts.updateTokenRankChart(tokenRankingData);
     }
   };
 
@@ -102,6 +110,7 @@ const Dashboard = () => {
       }
     });
     await loadUserData();
+    await loadTokenRankingData();
     await dashboardData.loadUptimeData();
   };
 
@@ -111,11 +120,49 @@ const Dashboard = () => {
       dashboardCharts.updateChartData(data);
     }
     await loadUserData();
+    await loadTokenRankingData();
   };
 
   const handleSearchConfirm = async () => {
     await dashboardData.handleSearchConfirm(dashboardCharts.updateChartData);
     await loadUserData();
+    await loadTokenRankingData();
+  };
+
+  const handleQuickRangeSelect = async (presetKey) => {
+    if (presetKey === dashboardData.activeQuickRangePreset) {
+      return;
+    }
+
+    const requestId = quickRangeRequestRef.current + 1;
+    quickRangeRequestRef.current = requestId;
+    const result = await dashboardData.applyQuickRangePreset(presetKey);
+    if (requestId !== quickRangeRequestRef.current) {
+      return;
+    }
+
+    if (result?.data && result.data.length > 0) {
+      dashboardCharts.updateChartData(result.data);
+    }
+
+    const override = result?.inputs ? { inputs: result.inputs } : {};
+    const [userData, tokenRankingData] = await Promise.all([
+      dashboardData.isAdminUser
+        ? dashboardData.loadUserQuotaData(override)
+        : Promise.resolve([]),
+      dashboardData.loadTokenRanking(override),
+    ]);
+
+    if (requestId !== quickRangeRequestRef.current) {
+      return;
+    }
+
+    if (userData && userData.length > 0) {
+      dashboardCharts.updateUserChartData(userData);
+    }
+    if (tokenRankingData) {
+      dashboardCharts.updateTokenRankChart(tokenRankingData);
+    }
   };
 
   // ========== 数据准备 ==========
@@ -155,10 +202,12 @@ const Dashboard = () => {
       <DashboardHeader
         getGreeting={dashboardData.getGreeting}
         greetingVisible={dashboardData.greetingVisible}
+        quickRangePresets={dashboardData.quickRangePresets}
+        activeQuickRangePreset={dashboardData.activeQuickRangePreset}
+        onQuickRangeSelect={handleQuickRangeSelect}
         showSearchModal={dashboardData.showSearchModal}
         refresh={handleRefresh}
         loading={dashboardData.loading}
-        t={dashboardData.t}
       />
 
       <SearchModal
@@ -167,6 +216,9 @@ const Dashboard = () => {
         handleCloseModal={dashboardData.handleCloseModal}
         isMobile={dashboardData.isMobile}
         isAdminUser={dashboardData.isAdminUser}
+        quickRangePresets={dashboardData.quickRangePresets}
+        activeQuickRangePreset={dashboardData.activeQuickRangePreset}
+        onQuickRangeSelect={handleQuickRangeSelect}
         inputs={dashboardData.inputs}
         dataExportDefaultTime={dashboardData.dataExportDefaultTime}
         timeOptions={dashboardData.timeOptions}
@@ -194,6 +246,7 @@ const Dashboard = () => {
             spec_model_line={dashboardCharts.spec_model_line}
             spec_pie={dashboardCharts.spec_pie}
             spec_rank_bar={dashboardCharts.spec_rank_bar}
+            spec_token_rank={dashboardCharts.spec_token_rank}
             spec_user_rank={dashboardCharts.spec_user_rank}
             spec_user_trend={dashboardCharts.spec_user_trend}
             isAdminUser={dashboardData.isAdminUser}

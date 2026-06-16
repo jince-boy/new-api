@@ -37,10 +37,48 @@ import {
   processUserData,
 } from '../../helpers/dashboard';
 
-const USER_COLORS = [
-  '#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6',
-  '#ec4899', '#06b6d4', '#f97316', '#6366f1', '#14b8a6',
+const USER_COLOR_RANGE = [
+  'rgb(91,143,249)',
+  'rgb(90,216,166)',
+  'rgb(246,189,22)',
+  'rgb(232,104,74)',
+  'rgb(109,200,236)',
+  'rgb(146,112,202)',
+  'rgb(255,157,77)',
+  'rgb(38,154,153)',
+  'rgb(255,153,195)',
+  'rgb(93,112,146)',
 ];
+
+const renderTokenM = (value) => `${(Number(value || 0) / 1000000).toFixed(2)}M`;
+const RANK_BASE_COUNT = 10;
+const RANK_BAR_HEIGHT = 20;
+const RANK_ROW_HEIGHT = RANK_BAR_HEIGHT + 4;
+const RANK_PLACEHOLDER_PREFIX = '__rank_placeholder__';
+
+const isRankPlaceholder = (datum) => Boolean(datum?.__rankPlaceholder);
+const isRankPlaceholderKey = (value) =>
+  typeof value === 'string' && value.startsWith(RANK_PLACEHOLDER_PREFIX);
+
+const padRankValues = (values, makePlaceholder) => {
+  if (values.length >= RANK_BASE_COUNT) return values;
+  return [
+    ...values,
+    ...Array.from(
+      { length: RANK_BASE_COUNT - values.length },
+      (_, index) => makePlaceholder(index),
+    ),
+  ];
+};
+
+const maskTokenRankUsername = (username, fallback) => {
+  const value = username || fallback;
+  if (value.includes('***')) return value;
+  const chars = Array.from(value);
+  if (chars.length <= 1) return `${value}***`;
+  if (chars.length === 2) return `${chars[0]}***`;
+  return `${chars[0]}***${chars[chars.length - 1]}`;
+};
 
 export const useDashboardCharts = (
   dataExportDefaultTime,
@@ -286,6 +324,83 @@ export const useDashboardCharts = (
     },
   });
 
+  // ========== Token 消耗排行 ==========
+  const [spec_token_rank, setSpecTokenRank] = useState({
+    type: 'bar',
+    data: [{ id: 'tokenRankData', values: [] }],
+    xField: 'rawTokens',
+    yField: 'User',
+    seriesField: 'User',
+    direction: 'horizontal',
+    legends: { visible: false },
+    barWidth: RANK_BAR_HEIGHT,
+    barMinWidth: RANK_BAR_HEIGHT,
+    barMaxWidth: RANK_BAR_HEIGHT,
+    title: {
+      visible: true,
+      text: t('Token消耗排行'),
+      subtext: '',
+    },
+    bar: {
+      style: {
+        height: RANK_BAR_HEIGHT,
+      },
+      state: { hover: { stroke: '#000', lineWidth: 1 } },
+    },
+    label: {
+      visible: true,
+      position: 'outside',
+      formatMethod: (value, datum) =>
+        isRankPlaceholder(datum) ? '' : renderTokenM(datum['rawTokens'] || 0),
+    },
+    axes: [{
+      orient: 'left',
+      type: 'band',
+      bandSize: RANK_ROW_HEIGHT,
+      minBandSize: RANK_ROW_HEIGHT,
+      maxBandSize: RANK_ROW_HEIGHT,
+      autoRegionSize: true,
+      label: {
+        visible: true,
+        formatMethod: (value) => (isRankPlaceholderKey(value) ? '' : value),
+      },
+    }, {
+      orient: 'bottom',
+      type: 'linear',
+      visible: false,
+      label: {
+        formatMethod: (value) => renderTokenM(value),
+      },
+    }],
+    tooltip: {
+      mark: {
+        content: [{
+          key: (datum) => datum['User'],
+          value: (datum) => renderTokenM(datum['rawTokens'] || 0),
+        }],
+        updateContent: (array) =>
+          array.filter((item) => !isRankPlaceholder(item.datum)),
+      },
+    },
+    crosshair: {
+      yField: { visible: false },
+    },
+    barBackground: {
+      visible: true,
+      style: {
+        fill: 'rgba(0, 0, 0, 0)',
+        height: RANK_BAR_HEIGHT,
+      },
+      state: {
+        hover: {
+          fill: 'rgba(100, 116, 139, 0.10)',
+          height: RANK_BAR_HEIGHT,
+        },
+      },
+    },
+    color: { type: 'ordinal', range: USER_COLOR_RANGE },
+  });
+
   // ========== Admin: 用户消耗排行 ==========
   const [spec_user_rank, setSpecUserRank] = useState({
     type: 'bar',
@@ -295,23 +410,37 @@ export const useDashboardCharts = (
     seriesField: 'User',
     direction: 'horizontal',
     legends: { visible: false },
+    barWidth: RANK_BAR_HEIGHT,
+    barMinWidth: RANK_BAR_HEIGHT,
+    barMaxWidth: RANK_BAR_HEIGHT,
     title: {
       visible: true,
       text: t('用户消耗排行'),
       subtext: '',
     },
     bar: {
+      style: {
+        height: RANK_BAR_HEIGHT,
+      },
       state: { hover: { stroke: '#000', lineWidth: 1 } },
     },
     label: {
       visible: true,
       position: 'outside',
-      formatMethod: (value, datum) => renderQuota(datum['rawQuota'] || 0, 2),
+      formatMethod: (value, datum) =>
+        isRankPlaceholder(datum) ? '' : renderQuota(datum['rawQuota'] || 0, 2),
     },
     axes: [{
       orient: 'left',
       type: 'band',
-      label: { visible: true },
+      bandSize: RANK_ROW_HEIGHT,
+      minBandSize: RANK_ROW_HEIGHT,
+      maxBandSize: RANK_ROW_HEIGHT,
+      autoRegionSize: true,
+      label: {
+        visible: true,
+        formatMethod: (value) => (isRankPlaceholderKey(value) ? '' : value),
+      },
     }, {
       orient: 'bottom',
       type: 'linear',
@@ -323,9 +452,27 @@ export const useDashboardCharts = (
           key: (datum) => datum['User'],
           value: (datum) => renderQuota(datum['rawQuota'] || 0, 4),
         }],
+        updateContent: (array) =>
+          array.filter((item) => !isRankPlaceholder(item.datum)),
       },
     },
-    color: { type: 'ordinal', range: USER_COLORS },
+    crosshair: {
+      yField: { visible: false },
+    },
+    barBackground: {
+      visible: true,
+      style: {
+        fill: 'rgba(0, 0, 0, 0)',
+        height: RANK_BAR_HEIGHT,
+      },
+      state: {
+        hover: {
+          fill: 'rgba(100, 116, 139, 0.10)',
+          height: RANK_BAR_HEIGHT,
+        },
+      },
+    },
+    color: { type: 'ordinal', range: USER_COLOR_RANGE },
   });
 
   // ========== Admin: 用户消耗趋势 ==========
@@ -380,7 +527,7 @@ export const useDashboardCharts = (
         },
       },
     },
-    color: { type: 'ordinal', range: USER_COLORS },
+    color: { type: 'ordinal', range: USER_COLOR_RANGE },
   });
 
   // ========== 数据处理函数 ==========
@@ -571,17 +718,33 @@ export const useDashboardCharts = (
         10,
       );
 
-      const userRankValues = rankingData.map((item) => ({
-        User: item.User,
-        rawQuota: item.Quota,
-        Quota: getQuotaWithUnit(item.Quota, 4),
-      })).sort((a, b) => b.rawQuota - a.rawQuota);
+      const userRankValues = padRankValues(
+        rankingData.map((item) => ({
+          User: item.User,
+          rawQuota: item.Quota,
+          Quota: getQuotaWithUnit(item.Quota, 4),
+        })).sort((a, b) => b.rawQuota - a.rawQuota),
+        (index) => ({
+          User: `${RANK_PLACEHOLDER_PREFIX}${index}`,
+          rawQuota: 0,
+          Quota: 0,
+          __rankPlaceholder: true,
+        }),
+      );
 
       const totalUserQuota = rankingData.reduce((s, i) => s + i.Quota, 0);
 
       setSpecUserRank((prev) => ({
         ...prev,
         data: [{ id: 'userRankData', values: userRankValues }],
+        color: {
+          specified: userRankValues.reduce((acc, item, index) => {
+            acc[item.User] = isRankPlaceholder(item)
+              ? 'rgba(0, 0, 0, 0)'
+              : USER_COLOR_RANGE[index % USER_COLOR_RANGE.length];
+            return acc;
+          }, {}),
+        },
         title: {
           ...prev.title,
           subtext: `${t('总计')}：${renderQuota(totalUserQuota, 2)}`,
@@ -607,6 +770,62 @@ export const useDashboardCharts = (
     [dataExportDefaultTime, t],
   );
 
+  const updateTokenRankChart = useCallback(
+    (tokenRankingData) => {
+      const ranking = tokenRankingData?.ranking || [];
+      const maskedNames = new Map();
+      const tokenRankValues = padRankValues(ranking
+        .map((item) => {
+          let displayName = tokenRankingData?.is_limited && !item.is_self
+            ? maskTokenRankUsername(item.username, t('用户'))
+            : item.username || t('用户');
+
+          if (tokenRankingData?.is_limited && !item.is_self) {
+            const count = (maskedNames.get(displayName) || 0) + 1;
+            maskedNames.set(displayName, count);
+            if (count > 1) displayName = `${displayName} #${count}`;
+          }
+
+          return {
+            User: displayName,
+            rawTokens: item.token_used || 0,
+            TokenUsed: renderTokenM(item.token_used || 0),
+            IsSelf: item.is_self,
+          };
+        })
+        .sort((a, b) => b.rawTokens - a.rawTokens), (index) => ({
+          User: `${RANK_PLACEHOLDER_PREFIX}${index}`,
+          rawTokens: 0,
+          TokenUsed: '',
+          IsSelf: false,
+          __rankPlaceholder: true,
+        }));
+
+      const totalTokens = tokenRankValues.reduce(
+        (sum, item) => sum + item.rawTokens,
+        0,
+      );
+
+      setSpecTokenRank((prev) => ({
+        ...prev,
+        data: [{ id: 'tokenRankData', values: tokenRankValues }],
+        color: {
+          specified: tokenRankValues.reduce((acc, item, index) => {
+            acc[item.User] = isRankPlaceholder(item)
+              ? 'rgba(0, 0, 0, 0)'
+              : USER_COLOR_RANGE[index % USER_COLOR_RANGE.length];
+            return acc;
+          }, {}),
+        },
+        title: {
+          ...prev.title,
+          subtext: `${t('总计')}：${renderTokenM(totalTokens)}`,
+        },
+      }));
+    },
+    [t],
+  );
+
   // ========== 初始化图表主题 ==========
   useEffect(() => {
     initVChartSemiTheme({
@@ -619,9 +838,11 @@ export const useDashboardCharts = (
     spec_line,
     spec_model_line,
     spec_rank_bar,
+    spec_token_rank,
     spec_user_rank,
     spec_user_trend,
     updateChartData,
+    updateTokenRankChart,
     updateUserChartData,
     generateModelColors,
   };

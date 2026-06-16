@@ -143,6 +143,17 @@ func UpdateOption(c *gin.Context) {
 			common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
 			return
 		}
+	case "InviterRewardType":
+		rewardType := option.Value.(string)
+		if rewardType != "" && common.InviterRewardValue > 0 && !operation_setting.IsPaymentComplianceConfirmed() {
+			common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
+			return
+		}
+	case "InviterRewardValue":
+		if common.InviterRewardType != "" && isPositiveOptionValue(option.Value.(string)) && !operation_setting.IsPaymentComplianceConfirmed() {
+			common.ApiErrorI18n(c, i18n.MsgPaymentComplianceRequired)
+			return
+		}
 	default:
 		if isPaymentComplianceOptionKey(option.Key) {
 			common.ApiErrorMsg(c, "合规确认字段不允许通过通用设置接口修改")
@@ -212,6 +223,55 @@ func UpdateOption(c *gin.Context) {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
 				"message": "无法启用 Telegram OAuth，请先填入 Telegram Bot Token！",
+			})
+			return
+		}
+	case "InviterRewardType":
+		rewardType := option.Value.(string)
+		if rewardType != "" && rewardType != "fixed" && rewardType != "percentage" {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "充值返利类型只能是 fixed（固定）或 percentage（百分比），留空表示关闭",
+			})
+			return
+		}
+		if rewardType == "percentage" && common.InviterRewardValue > 100 {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": fmt.Sprintf("当前返利值为 %d，超过百分比模式上限 100，请先修改返利值", common.InviterRewardValue),
+			})
+			return
+		}
+	case "InviterRewardValue":
+		rewardValue, err := strconv.Atoi(option.Value.(string))
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "充值返利值必须是有效的数字",
+			})
+			return
+		}
+		if common.InviterRewardType == "percentage" {
+			if rewardValue < 0 || rewardValue > 100 {
+				c.JSON(http.StatusOK, gin.H{
+					"success": false,
+					"message": "当充值返利类型为百分比时，返利值应在 0-100 之间",
+				})
+				return
+			}
+		} else if rewardValue < 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "充值返利值不能为负数",
+			})
+			return
+		}
+	case "MinAffTransferQuota":
+		minTransfer, err := strconv.Atoi(option.Value.(string))
+		if err != nil || minTransfer < 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"success": false,
+				"message": "最低划转额度必须是非负整数",
 			})
 			return
 		}

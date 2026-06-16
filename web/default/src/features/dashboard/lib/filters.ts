@@ -19,7 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
 import {
   DASHBOARD_CHART_PREFERENCES_STORAGE_KEY,
+  DASHBOARD_QUICK_RANGE_PRESETS,
   DEFAULT_DASHBOARD_CHART_PREFERENCES,
+  DEFAULT_DASHBOARD_QUICK_RANGE,
   DEFAULT_TIME_GRANULARITY,
   EMPTY_DASHBOARD_FILTERS,
   TIME_GRANULARITY_STORAGE_KEY,
@@ -149,6 +151,41 @@ export function buildDefaultDashboardFilters(
     start_timestamp: start,
     end_timestamp: end,
     time_granularity: preferences.defaultTimeGranularity,
+  }
+}
+
+export function buildQuickRangeDashboardFilters(
+  presetKey: string,
+  currentFilters?: DashboardFilters
+): { presetKey: string; filters: DashboardFilters } {
+  const fallback =
+    DASHBOARD_QUICK_RANGE_PRESETS.find(
+      (preset) => preset.key === DEFAULT_DASHBOARD_QUICK_RANGE
+    ) ?? DASHBOARD_QUICK_RANGE_PRESETS[0]
+  const preset =
+    DASHBOARD_QUICK_RANGE_PRESETS.find((item) => item.key === presetKey) ??
+    fallback
+  const end = new Date()
+  let start = new Date(end.getTime() - 24 * 3600 * 1000)
+
+  if (preset.mode === 'today') {
+    start = new Date(end)
+    start.setHours(0, 0, 0, 0)
+  } else if (preset.unit === 'hour') {
+    start = new Date(end.getTime() - preset.amount * 3600 * 1000)
+  } else {
+    start = new Date(end.getTime() - preset.amount * 24 * 3600 * 1000)
+  }
+
+  return {
+    presetKey: preset.key,
+    filters: {
+      ...EMPTY_DASHBOARD_FILTERS,
+      ...currentFilters,
+      start_timestamp: start,
+      end_timestamp: end,
+      time_granularity: preset.granularity,
+    },
   }
 }
 

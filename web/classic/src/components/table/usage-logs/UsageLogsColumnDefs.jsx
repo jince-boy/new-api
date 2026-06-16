@@ -376,6 +376,83 @@ function normalizeDetailText(detail) {
     .replace(/\r\n/g, '\n');
 }
 
+const AUDIT_TEMPLATES = {
+  login: 'Logged in successfully via {{method}}',
+  'user.delete': 'Deleted user {{username}} (ID: {{id}})',
+};
+
+const LOGIN_METHOD_LABELS = {
+  '2fa': '两步验证',
+  oauth: 'OAuth',
+  passkey: 'Passkey',
+  password: '密码',
+  telegram: 'Telegram',
+  unknown: '未知',
+  wechat: '微信',
+};
+
+function getLoginMethodLabel(method, t) {
+  const value = String(method || 'unknown');
+  if (value.startsWith('oauth:')) {
+    return value.slice('oauth:'.length) || t(LOGIN_METHOD_LABELS.oauth);
+  }
+  return t(LOGIN_METHOD_LABELS[value] || value);
+}
+
+function renderAuditContent(other, t) {
+  const op = other?.op;
+  if (!op?.action) {
+    return null;
+  }
+
+  const template = AUDIT_TEMPLATES[op.action];
+  if (!template) {
+    return null;
+  }
+
+  const params =
+    op.params && typeof op.params === 'object' && !Array.isArray(op.params)
+      ? op.params
+      : {};
+  const displayParams = { ...params };
+  if (op.action === 'login') {
+    displayParams.method = getLoginMethodLabel(params.method, t);
+  }
+  return t(template, displayParams);
+}
+
+function getLogType(record) {
+  return Number(record?.type);
+}
+
+function getLoginMethodFromContent(text) {
+  const match = String(text || '').match(/^Logged in successfully via\s+(.+)$/);
+  return match?.[1] || '';
+}
+
+function getLocalizedLogContent(record, text, t) {
+  const logType = getLogType(record);
+  if (logType !== 3 && logType !== 7) {
+    return text;
+  }
+
+  const other = getLogOther(record.other);
+  const auditText = renderAuditContent(other, t);
+  if (auditText) {
+    return auditText;
+  }
+
+  if (logType === 7) {
+    const method =
+      other?.login_method || getLoginMethodFromContent(text) || 'unknown';
+    return t('Logged in successfully via {{method}}', {
+      method: getLoginMethodLabel(method, t),
+    });
+  }
+
+  return text;
+}
+
 function getUsageLogGroupSummary(groupRatio, userGroupRatio, t) {
   const parsedUserGroupRatio = Number(userGroupRatio);
   const useUserGroupRatio =
@@ -905,9 +982,10 @@ export const getLogsColumns = ({
       fixed: 'right',
       width: 200,
       render: (text, record, index) => {
+        const displayText = getLocalizedLogContent(record, text, t);
         const detailSummary = getUsageLogDetailSummary(
           record,
-          text,
+          displayText,
           billingDisplayMode,
           t,
         );
@@ -924,7 +1002,7 @@ export const getLogsColumns = ({
               }}
               style={{ maxWidth: 200, marginBottom: 0 }}
             >
-              {text}
+              {displayText}
             </Typography.Paragraph>
           );
         }

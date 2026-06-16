@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type ReactNode, useState, useEffect } from 'react'
+import { type ReactNode, useState, useEffect, useMemo } from 'react'
 import { Link, useLocation } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -61,6 +61,22 @@ import { ChatPresetsItem } from './chat-presets-item'
 export function NavGroup({ title, items }: NavGroupProps) {
   const { state, isMobile } = useSidebar()
   const href = useLocation({ select: (location) => location.href })
+  const activeCollapsibleKey = useMemo(() => {
+    const activeItem = items.find(
+      (item) => item.items && checkIsActive(href, item)
+    )
+    return activeItem ? getNavItemKey(activeItem) : null
+  }, [href, items])
+  const [openCollapsibleKey, setOpenCollapsibleKey] = useState<string | null>(
+    () => activeCollapsibleKey
+  )
+
+  useEffect(() => {
+    if (activeCollapsibleKey) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setOpenCollapsibleKey(activeCollapsibleKey)
+    }
+  }, [activeCollapsibleKey])
 
   return (
     <SidebarGroup className='px-2 py-1'>
@@ -69,7 +85,7 @@ export function NavGroup({ title, items }: NavGroupProps) {
       </SidebarGroupLabel>
       <SidebarMenu>
         {items.map((item) => {
-          const key = `${item.title}-${item.url || item.type}`
+          const key = getNavItemKey(item)
 
           // Special handling: dynamic chat presets list
           if (item.type === 'chat-presets') {
@@ -98,6 +114,10 @@ export function NavGroup({ title, items }: NavGroupProps) {
           return (
             <SidebarMenuCollapsible
               key={key}
+              open={openCollapsibleKey === key}
+              onOpenChange={(open) => {
+                setOpenCollapsibleKey(open ? key : null)
+              }}
               item={item as NavCollapsible}
               href={href}
             />
@@ -106,6 +126,10 @@ export function NavGroup({ title, items }: NavGroupProps) {
       </SidebarMenu>
     </SidebarGroup>
   )
+}
+
+function getNavItemKey(item: NavChatPresets | NavCollapsible | NavLink) {
+  return `${item.title}-${item.url || item.type || 'collapsible'}`
 }
 
 /**
@@ -141,28 +165,20 @@ function SidebarMenuLink({ item, href }: { item: NavLink; href: string }) {
 function SidebarMenuCollapsible({
   item,
   href,
+  open,
+  onOpenChange,
 }: {
   item: NavCollapsible
   href: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
 }) {
   const { setOpenMobile } = useSidebar()
-  // 检查当前路径是否匹配子菜单项
-  const isSubItemActive = checkIsActive(href, item)
-  // 使用受控状态，初始值基于当前路径是否匹配
-  const [isOpen, setIsOpen] = useState(() => isSubItemActive)
-
-  // 当路径变化时，如果匹配子菜单项，自动展开父级菜单
-  useEffect(() => {
-    if (isSubItemActive) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setIsOpen(true)
-    }
-  }, [isSubItemActive])
 
   return (
     <Collapsible
-      open={isOpen}
-      onOpenChange={setIsOpen}
+      open={open}
+      onOpenChange={onOpenChange}
       className='group/collapsible'
       render={<SidebarMenuItem />}
     >

@@ -33,6 +33,24 @@ export interface QuotaDataItem {
   quota?: number
 }
 
+export interface TokenRankingEntry {
+  rank: number
+  user_id?: number
+  username: string
+  token_used: number
+  share: number
+  is_self: boolean
+}
+
+export interface TokenRankingData {
+  ranking: TokenRankingEntry[]
+  self_rank: number
+  self_tokens: number
+  total_users: number
+  limit: number
+  is_limited: boolean
+}
+
 // ============================================================================
 // Uptime Monitoring Types
 // ============================================================================

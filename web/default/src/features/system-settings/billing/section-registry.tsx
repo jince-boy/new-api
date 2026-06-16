@@ -61,6 +61,13 @@ const BILLING_SECTIONS = [
           PreConsumedQuota: settings.PreConsumedQuota,
           QuotaForInviter: settings.QuotaForInviter,
           QuotaForInvitee: settings.QuotaForInvitee,
+          InviterRewardType:
+            settings.InviterRewardType === 'fixed' ||
+            settings.InviterRewardType === 'percentage'
+              ? settings.InviterRewardType
+              : 'disabled',
+          InviterRewardValue: settings.InviterRewardValue,
+          MinAffTransferQuota: settings.MinAffTransferQuota,
           TopUpLink: settings.TopUpLink,
           general_setting: {
             docs_link: settings['general_setting.docs_link'],

@@ -156,6 +156,12 @@ export interface TopupInfo {
   payment_compliance_confirmed?: boolean
   /** Current compliance terms version */
   payment_compliance_terms_version?: string
+  /** Invitation recharge rebate type */
+  inviter_reward_type?: '' | 'fixed' | 'percentage'
+  /** Invitation recharge rebate value */
+  inviter_reward_value?: number
+  /** Minimum affiliate quota required before transfer */
+  min_aff_transfer_quota?: number
 }
 
 /**

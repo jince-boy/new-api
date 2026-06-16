@@ -23,31 +23,34 @@ import { Modal } from '@douyinfe/semi-ui';
 const DeleteUserModal = ({
   visible,
   onCancel,
-  onConfirm,
   user,
   users,
   activePage,
   refresh,
-  manageUser,
+  deleteUser,
   t,
 }) => {
   const handleConfirm = async () => {
-    await manageUser(user.id, 'delete', user);
-    await refresh();
-    setTimeout(() => {
-      if (users.length === 0 && activePage > 1) {
-        refresh(activePage - 1);
-      }
-    }, 100);
-    onCancel(); // Close modal after success
+    const success = await deleteUser(user);
+    if (!success) {
+      return;
+    }
+
+    if (users.length <= 1 && activePage > 1) {
+      await refresh(activePage - 1);
+    } else {
+      await refresh();
+    }
+    onCancel();
   };
 
   return (
     <Modal
-      title={t('确定是否要注销此用户？')}
+      title={t('确认删除')}
       visible={visible}
       onCancel={onCancel}
       onOk={handleConfirm}
+      okText={t('删除')}
       type='danger'
     >
       {t('相当于删除用户，此修改将不可逆')}

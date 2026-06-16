@@ -344,9 +344,12 @@ func inviteUser(inviterId int) (err error) {
 }
 
 func (user *User) TransferAffQuotaToQuota(quota int) error {
-	// 检查quota是否小于最小额度
-	if float64(quota) < common.QuotaPerUnit {
-		return fmt.Errorf("转移额度最小为%s！", logger.LogQuota(int(common.QuotaPerUnit)))
+	minTransferQuota := common.MinAffTransferQuota
+	if minTransferQuota <= 0 {
+		minTransferQuota = int(common.QuotaPerUnit)
+	}
+	if quota < minTransferQuota {
+		return fmt.Errorf("转移额度最小为%s！", logger.LogQuota(minTransferQuota))
 	}
 
 	// 开始数据库事务
@@ -377,7 +380,15 @@ func (user *User) TransferAffQuotaToQuota(quota int) error {
 	}
 
 	// 提交事务
-	return tx.Commit().Error
+	if err := tx.Commit().Error; err != nil {
+		return err
+	}
+
+	if err := updateUserCache(*user); err != nil {
+		common.SysLog(fmt.Sprintf("failed to update user cache after affiliate quota transfer for user %d: %s", user.Id, err.Error()))
+	}
+	RecordLog(user.Id, LogTypeTopup, fmt.Sprintf("划转邀请额度到余额 %s", logger.LogQuota(quota)))
+	return nil
 }
 
 func (user *User) Insert(inviterId int) error {

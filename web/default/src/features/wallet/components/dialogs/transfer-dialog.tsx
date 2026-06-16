@@ -19,7 +19,11 @@ For commercial licensing, please contact support@quantumnous.com
 import { useState, useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { formatQuota } from '@/lib/format'
+import {
+  formatQuota,
+  parseQuotaFromDollars,
+  quotaUnitsToDollars,
+} from '@/lib/format'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -32,6 +36,7 @@ interface TransferDialogProps {
   onConfirm: (amount: number) => Promise<boolean>
   availableQuota: number
   transferring: boolean
+  minTransferQuota?: number
 }
 
 export function TransferDialog({
@@ -40,18 +45,29 @@ export function TransferDialog({
   onConfirm,
   availableQuota,
   transferring,
+  minTransferQuota = 0,
 }: TransferDialogProps) {
   const { t } = useTranslation()
-  const [amount, setAmount] = useState(QUOTA_PER_DOLLAR)
+  const effectiveMinTransferQuota =
+    minTransferQuota > 0 ? minTransferQuota : QUOTA_PER_DOLLAR
+  const [amount, setAmount] = useState(effectiveMinTransferQuota)
+  const displayAmount = quotaUnitsToDollars(amount)
+  const displayMinAmount = quotaUnitsToDollars(effectiveMinTransferQuota)
+  const displayAvailableAmount = quotaUnitsToDollars(availableQuota)
+  const amountInvalid =
+    !Number.isFinite(amount) ||
+    amount < effectiveMinTransferQuota ||
+    amount > availableQuota
 
   useEffect(() => {
     if (open) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
-      setAmount(QUOTA_PER_DOLLAR)
+      setAmount(Math.min(availableQuota, effectiveMinTransferQuota))
     }
-  }, [open])
+  }, [availableQuota, effectiveMinTransferQuota, open])
 
   const handleConfirm = async () => {
+    if (amountInvalid) return
     const success = await onConfirm(amount)
     if (success) {
       onOpenChange(false)
@@ -78,15 +94,18 @@ export function TransferDialog({
           >
             {t('Cancel')}
           </Button>
-          <Button onClick={handleConfirm} disabled={transferring}>
+          <Button
+            onClick={handleConfirm}
+            disabled={transferring || amountInvalid}
+          >
             {transferring && <Loader2 className='mr-2 h-4 w-4 animate-spin' />}
             {t('Transfer')}
           </Button>
         </>
       }
     >
-      <div className='space-y-4 py-3 sm:space-y-6 sm:py-4'>
-        <div className='space-y-2'>
+      <div className='flex flex-col gap-4 py-3 sm:gap-6 sm:py-4'>
+        <div className='flex flex-col gap-2'>
           <Label className='text-muted-foreground text-xs font-medium tracking-wider uppercase'>
             {t('Available Rewards')}
           </Label>
@@ -95,7 +114,7 @@ export function TransferDialog({
           </div>
         </div>
 
-        <div className='space-y-3'>
+        <div className='flex flex-col gap-3'>
           <Label
             htmlFor='transfer-amount'
             className='text-muted-foreground text-xs font-medium tracking-wider uppercase'
@@ -105,16 +124,29 @@ export function TransferDialog({
           <Input
             id='transfer-amount'
             type='number'
-            value={amount}
-            onChange={(e) => setAmount(Number(e.target.value))}
-            min={QUOTA_PER_DOLLAR}
-            max={availableQuota}
-            step={QUOTA_PER_DOLLAR}
+            value={displayAmount}
+            onChange={(e) =>
+              setAmount(parseQuotaFromDollars(Number(e.target.value)))
+            }
+            min={displayMinAmount}
+            max={displayAvailableAmount}
+            step={0.000001}
             className='font-mono text-lg'
           />
-          <p className='text-muted-foreground text-xs'>
-            {t('Minimum:')} {formatQuota(QUOTA_PER_DOLLAR)}
-          </p>
+          <div className='flex items-center justify-between gap-3'>
+            <p className='text-muted-foreground text-xs'>
+              {t('Minimum:')} {formatQuota(effectiveMinTransferQuota)}
+            </p>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              onClick={() => setAmount(availableQuota)}
+              disabled={transferring || availableQuota <= 0}
+            >
+              {t('Transfer All')}
+            </Button>
+          </div>
         </div>
       </div>
     </Dialog>

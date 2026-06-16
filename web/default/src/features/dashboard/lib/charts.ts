@@ -19,7 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 import { dataScheme as vchartDefaultDataScheme } from '@visactor/vchart/esm/theme/color-scheme/builtin/default'
 import { getCurrencyDisplay } from '@/lib/currency'
 import { formatChartTime, type TimeGranularity } from '@/lib/time'
-import { MAX_CHART_TREND_POINTS } from '@/features/dashboard/constants'
+import {
+  DASHBOARD_RANK_BAR_HEIGHT,
+  DASHBOARD_RANK_BASE_COUNT,
+  DASHBOARD_RANK_DESKTOP_ROW_HEIGHT,
+  MAX_CHART_TREND_POINTS,
+} from '@/features/dashboard/constants'
 import type {
   QuotaDataItem,
   ProcessedChartData,
@@ -45,6 +50,31 @@ const THEME_CHART_COLOR_VARIABLES = [
   '--chart-4',
   '--chart-5',
 ] as const
+
+const RANK_PLACEHOLDER_PREFIX = '__rank_placeholder__'
+
+function isRankPlaceholder(datum: Record<string, unknown> | undefined) {
+  return Boolean(datum?.__rankPlaceholder)
+}
+
+function isRankPlaceholderKey(value: unknown) {
+  return typeof value === 'string' && value.startsWith(RANK_PLACEHOLDER_PREFIX)
+}
+
+function padRankValues<T extends Record<string, unknown>>(
+  values: T[],
+  makePlaceholder: (index: number) => T
+) {
+  if (values.length >= DASHBOARD_RANK_BASE_COUNT) return values
+
+  return [
+    ...values,
+    ...Array.from(
+      { length: DASHBOARD_RANK_BASE_COUNT - values.length },
+      (_, index) => makePlaceholder(index)
+    ),
+  ]
+}
 
 function getThemeChartColors(themeKey?: string): string[] {
   if (typeof document === 'undefined') return []
@@ -767,6 +797,14 @@ export function processUserChartData(
         subtext: tt('No data available'),
       },
       legends: { visible: false },
+      barWidth: DASHBOARD_RANK_BAR_HEIGHT,
+      barMinWidth: DASHBOARD_RANK_BAR_HEIGHT,
+      barMaxWidth: DASHBOARD_RANK_BAR_HEIGHT,
+      bar: {
+        style: {
+          height: DASHBOARD_RANK_BAR_HEIGHT,
+        },
+      },
       color: { type: 'ordinal', range: userColorRange },
       background: { fill: 'transparent' },
     },
@@ -804,11 +842,19 @@ export function processUserChartData(
   const topUserSet = new Set(topUsers)
   const totalQuota = sorted.slice(0, limit).reduce((s, [, q]) => s + q, 0)
 
-  const rankValues = sorted.slice(0, limit).map(([username, quota]) => ({
-    User: username,
-    rawQuota: quota,
-    Usage: Number((quota / quotaPerUnit).toFixed(4)),
-  }))
+  const rankValues = padRankValues(
+    sorted.slice(0, limit).map(([username, quota]) => ({
+      User: username,
+      rawQuota: quota,
+      Usage: Number((quota / quotaPerUnit).toFixed(4)),
+    })),
+    (index) => ({
+      User: `${RANK_PLACEHOLDER_PREFIX}${index}`,
+      rawQuota: 0,
+      Usage: 0,
+      __rankPlaceholder: true,
+    })
+  )
 
   const userColorMap = topUsers.reduce<Record<string, string>>(
     (acc, user, i) => {
@@ -817,6 +863,11 @@ export function processUserChartData(
     },
     {}
   )
+  rankValues.forEach((item) => {
+    if (isRankPlaceholder(item)) {
+      userColorMap[String(item.User)] = 'rgba(0, 0, 0, 0)'
+    }
+  })
 
   const timeUserMap = new Map<string, Map<string, number>>()
   const allTimePoints = new Set<string>()
@@ -866,17 +917,35 @@ export function processUserChartData(
         subtext: `${tt('Total:')} ${formatVal(totalQuota)}`,
       },
       legends: { visible: false },
+      barWidth: DASHBOARD_RANK_BAR_HEIGHT,
+      barMinWidth: DASHBOARD_RANK_BAR_HEIGHT,
+      barMaxWidth: DASHBOARD_RANK_BAR_HEIGHT,
       bar: {
+        style: {
+          height: DASHBOARD_RANK_BAR_HEIGHT,
+        },
         state: { hover: { stroke: '#000', lineWidth: 1 } },
       },
       label: {
         visible: true,
         position: 'outside',
-        formatMethod: (value: number) => formatVal(value),
+        formatMethod: (value: number, datum?: Record<string, unknown>) =>
+          isRankPlaceholder(datum) ? '' : formatVal(value),
         style: { fontSize: 11 },
       },
       axes: [
-        { orient: 'left', type: 'band' },
+        {
+          orient: 'left',
+          type: 'band',
+          bandSize: DASHBOARD_RANK_DESKTOP_ROW_HEIGHT,
+          minBandSize: DASHBOARD_RANK_DESKTOP_ROW_HEIGHT,
+          maxBandSize: DASHBOARD_RANK_DESKTOP_ROW_HEIGHT,
+          autoRegionSize: true,
+          label: {
+            formatMethod: (value: unknown) =>
+              isRankPlaceholderKey(value) ? '' : String(value),
+          },
+        },
         { orient: 'bottom', type: 'linear', visible: false },
       ],
       tooltip: {
@@ -895,6 +964,7 @@ export function processUserChartData(
               datum?: Record<string, unknown>
             }>
           ) => {
+            array = array.filter((item) => !isRankPlaceholder(item.datum))
             for (let i = 0; i < array.length; i++) {
               const rawQuota = array[i].datum?.rawQuota
               const value =
@@ -902,6 +972,22 @@ export function processUserChartData(
               array[i].value = formatVal(Number(value) || 0)
             }
             return array
+          },
+        },
+      },
+      crosshair: {
+        yField: { visible: false },
+      },
+      barBackground: {
+        visible: true,
+        style: {
+          fill: 'rgba(0, 0, 0, 0)',
+          height: DASHBOARD_RANK_BAR_HEIGHT,
+        },
+        state: {
+          hover: {
+            fill: 'rgba(100, 116, 139, 0.10)',
+            height: DASHBOARD_RANK_BAR_HEIGHT,
           },
         },
       },

@@ -22,6 +22,13 @@ import { Card, Tabs, TabPane } from '@douyinfe/semi-ui';
 import { PieChart } from 'lucide-react';
 import { VChart } from '@visactor/react-vchart';
 
+const USER_RANK_BASE_COUNT = 10;
+const USER_RANK_BAR_HEIGHT = 20;
+const USER_RANK_ROW_HEIGHT = USER_RANK_BAR_HEIGHT + 4;
+const USER_RANK_CHART_HEADER_HEIGHT = 60;
+const USER_RANK_CHART_HEIGHT =
+  USER_RANK_CHART_HEADER_HEIGHT + USER_RANK_ROW_HEIGHT * USER_RANK_BASE_COUNT;
+
 const ChartsPanel = ({
   activeChartTab,
   setActiveChartTab,
@@ -29,6 +36,7 @@ const ChartsPanel = ({
   spec_model_line,
   spec_pie,
   spec_rank_bar,
+  spec_token_rank,
   spec_user_rank,
   spec_user_trend,
   isAdminUser,
@@ -38,6 +46,19 @@ const ChartsPanel = ({
   hasApiInfoPanel,
   t,
 }) => {
+  const getVisibleRankCount = (spec) =>
+    (spec?.data?.[0]?.values || []).filter((item) => !item?.__rankPlaceholder)
+      .length;
+
+  const tokenRankCount = getVisibleRankCount(spec_token_rank);
+  const userRankCount = getVisibleRankCount(spec_user_rank);
+  const tokenRankHeight =
+    USER_RANK_CHART_HEADER_HEIGHT +
+    Math.max(tokenRankCount, USER_RANK_BASE_COUNT) * USER_RANK_ROW_HEIGHT;
+  const userRankHeight =
+    USER_RANK_CHART_HEADER_HEIGHT +
+    Math.max(userRankCount, USER_RANK_BASE_COUNT) * USER_RANK_ROW_HEIGHT;
+
   return (
     <Card
       {...CARD_PROPS}
@@ -57,11 +78,12 @@ const ChartsPanel = ({
             <TabPane tab={<span>{t('调用趋势')}</span>} itemKey='2' />
             <TabPane tab={<span>{t('调用次数分布')}</span>} itemKey='3' />
             <TabPane tab={<span>{t('调用次数排行')}</span>} itemKey='4' />
+            <TabPane tab={<span>{t('Token消耗排行')}</span>} itemKey='5' />
             {isAdminUser && (
-              <TabPane tab={<span>{t('用户消耗排行')}</span>} itemKey='5' />
+              <TabPane tab={<span>{t('用户消耗排行')}</span>} itemKey='6' />
             )}
             {isAdminUser && (
-              <TabPane tab={<span>{t('用户消耗趋势')}</span>} itemKey='6' />
+              <TabPane tab={<span>{t('用户消耗趋势')}</span>} itemKey='7' />
             )}
           </Tabs>
         </div>
@@ -81,10 +103,21 @@ const ChartsPanel = ({
         {activeChartTab === '4' && (
           <VChart spec={spec_rank_bar} option={CHART_CONFIG} />
         )}
-        {activeChartTab === '5' && isAdminUser && (
-          <VChart spec={spec_user_rank} option={CHART_CONFIG} />
+        {activeChartTab === '5' && (
+          <div className='overflow-y-auto' style={{ height: USER_RANK_CHART_HEIGHT }}>
+            <div style={{ height: tokenRankHeight }}>
+              <VChart spec={spec_token_rank} option={CHART_CONFIG} />
+            </div>
+          </div>
         )}
         {activeChartTab === '6' && isAdminUser && (
+          <div className='overflow-y-auto' style={{ height: USER_RANK_CHART_HEIGHT }}>
+            <div style={{ height: userRankHeight }}>
+              <VChart spec={spec_user_rank} option={CHART_CONFIG} />
+            </div>
+          </div>
+        )}
+        {activeChartTab === '7' && isAdminUser && (
           <VChart spec={spec_user_trend} option={CHART_CONFIG} />
         )}
       </div>

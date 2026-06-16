@@ -39,7 +39,46 @@ const InvitationCard = ({
   affLink,
   handleAffLinkClick,
   complianceConfirmed = true,
+  rewardType = '',
+  rewardValue = 0,
+  minTransferQuota = 0,
 }) => {
+  const affQuota = userState?.user?.aff_quota || 0;
+  const transferDisabled =
+    !complianceConfirmed ||
+    affQuota <= 0 ||
+    (minTransferQuota > 0 && affQuota < minTransferQuota);
+
+  const renderRewardRule = () => {
+    if (rewardType === 'percentage' && rewardValue > 0) {
+      return (
+        <Text type='tertiary' className='text-sm'>
+          {t('好友每次充值，您获得充值额度的')}{' '}
+          <Text strong type='success' className='text-sm'>
+            {rewardValue}%
+          </Text>{' '}
+          {t('作为返利')}
+        </Text>
+      );
+    }
+    if (rewardType === 'fixed' && rewardValue > 0) {
+      return (
+        <Text type='tertiary' className='text-sm'>
+          {t('好友每次充值，您获得')}{' '}
+          <Text strong type='success' className='text-sm'>
+            {renderQuota(rewardValue)}
+          </Text>{' '}
+          {t('固定返利')}
+        </Text>
+      );
+    }
+    return (
+      <Text type='tertiary' className='text-sm'>
+        {t('邀请好友注册，好友充值后您可获得相应奖励')}
+      </Text>
+    );
+  };
+
   return (
     <Card className='!rounded-2xl shadow-sm border-0'>
       {/* 卡片头部 */}
@@ -81,10 +120,11 @@ const InvitationCard = ({
                     type='primary'
                     theme='solid'
                     size='small'
-                    disabled={
-                      !complianceConfirmed ||
-                      !userState?.user?.aff_quota ||
-                      userState?.user?.aff_quota <= 0
+                    disabled={transferDisabled}
+                    title={
+                      transferDisabled && minTransferQuota > 0
+                        ? t('返利余额未达到最低划转门槛')
+                        : undefined
                     }
                     onClick={() => setOpenTransfer(true)}
                     className='!rounded-lg'
@@ -101,6 +141,16 @@ const InvitationCard = ({
                     }}
                   >
                     {t('邀请奖励划转已禁用，管理员需先确认合规声明。')}
+                  </Text>
+                )}
+                {complianceConfirmed && minTransferQuota > 0 && (
+                  <Text
+                    style={{
+                      color: 'rgba(255,255,255,0.8)',
+                      fontSize: 12,
+                    }}
+                  >
+                    {t('最低划转门槛')}: {renderQuota(minTransferQuota)}
                   </Text>
                 )}
 
@@ -213,9 +263,7 @@ const InvitationCard = ({
           <div className='space-y-3'>
             <div className='flex items-start gap-2'>
               <Badge dot type='success' />
-              <Text type='tertiary' className='text-sm'>
-                {t('邀请好友注册，好友充值后您可获得相应奖励')}
-              </Text>
+              {renderRewardRule()}
             </div>
 
             <div className='flex items-start gap-2'>
