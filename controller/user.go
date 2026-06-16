@@ -273,7 +273,7 @@ func Register(c *gin.Context) {
 
 func GetAllUsers(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
-	users, total, err := model.GetAllUsers(pageInfo)
+	users, total, totalQuota, err := model.GetAllUsers(pageInfo)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -282,7 +282,13 @@ func GetAllUsers(c *gin.Context) {
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
 
-	common.ApiSuccess(c, pageInfo)
+	common.ApiSuccess(c, gin.H{
+		"items":       pageInfo.Items,
+		"page":        pageInfo.Page,
+		"page_size":   pageInfo.PageSize,
+		"total":       pageInfo.Total,
+		"total_quota": totalQuota,
+	})
 	return
 }
 
@@ -310,7 +316,18 @@ func SearchUsers(c *gin.Context) {
 
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(users)
-	common.ApiSuccess(c, pageInfo)
+	totalQuota, err := model.GetAllUsersQuota()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"items":       pageInfo.Items,
+		"page":        pageInfo.Page,
+		"page_size":   pageInfo.PageSize,
+		"total":       pageInfo.Total,
+		"total_quota": totalQuota,
+	})
 	return
 }
 

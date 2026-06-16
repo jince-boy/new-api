@@ -84,6 +84,7 @@ export interface GetUsersResponse {
   data?: {
     items: User[]
     total: number
+    total_quota?: number
     page: number
     page_size: number
   }

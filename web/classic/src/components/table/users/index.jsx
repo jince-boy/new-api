@@ -57,6 +57,7 @@ const UsersPage = () => {
     // Description state
     compactMode,
     setCompactMode,
+    totalQuota,
 
     // Translation
     t,
@@ -83,6 +84,9 @@ const UsersPage = () => {
           <UsersDescription
             compactMode={compactMode}
             setCompactMode={setCompactMode}
+            totalQuota={totalQuota}
+            refresh={refresh}
+            loading={loading || searching}
             t={t}
           />
         }

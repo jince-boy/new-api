@@ -35,6 +35,7 @@ export const useUsersData = () => {
   const [searching, setSearching] = useState(false);
   const [groupOptions, setGroupOptions] = useState([]);
   const [userCount, setUserCount] = useState(0);
+  const [totalQuota, setTotalQuota] = useState(0);
 
   // Modal states
   const [showAddUser, setShowAddUser] = useState(false);
@@ -78,6 +79,7 @@ export const useUsersData = () => {
       const newPageData = data.items;
       setActivePage(data.page);
       setUserCount(data.total);
+      setTotalQuota(data.total_quota || 0);
       setUserFormat(newPageData);
     } else {
       showError(message);
@@ -113,6 +115,7 @@ export const useUsersData = () => {
       const newPageData = data.items;
       setActivePage(data.page);
       setUserCount(data.total);
+      setTotalQuota(data.total_quota || 0);
       setUserFormat(newPageData);
     } else {
       showError(message);
@@ -289,7 +292,7 @@ export const useUsersData = () => {
 
   // Initialize data on component mount
   useEffect(() => {
-    loadUsers(0, pageSize)
+    loadUsers(1, pageSize)
       .then()
       .catch((reason) => {
         showError(reason);
@@ -304,6 +307,7 @@ export const useUsersData = () => {
     activePage,
     pageSize,
     userCount,
+    totalQuota,
     searching,
     groupOptions,
 

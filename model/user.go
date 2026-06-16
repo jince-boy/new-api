@@ -191,11 +191,16 @@ func GetMaxUserId() int {
 	return user.Id
 }
 
-func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, err error) {
+func GetAllUsersQuota() (totalQuota int64, err error) {
+	err = DB.Unscoped().Model(&User{}).Select("COALESCE(SUM(quota), 0)").Scan(&totalQuota).Error
+	return totalQuota, err
+}
+
+func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, totalQuota int64, err error) {
 	// Start transaction
 	tx := DB.Begin()
 	if tx.Error != nil {
-		return nil, 0, tx.Error
+		return nil, 0, 0, tx.Error
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -207,22 +212,28 @@ func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, err err
 	err = tx.Unscoped().Model(&User{}).Count(&total).Error
 	if err != nil {
 		tx.Rollback()
-		return nil, 0, err
+		return nil, 0, 0, err
+	}
+
+	err = tx.Unscoped().Model(&User{}).Select("COALESCE(SUM(quota), 0)").Scan(&totalQuota).Error
+	if err != nil {
+		tx.Rollback()
+		return nil, 0, 0, err
 	}
 
 	// Get paginated users within same transaction
 	err = tx.Unscoped().Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Omit("password").Find(&users).Error
 	if err != nil {
 		tx.Rollback()
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
 	// Commit transaction
 	if err = tx.Commit().Error; err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 
-	return users, total, nil
+	return users, total, totalQuota, nil
 }
 
 func SearchUsers(keyword string, group string, role *int, status *int, startIdx int, num int) ([]*User, int64, error) {

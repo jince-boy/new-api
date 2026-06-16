@@ -20,8 +20,12 @@ import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import { useMediaQuery } from '@/hooks'
 import { useTranslation } from 'react-i18next'
+import { RefreshCw } from 'lucide-react'
 import { toast } from 'sonner'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { cn } from '@/lib/utils'
+import { formatQuota } from '@/lib/format'
+import { Button } from '@/components/ui/button'
 import {
   DISABLED_ROW_DESKTOP,
   DISABLED_ROW_MOBILE,
@@ -49,7 +53,7 @@ function isDisabledUserRow(user: User) {
 export function UsersTable() {
   const { t } = useTranslation()
   const columns = useUsersColumns()
-  const { refreshTrigger } = useUsers()
+  const { refreshTrigger, triggerRefresh } = useUsers()
   const isMobile = useMediaQuery('(max-width: 640px)')
 
   const {
@@ -119,12 +123,13 @@ export function UsersTable() {
         toast.error(
           result.message || `Failed to ${hasFilter ? 'search' : 'load'} users`
         )
-        return { items: [], total: 0 }
+        return { items: [], total: 0, totalQuota: 0 }
       }
 
       return {
         items: result.data?.items || [],
         total: result.data?.total || 0,
+        totalQuota: result.data?.total_quota || 0,
       }
     },
     placeholderData: (previousData) => previousData,
@@ -162,42 +167,66 @@ export function UsersTable() {
   })
 
   return (
-    <DataTablePage
-      table={table}
-      columns={columns}
-      isLoading={isLoading}
-      isFetching={isFetching}
-      emptyTitle={t('No Users Found')}
-      emptyDescription={t(
-        'No users available. Try adjusting your search or filters.'
-      )}
-      skeletonKeyPrefix='users-skeleton'
-      applyHeaderSize
-      toolbarProps={{
-        searchPlaceholder: t('Filter by username, name or email...'),
-        filters: [
-          {
-            columnId: 'status',
-            title: t('Status'),
-            options: getUserStatusOptions(t),
-            singleSelect: true,
-          },
-          {
-            columnId: 'role',
-            title: t('Role'),
-            options: getUserRoleOptions(t),
-            singleSelect: true,
-          },
-        ],
-      }}
-      getRowClassName={(row, { isMobile }) =>
-        isDisabledUserRow(row.original)
-          ? isMobile
-            ? DISABLED_ROW_MOBILE
-            : DISABLED_ROW_DESKTOP
-          : undefined
-      }
-      bulkActions={<DataTableBulkActions table={table} />}
-    />
+    <div className='flex h-full min-h-0 flex-col gap-2.5'>
+      <div className='border-border bg-muted/30 flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-md border px-3 py-2'>
+        <div className='min-w-0'>
+          <div className='text-muted-foreground text-xs font-medium'>
+            {t('All users balance')}
+          </div>
+          <div className='text-foreground truncate text-sm font-semibold'>
+            {formatQuota(data?.totalQuota || 0)}
+          </div>
+        </div>
+        <Button
+          variant='outline'
+          size='icon-sm'
+          onClick={triggerRefresh}
+          disabled={isFetching}
+          title={t('Refresh')}
+          aria-label={t('Refresh')}
+        >
+          <RefreshCw className={cn(isFetching && 'animate-spin')} />
+        </Button>
+      </div>
+
+      <DataTablePage
+        table={table}
+        columns={columns}
+        isLoading={isLoading}
+        isFetching={isFetching}
+        emptyTitle={t('No Users Found')}
+        emptyDescription={t(
+          'No users available. Try adjusting your search or filters.'
+        )}
+        skeletonKeyPrefix='users-skeleton'
+        applyHeaderSize
+        className='min-h-0 flex-1'
+        toolbarProps={{
+          searchPlaceholder: t('Filter by username, name or email...'),
+          filters: [
+            {
+              columnId: 'status',
+              title: t('Status'),
+              options: getUserStatusOptions(t),
+              singleSelect: true,
+            },
+            {
+              columnId: 'role',
+              title: t('Role'),
+              options: getUserRoleOptions(t),
+              singleSelect: true,
+            },
+          ],
+        }}
+        getRowClassName={(row, { isMobile }) =>
+          isDisabledUserRow(row.original)
+            ? isMobile
+              ? DISABLED_ROW_MOBILE
+              : DISABLED_ROW_DESKTOP
+            : undefined
+        }
+        bulkActions={<DataTableBulkActions table={table} />}
+      />
+    </div>
   )
 }
