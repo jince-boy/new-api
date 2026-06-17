@@ -76,9 +76,21 @@ export const DEBUG_TABS = {
 // ========== API 相关常量 ==========
 export const API_ENDPOINTS = {
   CHAT_COMPLETIONS: '/pg/chat/completions',
+  IMAGE_GENERATIONS: '/pg/images/generations',
+  IMAGE_EDITS: '/pg/images/edits',
   USER_MODELS: '/api/user/models',
   USER_GROUPS: '/api/user/self/groups',
 };
+
+export const IMAGE_SIZE_OPTIONS = [
+  '1024x1024',
+  '1536x1024',
+  '1024x1536',
+  '1920x1072',
+  '2048x2048',
+  '3840x2160',
+  '2160x3840',
+];
 
 // ========== 配置默认值 ==========
 export const DEFAULT_CONFIG = {
@@ -94,6 +106,9 @@ export const DEFAULT_CONFIG = {
     stream: true,
     imageEnabled: false,
     imageUrls: [''],
+    imageSize: '1024x1024',
+    imageCount: 1,
+    imageQuality: 'auto',
   },
   parameterEnabled: {
     temperature: true,

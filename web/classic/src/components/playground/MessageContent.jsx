@@ -299,9 +299,17 @@ const MessageContent = ({
             const textContent = message.content.find(
               (item) => item.type === 'text',
             );
-            const imageContents = message.content.filter(
-              (item) => item.type === 'image_url',
-            );
+            const imageContents = message.content
+              .map((item) => {
+                const url =
+                  typeof item?.image_url === 'string'
+                    ? item.image_url
+                    : item?.image_url?.url;
+                return item?.type === 'image_url' && url
+                  ? { ...item, image_url: { url } }
+                  : null;
+              })
+              .filter(Boolean);
 
             return (
               <div>
@@ -316,7 +324,9 @@ const MessageContent = ({
                           style={{ maxHeight: '300px' }}
                           onError={(e) => {
                             e.target.style.display = 'none';
-                            e.target.nextSibling.style.display = 'block';
+                            if (e.target.nextSibling?.style) {
+                              e.target.nextSibling.style.display = 'block';
+                            }
                           }}
                         />
                         <div

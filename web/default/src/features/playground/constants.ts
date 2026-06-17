@@ -35,9 +35,38 @@ export const MESSAGE_STATUS = {
 // API endpoints
 export const API_ENDPOINTS = {
   CHAT_COMPLETIONS: '/pg/chat/completions',
+  IMAGE_GENERATIONS: '/pg/images/generations',
+  IMAGE_EDITS: '/pg/images/edits',
   USER_MODELS: '/api/user/models',
   USER_GROUPS: '/api/user/self/groups',
 } as const
+
+export const PLAYGROUND_MODES = {
+  CHAT: 'chat',
+  IMAGE: 'image',
+  IMAGE_EDIT: 'image_edit',
+} as const
+
+export const IMAGE_SIZE_OPTIONS = [
+  '1024x1024',
+  '1536x1024',
+  '1024x1536',
+  '1920x1072',
+  '2048x2048',
+  '3840x2160',
+  '2160x3840',
+] as const
+
+export const IMAGE_COUNT_OPTIONS = [1, 2, 3, 4] as const
+
+export const IMAGE_QUALITY_OPTIONS = [
+  'auto',
+  'standard',
+  'hd',
+  'high',
+  'medium',
+  'low',
+] as const
 
 // Default group — uses 'default' as the safe fallback; auto-group is
 // only selected when the backend confirms it is available for the user.
@@ -54,6 +83,10 @@ export const DEFAULT_CONFIG: PlaygroundConfig = {
   presence_penalty: 0,
   seed: null,
   stream: true,
+  imageUrls: [],
+  imageSize: '1024x1024',
+  imageCount: 1,
+  imageQuality: 'auto',
 }
 
 export const DEFAULT_PARAMETER_ENABLED: ParameterEnabled = {
@@ -70,6 +103,14 @@ export const STORAGE_KEYS = {
   CONFIG: 'playground_config',
   MESSAGES: 'playground_messages',
   PARAMETER_ENABLED: 'playground_parameter_enabled',
+  CONVERSATIONS: 'playground_conversations',
+  ACTIVE_CONVERSATION: 'playground_active_conversation',
+  IMAGE_LIBRARY: 'playground_image_library',
+} as const
+
+export const STORAGE_LIMITS = {
+  CONVERSATIONS: 40,
+  IMAGE_ASSETS: 80,
 } as const
 
 // Error messages

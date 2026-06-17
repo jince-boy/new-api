@@ -84,11 +84,16 @@ export function usePlaygroundState() {
 
   // Update messages with automatic save
   const updateMessages = useCallback(
-    (updater: Message[] | ((prev: Message[]) => Message[])) => {
+    (
+      updater: Message[] | ((prev: Message[]) => Message[]),
+      options: { persist?: boolean } = {}
+    ) => {
       setMessages((prev) => {
         const newMessages =
           typeof updater === 'function' ? updater(prev) : updater
-        saveMessages(newMessages)
+        if (options.persist ?? true) {
+          saveMessages(newMessages)
+        }
         return newMessages
       })
     },

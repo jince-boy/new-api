@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/dto"
@@ -69,17 +70,8 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 		if strings.Contains(size, ":") {
 			aspectRatio = size
 		} else {
-			switch size {
-			case "256x256", "512x512", "1024x1024":
-				aspectRatio = "1:1"
-			case "1536x1024":
-				aspectRatio = "3:2"
-			case "1024x1536":
-				aspectRatio = "2:3"
-			case "1024x1792":
-				aspectRatio = "9:16"
-			case "1792x1024":
-				aspectRatio = "16:9"
+			if parsedAspectRatio := aspectRatioFromImageSize(size); parsedAspectRatio != "" {
+				aspectRatio = parsedAspectRatio
 			}
 		}
 	}
@@ -121,6 +113,46 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	}
 
 	return geminiRequest, nil
+}
+
+func aspectRatioFromImageSize(size string) string {
+	parts := strings.Split(size, "x")
+	if len(parts) != 2 {
+		return ""
+	}
+	width, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil {
+		return ""
+	}
+	height, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return ""
+	}
+	if width <= 0 || height <= 0 {
+		return ""
+	}
+
+	divisor := gcd(width, height)
+	ratio := fmt.Sprintf("%d:%d", width/divisor, height/divisor)
+	switch ratio {
+	case "1:1", "3:2", "2:3", "9:16", "16:9", "4:3", "3:4":
+		return ratio
+	default:
+		return ""
+	}
+}
+
+func gcd(a int, b int) int {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	if a < 0 {
+		return -a
+	}
+	if a == 0 {
+		return 1
+	}
+	return a
 }
 
 func (a *Adaptor) Init(info *relaycommon.RelayInfo) {

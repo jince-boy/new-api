@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -33,9 +34,22 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		return types.NewError(fmt.Errorf("failed to copy request to ImageRequest: %w", err), types.ErrorCodeInvalidRequest, types.ErrOptionWithSkipRetry())
 	}
 
+	originalModel := request.Model
+	exactSize := normalizeImageSize(request.Size)
+	exactSizeRequired := requiresExactImageSize(info, *request, originalModel)
+	if exactSizeRequired && exactSize != "" {
+		if !isValidExactImageSize(exactSize) {
+			return types.NewErrorWithStatusCode(fmt.Errorf("image-2 size must be 16-multiple dimensions, long edge <= 3840, ratio <= 3:1, and 655360-8294400 pixels: %s", request.Size), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		request.Size = exactSize
+	}
+
 	err = helper.ModelMappedHelper(c, info, request)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
+	}
+	if exactSizeRequired && exactSize != "" {
+		request.Size = exactSize
 	}
 
 	adaptor := GetAdaptor(info.ApiType)
@@ -46,7 +60,7 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 
 	var requestBody io.Reader
 
-	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
+	if (model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled) && !exactSizeRequired {
 		storage, err := common.GetBodyStorage(c)
 		if err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
@@ -73,6 +87,12 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 				jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
 				if err != nil {
 					return newAPIErrorFromParamOverride(err)
+				}
+			}
+			if exactSizeRequired && exactSize != "" {
+				jsonData, err = preserveExactImageSize(jsonData, exactSize)
+				if err != nil {
+					return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
 				}
 			}
 
@@ -159,4 +179,141 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), logContent)
 	return nil
+}
+
+func requiresExactImageSize(info *relaycommon.RelayInfo, request dto.ImageRequest, modelNames ...string) bool {
+	if isExactImageSizeModel(request.Model) {
+		return true
+	}
+	for _, modelName := range modelNames {
+		if isExactImageSizeModel(modelName) {
+			return true
+		}
+	}
+	if info == nil {
+		return false
+	}
+	return isExactImageSizeModel(info.OriginModelName) || isExactImageSizeModel(info.UpstreamModelName)
+}
+
+func isExactImageSizeModel(model string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	return normalized == "image-2" || normalized == "gpt-image-2" || strings.Contains(normalized, "gpt-image-2") || strings.Contains(normalized, "image-2")
+}
+
+func isValidExactImageSize(size string) bool {
+	width, height, ok := parseImageSize(size)
+	if !ok {
+		return false
+	}
+	longEdge := width
+	shortEdge := height
+	if height > width {
+		longEdge = height
+		shortEdge = width
+	}
+	pixels := width * height
+	return longEdge <= 3840 &&
+		width%16 == 0 &&
+		height%16 == 0 &&
+		longEdge <= shortEdge*3 &&
+		pixels >= 655360 &&
+		pixels <= 8294400
+}
+
+func normalizeImageSize(size string) string {
+	return strings.NewReplacer("*", "x", "×", "x").Replace(strings.TrimSpace(size))
+}
+
+func parseImageSize(size string) (int, int, bool) {
+	normalized := normalizeImageSize(size)
+	parts := strings.Split(normalized, "x")
+	if len(parts) != 2 {
+		return 0, 0, false
+	}
+	width, err := strconv.Atoi(strings.TrimSpace(parts[0]))
+	if err != nil {
+		return 0, 0, false
+	}
+	height, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+	if err != nil {
+		return 0, 0, false
+	}
+	if width <= 0 || height <= 0 {
+		return 0, 0, false
+	}
+	return width, height, true
+}
+
+func preserveExactImageSize(jsonData []byte, requestedSize string) ([]byte, error) {
+	var payload map[string]interface{}
+	if err := common.Unmarshal(jsonData, &payload); err != nil {
+		return nil, err
+	}
+	if setStringField(payload, "size", requestedSize) ||
+		setStringField(payload, "image_size", requestedSize) ||
+		setNestedStringField(payload, "parameters", "size", strings.ReplaceAll(requestedSize, "x", "*")) ||
+		setNestedStringField(payload, "parameters", "image_size", requestedSize) ||
+		setExactDimensionFields(payload, requestedSize) ||
+		setNestedExactDimensionFields(payload, "input", requestedSize) {
+		return common.Marshal(payload)
+	}
+	return nil, fmt.Errorf("image-2 exact custom size %q was not preserved by the selected channel; choose an OpenAI-compatible image channel that forwards the exact size field", requestedSize)
+}
+
+func setStringField(payload map[string]interface{}, key string, value string) bool {
+	if _, ok := payload[key]; !ok {
+		return false
+	}
+	payload[key] = value
+	return true
+}
+
+func setNestedStringField(payload map[string]interface{}, parentKey string, key string, value string) bool {
+	parent, ok := payload[parentKey].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	if _, ok := parent[key]; !ok {
+		return false
+	}
+	parent[key] = value
+	payload[parentKey] = parent
+	return true
+}
+
+func setExactDimensionFields(payload map[string]interface{}, requestedSize string) bool {
+	width, height, ok := parseImageSize(requestedSize)
+	if !ok {
+		return false
+	}
+	hasWidth := hasJSONNumberField(payload, "width")
+	hasHeight := hasJSONNumberField(payload, "height")
+	if !hasWidth && !hasHeight {
+		return false
+	}
+	payload["width"] = width
+	payload["height"] = height
+	return true
+}
+
+func setNestedExactDimensionFields(payload map[string]interface{}, parentKey string, requestedSize string) bool {
+	parent, ok := payload[parentKey].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	if !setExactDimensionFields(parent, requestedSize) {
+		return false
+	}
+	payload[parentKey] = parent
+	return true
+}
+
+func hasJSONNumberField(payload map[string]interface{}, key string) bool {
+	switch payload[key].(type) {
+	case float64, int, int64, uint, uint64:
+		return true
+	default:
+		return false
+	}
 }

@@ -37,6 +37,15 @@ export const usePlayground = () => {
       },
       imageUrls: [],
       imageEnabled: false,
+      activeMode: 'chat',
+      modeItems: [],
+      inputs: {},
+      models: [],
+      groups: [],
+      onModeChange: () => {},
+      onInputChange: () => {},
+      onImageUrlsChange: () => {},
+      onImageEnabledChange: () => {},
     };
   }
   return context;

@@ -41,7 +41,6 @@ import {
   showError,
 } from '../../../helpers';
 import {
-  IconTreeTriangleDown,
   IconCopy,
   IconEyeOpened,
   IconEyeClosed,
@@ -404,9 +403,10 @@ const renderOperations = (
         <Dropdown trigger='click' position='bottomRight' menu={chatsArray}>
           <Button
             type='tertiary'
-            icon={<IconTreeTriangleDown />}
             size='small'
-          ></Button>
+          >
+            {t('??')}
+          </Button>
         </Dropdown>
       </SplitButtonGroup>
 

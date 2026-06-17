@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -80,6 +81,7 @@ export function PlaygroundChat({
   onCancelEdit,
   onSaveEditAndSubmit,
 }: PlaygroundChatProps) {
+  const { t } = useTranslation()
   const [editText, setEditText] = useState('')
   const [originalText, setOriginalText] = useState('')
 
@@ -114,7 +116,12 @@ export function PlaygroundChat({
                 <BranchMessages>
                   {versions.map((version, versionIndex) => (
                     <Message
-                      className='group flex-row-reverse'
+                      className={cn(
+                        'group flex-row-reverse',
+                        message.from === MESSAGE_ROLES.USER && 'is-user',
+                        message.from === MESSAGE_ROLES.ASSISTANT &&
+                          'is-assistant'
+                      )}
                       from={message.from}
                       key={`${message.key}-${version.id}-${versionIndex}`}
                     >
@@ -174,11 +181,10 @@ export function PlaygroundChat({
                                 (message.from === MESSAGE_ROLES.USER ||
                                   !message.isReasoningStreaming) &&
                                 !!version.content
-
-                              // Extract visible content (remove <think> tags for assistant messages)
-                              const displayContent = isAssistant
-                                ? parseThinkTags(version.content).visibleContent
-                                : version.content
+                              const hasImageReferences =
+                                !!message.imageUrls?.length
+                              const hasGeneratedImages =
+                                !!message.generatedImages?.length
 
                               const actions = (
                                 <MessageActions
@@ -248,16 +254,68 @@ export function PlaygroundChat({
                                       {actions}
                                     </>
                                   ) : (
-                                    showMessageContent && (
+                                    (showMessageContent ||
+                                      hasImageReferences ||
+                                      hasGeneratedImages) && (
                                       <>
-                                        <MessageContent
-                                          variant='flat'
-                                          className={cn(
-                                            getMessageContentStyles()
-                                          )}
-                                        >
-                                          <Response>{displayContent}</Response>
-                                        </MessageContent>
+                                        {showMessageContent && (
+                                          <MessageContent
+                                            variant='flat'
+                                            className={cn(
+                                              getMessageContentStyles()
+                                            )}
+                                          >
+                                            <Response>
+                                              {isAssistant
+                                                ? parseThinkTags(
+                                                    version.content
+                                                  ).visibleContent
+                                                : version.content}
+                                            </Response>
+                                          </MessageContent>
+                                        )}
+                                        {hasImageReferences && (
+                                          <div className='mt-2 grid max-w-md grid-cols-3 gap-2'>
+                                            {message.imageUrls!.map(
+                                              (url, imageIndex) => (
+                                                <div
+                                                  key={`${message.key}-image-${imageIndex}`}
+                                                  className='aspect-square overflow-hidden rounded-lg border'
+                                                >
+                                                  <img
+                                                    src={url}
+                                                    alt={t('Reference image')}
+                                                    className='size-full object-cover'
+                                                  />
+                                                </div>
+                                              )
+                                            )}
+                                          </div>
+                                        )}
+                                        {hasGeneratedImages && (
+                                          <div className='mt-3 grid max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2'>
+                                            {message.generatedImages!.map(
+                                              (asset) => (
+                                                <a
+                                                  key={asset.id}
+                                                  href={asset.url}
+                                                  target='_blank'
+                                                  rel='noreferrer'
+                                                  className='bg-muted block overflow-hidden rounded-xl border p-1'
+                                                >
+                                                  <img
+                                                    src={asset.url}
+                                                    alt={
+                                                      asset.prompt ||
+                                                      t('Creative result')
+                                                    }
+                                                    className='max-h-[520px] w-full object-contain'
+                                                  />
+                                                </a>
+                                              )
+                                            )}
+                                          </div>
+                                        )}
                                         {actions}
                                       </>
                                     )

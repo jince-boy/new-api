@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import { useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SSE } from 'sse.js';
 import {
@@ -40,6 +40,7 @@ export const useApiRequest = (
   saveMessages,
 ) => {
   const { t } = useTranslation();
+  const requestOptionsRef = useRef({});
 
   // 处理消息自动关闭逻辑的公共函数
   const applyAutoCollapseLogic = useCallback(
@@ -129,7 +130,7 @@ export const useApiRequest = (
         }
 
         return prevMessage;
-      });
+      }, requestOptionsRef.current);
     },
     [setMessage, applyAutoCollapseLogic],
   );
@@ -162,11 +163,14 @@ export const useApiRequest = (
           status === MESSAGE_STATUS.COMPLETE ||
           status === MESSAGE_STATUS.ERROR
         ) {
-          setTimeout(() => saveMessages(updatedMessages), 0);
+          setTimeout(
+            () => saveMessages(updatedMessages, requestOptionsRef.current),
+            0,
+          );
         }
 
         return updatedMessages;
-      });
+      }, requestOptionsRef.current);
     },
     [setMessage, applyAutoCollapseLogic, saveMessages],
   );
@@ -267,7 +271,7 @@ export const useApiRequest = (
               };
             }
             return newMessages;
-          });
+          }, requestOptionsRef.current);
         }
       } catch (error) {
         console.error('Non-stream request error:', error);
@@ -294,7 +298,7 @@ export const useApiRequest = (
             };
           }
           return newMessages;
-        });
+        }, requestOptionsRef.current);
       }
     },
     [setDebugData, setActiveDebugTab, setMessage, t, applyAutoCollapseLogic],
@@ -430,7 +434,7 @@ export const useApiRequest = (
               };
             }
             return newMessages;
-          });
+          }, requestOptionsRef.current);
           sseSourceRef.current = null;
           source.close();
         }
@@ -526,17 +530,21 @@ export const useApiRequest = (
         ];
 
         // 停止生成时也保存，传入更新后的消息列表
-        setTimeout(() => saveMessages(updatedMessages), 0);
+        setTimeout(
+          () => saveMessages(updatedMessages, requestOptionsRef.current),
+          0,
+        );
 
         return updatedMessages;
       }
       return prevMessage;
-    });
+    }, requestOptionsRef.current);
   }, [setMessage, applyAutoCollapseLogic, saveMessages]);
 
   // 发送请求
   const sendRequest = useCallback(
-    (payload, isStream) => {
+    (payload, isStream, options = {}) => {
+      requestOptionsRef.current = options;
       if (isStream) {
         handleSSE(payload);
       } else {
