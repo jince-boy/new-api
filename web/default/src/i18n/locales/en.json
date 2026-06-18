@@ -1571,6 +1571,7 @@
     "Enter the quota amount in tokens": "Enter the quota amount in tokens",
     "Enter the verification code": "Enter the verification code",
     "Enter threshold": "Enter threshold",
+    "Equivalent amount: {{amount}}": "Equivalent amount: {{amount}}",
     "Enter token counts to preview the estimated cost (excluding group multipliers).": "Enter token counts to preview the estimated cost (excluding group multipliers).",
     "Enter URL...": "Enter URL...",
     "Enter username": "Enter username",
@@ -4768,6 +4769,13 @@
     "Zero retention": "Zero retention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Custom size rules: long edge <= 3840px; multiples of 16; ratio <= 3:1; total pixels 655,360-8,294,400.": "Custom size rules: long edge <= 3840px; multiples of 16; ratio <= 3:1; total pixels 655,360-8,294,400.",
+    "Invalid image size.": "Invalid image size.",
+    "The long edge must be 3840px or less.": "The long edge must be 3840px or less.",
+    "The long-to-short side ratio must be 3:1 or less.": "The long-to-short side ratio must be 3:1 or less.",
+    "Total pixels must be between 655,360 and 8,294,400.": "Total pixels must be between 655,360 and 8,294,400.",
+    "Use WIDTHxHEIGHT, for example 2048x1152, or auto.": "Use WIDTHxHEIGHT, for example 2048x1152, or auto.",
+    "Width and height must both be multiples of 16.": "Width and height must both be multiples of 16."
   }
 }

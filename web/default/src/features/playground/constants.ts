@@ -51,11 +51,14 @@ export const IMAGE_SIZE_OPTIONS = [
   '1024x1024',
   '1536x1024',
   '1024x1536',
-  '1920x1072',
   '2048x2048',
+  '2048x1152',
   '3840x2160',
   '2160x3840',
+  'auto',
 ] as const
+
+export const CUSTOM_IMAGE_SIZE_VALUE = 'custom' as const
 
 export const IMAGE_COUNT_OPTIONS = [1, 2, 3, 4] as const
 

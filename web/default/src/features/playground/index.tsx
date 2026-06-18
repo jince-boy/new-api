@@ -52,6 +52,7 @@ import {
   createLoadingAssistantMessage,
   createUserMessageWithImages,
   extractGeneratedImageUrls,
+  normalizeImageSizeInput,
   loadConversations,
   loadActiveConversationId,
   loadImageLibrary,
@@ -59,6 +60,7 @@ import {
   saveConversations,
   saveActiveConversationId,
   saveImageLibrary,
+  validateImageSize,
 } from './lib'
 import type {
   ImageAsset,
@@ -75,39 +77,6 @@ type ConfirmAction = {
 }
 
 type MessageUpdater = MessageType[] | ((prev: MessageType[]) => MessageType[])
-
-function normalizeImageSizeInput(size: string): string {
-  return size.trim().replace(/[×*]/g, 'x')
-}
-
-function isImage2Model(model: string): boolean {
-  const normalized = model.toLowerCase()
-  return (
-    normalized === 'image-2' ||
-    normalized.includes('gpt-image-2') ||
-    normalized.includes('image-2')
-  )
-}
-
-function isValidImage2Size(size: string): boolean {
-  const match = size.match(/^(\d{2,5})x(\d{2,5})$/)
-  if (!match) return false
-
-  const width = Number(match[1])
-  const height = Number(match[2])
-  const longEdge = Math.max(width, height)
-  const shortEdge = Math.min(width, height)
-  const pixels = width * height
-
-  return (
-    longEdge <= 3840 &&
-    width % 16 === 0 &&
-    height % 16 === 0 &&
-    longEdge / shortEdge <= 3 &&
-    pixels >= 655360 &&
-    pixels <= 8294400
-  )
-}
 
 const modeMeta: Record<
   PlaygroundMode,
@@ -580,12 +549,18 @@ export function Playground() {
   const sendImageRequest = useCallback(
     async (text: string) => {
       const prompt = text.trim()
+      const requestMode =
+        validImageUrls.length > 0
+          ? PLAYGROUND_MODES.IMAGE_EDIT
+          : activeMode === PLAYGROUND_MODES.IMAGE_EDIT
+            ? PLAYGROUND_MODES.IMAGE_EDIT
+            : PLAYGROUND_MODES.IMAGE
       if (!prompt) {
         toast.warning(t('Please enter a prompt first'))
         return
       }
       if (
-        activeMode === PLAYGROUND_MODES.IMAGE_EDIT &&
+        requestMode === PLAYGROUND_MODES.IMAGE_EDIT &&
         validImageUrls.length === 0
       ) {
         toast.warning(t('Please upload a reference image first'))
@@ -593,34 +568,30 @@ export function Playground() {
       }
 
       const requestedImageSize = normalizeImageSizeInput(config.imageSize)
-      if (!/^\d{2,5}x\d{2,5}$/.test(requestedImageSize)) {
-        toast.warning(`${t('Image size')}: 1536x1024`)
-        return
-      }
-      if (
-        isImage2Model(config.model) &&
-        !isValidImage2Size(requestedImageSize)
-      ) {
-        toast.warning(`${t('Image size')}: 2048x1152 / 3840x2160`)
+      const sizeValidation = validateImageSize(requestedImageSize)
+      if (!sizeValidation.valid) {
+        toast.warning(
+          `${t('Image size')}: ${t(sizeValidation.reason || 'Invalid image size.')}`
+        )
         return
       }
 
       const userMessage = createUserMessageWithImages(
         prompt,
-        activeMode === PLAYGROUND_MODES.IMAGE_EDIT ? validImageUrls : []
+        requestMode === PLAYGROUND_MODES.IMAGE_EDIT ? validImageUrls : []
       )
       const loadingMessage = createLoadingAssistantMessage()
       const nextMessages = [...messages, userMessage, loadingMessage]
-      const conversationId = ensureConversation(activeMode, nextMessages)
+      const conversationId = ensureConversation(requestMode, nextMessages)
       const payload = {
         model: config.model,
         group: config.group,
         prompt,
         n: Math.max(1, Math.min(Number(config.imageCount) || 1, 10)),
-        size: requestedImageSize,
+        size: sizeValidation.normalized,
         quality: config.imageQuality || 'auto',
         response_format: 'url' as const,
-        ...(activeMode === PLAYGROUND_MODES.IMAGE_EDIT
+        ...(requestMode === PLAYGROUND_MODES.IMAGE_EDIT
           ? {
               image: validImageUrls[0],
               images: validImageUrls,
@@ -632,7 +603,7 @@ export function Playground() {
       setIsImageGenerating(true)
 
       try {
-        const response = await sendImageGeneration(payload, activeMode)
+        const response = await sendImageGeneration(payload, requestMode)
         const generatedImages = extractGeneratedImageUrls(response)
         if (generatedImages.length === 0) {
           throw new Error(t('No images returned'))
@@ -641,7 +612,7 @@ export function Playground() {
         const generatedAssets = createImageAssets({
           urls: generatedImages,
           prompt,
-          mode: activeMode,
+          mode: requestMode,
           model: config.model,
           group: config.group,
           size: payload.size,
@@ -685,7 +656,6 @@ export function Playground() {
       }
     },
     [
-      activeConversationId,
       activeMode,
       config.group,
       config.imageCount,
@@ -696,7 +666,7 @@ export function Playground() {
       messages,
       replaceLoadingMessage,
       t,
-      updateMessages,
+      updatePlaygroundMessages,
       validImageUrls,
     ]
   )
@@ -704,7 +674,8 @@ export function Playground() {
   const handleSendMessage = (text: string) => {
     if (
       activeMode === PLAYGROUND_MODES.IMAGE ||
-      activeMode === PLAYGROUND_MODES.IMAGE_EDIT
+      activeMode === PLAYGROUND_MODES.IMAGE_EDIT ||
+      validImageUrls.length > 0
     ) {
       void sendImageRequest(text)
       return

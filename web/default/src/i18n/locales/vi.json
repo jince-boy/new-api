@@ -1571,6 +1571,7 @@
     "Enter the quota amount in tokens": "Nhập số lượng hạn ngạch bằng token",
     "Enter the verification code": "Nhập mã xác minh",
     "Enter threshold": "Nhập ngưỡng",
+    "Equivalent amount: {{amount}}": "Số tiền tương đương: {{amount}}",
     "Enter token counts to preview the estimated cost (excluding group multipliers).": "Nhập số lượng token để xem ước tính chi phí (không gồm bội số nhóm).",
     "Enter URL...": "Nhập URL...",
     "Enter username": "Nhập tên người dùng",
@@ -4768,6 +4769,13 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Custom size rules: long edge <= 3840px; multiples of 16; ratio <= 3:1; total pixels 655,360-8,294,400.": "Quy tắc kích thước tùy chỉnh: cạnh dài <= 3840px; chiều rộng và chiều cao là bội số của 16; tỷ lệ <= 3:1; tổng số pixel 655.360-8.294.400.",
+    "Invalid image size.": "Kích thước ảnh không hợp lệ.",
+    "The long edge must be 3840px or less.": "Cạnh dài phải không quá 3840px.",
+    "The long-to-short side ratio must be 3:1 or less.": "Tỷ lệ cạnh dài/cạnh ngắn phải không quá 3:1.",
+    "Total pixels must be between 655,360 and 8,294,400.": "Tổng số pixel phải nằm trong khoảng 655.360 đến 8.294.400.",
+    "Use WIDTHxHEIGHT, for example 2048x1152, or auto.": "Dùng WIDTHxHEIGHT, ví dụ 2048x1152, hoặc auto.",
+    "Width and height must both be multiples of 16.": "Chiều rộng và chiều cao đều phải là bội số của 16."
   }
 }

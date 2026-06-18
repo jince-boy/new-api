@@ -191,6 +191,7 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
 
   React.useEffect(() => {
     if (
+      hasSearch ||
       searchDebounceMs <= 0 ||
       isSearchComposing ||
       debouncedSearchValue !== searchValue
@@ -202,12 +203,16 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
   }, [
     commitSearchValue,
     debouncedSearchValue,
+    hasSearch,
     isSearchComposing,
     searchDebounceMs,
     searchValue,
   ])
 
   const queueSearchValue = (value: string) => {
+    if (hasSearch) {
+      return
+    }
     if (searchDebounceMs <= 0) {
       commitSearchValue(value)
     }
@@ -235,6 +240,21 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
     queueSearchValue(value)
   }
 
+  const handleSearchSubmit = () => {
+    setIsSearchComposing(false)
+    setSearchDraft(null)
+    commitSearchValue(searchValue)
+    props.onSearch?.()
+  }
+
+  const handleSearchKeyDown = (
+    event: React.KeyboardEvent<HTMLInputElement>
+  ) => {
+    if (!hasSearch || event.key !== 'Enter' || isSearchComposing) return
+    event.preventDefault()
+    handleSearchSubmit()
+  }
+
   const searchInput = (
     <Input
       placeholder={placeholder}
@@ -242,6 +262,7 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
       onChange={handleSearchChange}
       onCompositionStart={handleSearchCompositionStart}
       onCompositionEnd={handleSearchCompositionEnd}
+      onKeyDown={handleSearchKeyDown}
       className='w-full sm:w-[200px] lg:w-[240px]'
     />
   )
@@ -292,7 +313,7 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
   ) : null
 
   const searchButton = hasSearch ? (
-    <Button onClick={props.onSearch} disabled={props.searchLoading}>
+    <Button onClick={handleSearchSubmit} disabled={props.searchLoading}>
       {props.searchLoading && <Loader2 className='animate-spin' />}
       {t('Search')}
     </Button>

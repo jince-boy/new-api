@@ -30,12 +30,7 @@ import { ArrowUp, Globe, Paperclip, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { usePlayground } from '../../contexts/PlaygroundContext';
 import { renderGroupOption, selectFilter } from '../../helpers';
-import { IMAGE_SIZE_OPTIONS } from '../../constants/playground.constants';
-
-const fixedImageSizeOptions = IMAGE_SIZE_OPTIONS.map((value) => ({
-  label: value,
-  value,
-}));
+import ImageSizeControl from './ImageSizeControl';
 
 const selectPopupProps = {
   position: 'topLeft',
@@ -144,9 +139,6 @@ const CustomInputRender = (props) => {
     inputs.imageSize === undefined || inputs.imageSize === null
       ? '1024x1024'
       : inputs.imageSize;
-  const imageSizeSelectValue = IMAGE_SIZE_OPTIONS.includes(imageSize)
-    ? imageSize
-    : IMAGE_SIZE_OPTIONS[0];
 
   const handleSubmit = useCallback(() => {
     const content = text.trim();
@@ -335,14 +327,13 @@ const CustomInputRender = (props) => {
             <span className='text-xs font-medium text-[var(--semi-color-text-2)]'>
               {t('Image size')}
             </span>
-            <Select
-              placeholder={t('Image size')}
-              value={imageSizeSelectValue}
-              optionList={fixedImageSizeOptions}
+            <ImageSizeControl
+              value={imageSize}
               onChange={(value) => onInputChange?.('imageSize', value)}
-              size='small'
-              className='playground-compact-select playground-size-select'
-              {...selectPopupProps}
+              className='playground-size-control-inline'
+              selectClassName='playground-compact-select playground-size-select'
+              selectProps={selectPopupProps}
+              compact
             />
           </div>
         )}

@@ -45,14 +45,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
   PromptInput,
@@ -63,8 +55,9 @@ import {
   type PromptInputMessage,
 } from '@/components/ai-elements/prompt-input'
 import { ModelGroupSelector } from '@/components/model-group-selector'
-import { IMAGE_SIZE_OPTIONS, PLAYGROUND_MODES } from '../constants'
+import { PLAYGROUND_MODES } from '../constants'
 import { readImageFilesAsDataUrls } from '../lib'
+import { ImageSizeControl } from './image-size-control'
 import type { ModelOption, GroupOption, PlaygroundMode } from '../types'
 
 interface PlaygroundInputProps {
@@ -126,11 +119,6 @@ export function PlaygroundInput({
     disabled || isModelLoading || models.length === 0
   const isGroupSelectDisabled = disabled || groups.length === 0
   const isImageMode = activeMode !== PLAYGROUND_MODES.CHAT
-  const imageSizeValue = IMAGE_SIZE_OPTIONS.includes(
-    imageSize as (typeof IMAGE_SIZE_OPTIONS)[number]
-  )
-    ? imageSize
-    : IMAGE_SIZE_OPTIONS[0]
 
   const handleSubmit = (message: PromptInputMessage) => {
     if (!message.text?.trim() || disabled) return
@@ -378,28 +366,14 @@ export function PlaygroundInput({
           <span className='text-muted-foreground text-xs font-medium'>
             {t('Image size')}
           </span>
-          <Select
-            items={IMAGE_SIZE_OPTIONS.map((value) => ({ value, label: value }))}
-            value={imageSizeValue}
+          <ImageSizeControl
+            value={imageSize}
             disabled={disabled}
-            onValueChange={(value) => {
-              if (!value) return
-              onImageSizeChange(value)
-            }}
-          >
-            <SelectTrigger className='h-8 w-36'>
-              <SelectValue placeholder={t('Image size')} />
-            </SelectTrigger>
-            <SelectContent alignItemWithTrigger={false}>
-              <SelectGroup>
-                {IMAGE_SIZE_OPTIONS.map((value) => (
-                  <SelectItem key={value} value={value}>
-                    {value}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+            onChange={onImageSizeChange}
+            className='min-w-[220px] flex-1 sm:flex-none'
+            selectClassName='h-8 sm:w-36'
+            compact
+          />
         </div>
       )}
 

@@ -16,12 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  DEFAULT_CONFIG,
-  IMAGE_SIZE_OPTIONS,
-  STORAGE_KEYS,
-  STORAGE_LIMITS,
-} from '../constants'
+import { DEFAULT_CONFIG, STORAGE_KEYS, STORAGE_LIMITS } from '../constants'
 import type {
   PlaygroundConfig,
   ParameterEnabled,
@@ -31,6 +26,7 @@ import type {
   PlaygroundMode,
 } from '../types'
 import { sanitizeMessagesOnLoad } from './message-utils'
+import { validateImageSize } from './image-size'
 
 /**
  * Load playground config from localStorage
@@ -40,10 +36,7 @@ export function loadConfig(): Partial<PlaygroundConfig> {
     const saved = localStorage.getItem(STORAGE_KEYS.CONFIG)
     if (saved) {
       const parsed = JSON.parse(saved)
-      if (
-        parsed?.imageSize &&
-        !IMAGE_SIZE_OPTIONS.includes(parsed.imageSize)
-      ) {
+      if (parsed?.imageSize && !validateImageSize(parsed.imageSize).valid) {
         parsed.imageSize = DEFAULT_CONFIG.imageSize
       }
       return parsed

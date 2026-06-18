@@ -3826,6 +3826,13 @@
     "Custom size": "カスタムサイズ",
     "Width": "幅",
     "Height": "高さ",
-    "Image size": "?????"
+    "Image size": "画像サイズ",
+    "Custom size rules: long edge <= 3840px; multiples of 16; ratio <= 3:1; total pixels 655,360-8,294,400.": "カスタムサイズのルール: 長辺 <= 3840px、幅と高さは16の倍数、比率 <= 3:1、総ピクセル数 655,360-8,294,400。",
+    "Invalid image size.": "画像サイズが無効です。",
+    "The long edge must be 3840px or less.": "長辺は 3840px 以下にしてください。",
+    "The long-to-short side ratio must be 3:1 or less.": "長辺と短辺の比率は 3:1 以下にしてください。",
+    "Total pixels must be between 655,360 and 8,294,400.": "総ピクセル数は 655,360 から 8,294,400 の間にしてください。",
+    "Use WIDTHxHEIGHT, for example 2048x1152, or auto.": "WIDTHxHEIGHT（例: 2048x1152）または auto を使用してください。",
+    "Width and height must both be multiples of 16.": "幅と高さはどちらも 16 の倍数にしてください。"
   }
 }

@@ -2,6 +2,7 @@ package openai
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -430,7 +431,7 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	switch info.RelayMode {
 	case relayconstant.RelayModeImagesEdits:
 		if isJSONRequest(c) {
-			return request, nil
+			return convertJSONImageEditRequestToMultipart(c, request)
 		}
 
 		var requestBody bytes.Buffer
@@ -557,6 +558,226 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 
 	default:
 		return request, nil
+	}
+}
+
+func convertJSONImageEditRequestToMultipart(c *gin.Context, request dto.ImageRequest) (*bytes.Buffer, error) {
+	images, err := collectJSONImageEditInputs(c, request)
+	if err != nil {
+		return nil, err
+	}
+	if len(images) == 0 {
+		return nil, errors.New("image is required")
+	}
+
+	var requestBody bytes.Buffer
+	writer := multipart.NewWriter(&requestBody)
+
+	writeFormFieldIfNotEmpty(writer, "model", request.Model)
+	writeFormFieldIfNotEmpty(writer, "prompt", request.Prompt)
+	writeFormFieldIfNotEmpty(writer, "size", request.Size)
+	writeFormFieldIfNotEmpty(writer, "quality", request.Quality)
+	writeFormFieldIfNotEmpty(writer, "response_format", request.ResponseFormat)
+	if request.N != nil {
+		_ = writer.WriteField("n", fmt.Sprintf("%d", *request.N))
+	}
+	if request.Stream != nil {
+		_ = writer.WriteField("stream", fmt.Sprintf("%t", *request.Stream))
+	}
+	if request.Watermark != nil {
+		_ = writer.WriteField("watermark", fmt.Sprintf("%t", *request.Watermark))
+	}
+
+	for _, field := range []struct {
+		name string
+		raw  json.RawMessage
+	}{
+		{"style", request.Style},
+		{"user", request.User},
+		{"extra_fields", request.ExtraFields},
+		{"background", request.Background},
+		{"moderation", request.Moderation},
+		{"output_format", request.OutputFormat},
+		{"output_compression", request.OutputCompression},
+		{"partial_images", request.PartialImages},
+		{"input_fidelity", request.InputFidelity},
+		{"watermark_enabled", request.WatermarkEnabled},
+		{"user_id", request.UserId},
+	} {
+		if err := writeRawFormField(writer, field.name, field.raw); err != nil {
+			return nil, err
+		}
+	}
+
+	for index, image := range images {
+		fieldName := "image"
+		if len(images) > 1 {
+			fieldName = "image[]"
+		}
+		if err := writeImageFormFile(writer, fieldName, image, index); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(request.Mask) > 0 {
+		maskValues, err := collectImageValuesFromRaw(request.Mask)
+		if err != nil {
+			return nil, fmt.Errorf("invalid mask: %w", err)
+		}
+		if len(maskValues) > 0 {
+			mask, err := imageEditInputFromString(c, maskValues[0])
+			if err != nil {
+				return nil, fmt.Errorf("invalid mask: %w", err)
+			}
+			if err := writeImageFormFile(writer, "mask", mask, 0); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+	c.Request.Header.Set("Content-Type", writer.FormDataContentType())
+	return &requestBody, nil
+}
+
+type imageEditInput struct {
+	data     []byte
+	mimeType string
+}
+
+func collectJSONImageEditInputs(c *gin.Context, request dto.ImageRequest) ([]imageEditInput, error) {
+	imageValues, err := collectImageValuesFromRaw(request.Images)
+	if err != nil {
+		return nil, fmt.Errorf("invalid images: %w", err)
+	}
+	values := imageValues
+	if len(values) == 0 {
+		values, err = collectImageValuesFromRaw(request.Image)
+		if err != nil {
+			return nil, fmt.Errorf("invalid image: %w", err)
+		}
+	}
+
+	images := make([]imageEditInput, 0, len(values))
+	for _, value := range values {
+		image, err := imageEditInputFromString(c, value)
+		if err != nil {
+			return nil, err
+		}
+		images = append(images, image)
+	}
+	return images, nil
+}
+
+func collectImageValuesFromRaw(raw json.RawMessage) ([]string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil
+	}
+
+	var single string
+	if err := common.Unmarshal(raw, &single); err == nil {
+		single = strings.TrimSpace(single)
+		if single == "" {
+			return nil, nil
+		}
+		return []string{single}, nil
+	}
+
+	var list []string
+	if err := common.Unmarshal(raw, &list); err == nil {
+		values := make([]string, 0, len(list))
+		for _, item := range list {
+			item = strings.TrimSpace(item)
+			if item != "" {
+				values = append(values, item)
+			}
+		}
+		return values, nil
+	}
+
+	return nil, errors.New("must be a string or string array")
+}
+
+func imageEditInputFromString(c *gin.Context, value string) (imageEditInput, error) {
+	var mimeType string
+	var cleanBase64 string
+	var err error
+
+	if strings.HasPrefix(value, "http://") || strings.HasPrefix(value, "https://") {
+		mimeType, cleanBase64, err = service.GetImageFromUrl(value)
+	} else {
+		mimeType, cleanBase64, err = service.DecodeBase64FileData(value)
+	}
+	if err != nil {
+		return imageEditInput{}, err
+	}
+	if !strings.HasPrefix(mimeType, "image/") {
+		return imageEditInput{}, fmt.Errorf("invalid image content type: %s", mimeType)
+	}
+
+	data, err := base64.StdEncoding.DecodeString(cleanBase64)
+	if err != nil {
+		return imageEditInput{}, fmt.Errorf("failed to decode image data: %w", err)
+	}
+	logger.LogDebug(c, "converted JSON image edit input to multipart image (%s, %d bytes)", mimeType, len(data))
+	return imageEditInput{data: data, mimeType: mimeType}, nil
+}
+
+func writeFormFieldIfNotEmpty(writer *multipart.Writer, name string, value string) {
+	if strings.TrimSpace(value) == "" {
+		return
+	}
+	_ = writer.WriteField(name, value)
+}
+
+func writeRawFormField(writer *multipart.Writer, name string, raw json.RawMessage) error {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+
+	var value string
+	if err := common.Unmarshal(raw, &value); err == nil {
+		return writer.WriteField(name, value)
+	}
+
+	return writer.WriteField(name, strings.TrimSpace(string(raw)))
+}
+
+func writeImageFormFile(writer *multipart.Writer, fieldName string, image imageEditInput, index int) error {
+	extension := imageExtensionFromMimeType(image.mimeType)
+	filename := fmt.Sprintf("image-%d.%s", index+1, extension)
+	if fieldName == "mask" {
+		filename = "mask." + extension
+	}
+
+	h := make(textproto.MIMEHeader)
+	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, fieldName, filename))
+	h.Set("Content-Type", image.mimeType)
+
+	part, err := writer.CreatePart(h)
+	if err != nil {
+		return err
+	}
+	_, err = part.Write(image.data)
+	return err
+}
+
+func imageExtensionFromMimeType(mimeType string) string {
+	switch strings.ToLower(strings.TrimSpace(mimeType)) {
+	case "image/jpeg", "image/jpg":
+		return "jpg"
+	case "image/webp":
+		return "webp"
+	case "image/gif":
+		return "gif"
+	case "image/heic":
+		return "heic"
+	case "image/heif":
+		return "heif"
+	default:
+		return "png"
 	}
 }
 

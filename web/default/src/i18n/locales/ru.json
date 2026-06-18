@@ -1571,6 +1571,7 @@
     "Enter the quota amount in tokens": "Введите количество квоты в токенах",
     "Enter the verification code": "Введите проверочный код",
     "Enter threshold": "Введите порог",
+    "Equivalent amount: {{amount}}": "Эквивалентная сумма: {{amount}}",
     "Enter token counts to preview the estimated cost (excluding group multipliers).": "Введите количество токенов для оценки стоимости (множители групп не учитываются).",
     "Enter URL...": "Введите URL...",
     "Enter username": "Введите имя пользователя",
@@ -4768,6 +4769,13 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Custom size rules: long edge <= 3840px; multiples of 16; ratio <= 3:1; total pixels 655,360-8,294,400.": "Правила пользовательского размера: длинная сторона <= 3840 px; размеры кратны 16; соотношение <= 3:1; всего пикселей 655 360-8 294 400.",
+    "Invalid image size.": "Недопустимый размер изображения.",
+    "The long edge must be 3840px or less.": "Длинная сторона должна быть не более 3840 px.",
+    "The long-to-short side ratio must be 3:1 or less.": "Соотношение длинной и короткой стороны должно быть не более 3:1.",
+    "Total pixels must be between 655,360 and 8,294,400.": "Общее число пикселей должно быть от 655 360 до 8 294 400.",
+    "Use WIDTHxHEIGHT, for example 2048x1152, or auto.": "Используйте WIDTHxHEIGHT, например 2048x1152, или auto.",
+    "Width and height must both be multiples of 16.": "Ширина и высота должны быть кратны 16."
   }
 }

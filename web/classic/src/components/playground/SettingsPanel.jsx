@@ -25,12 +25,7 @@ import { renderGroupOption, selectFilter } from '../../helpers';
 import ParameterControl from './ParameterControl';
 import ConfigManager from './ConfigManager';
 import CustomRequestEditor from './CustomRequestEditor';
-import { IMAGE_SIZE_OPTIONS } from '../../constants/playground.constants';
-
-const imageSizeOptions = IMAGE_SIZE_OPTIONS.map((value) => ({
-  label: value,
-  value,
-}));
+import ImageSizeControl from './ImageSizeControl';
 
 const imageQualityOptions = [
   { label: 'auto', value: 'auto' },
@@ -65,9 +60,6 @@ const SettingsPanel = ({
     inputs.imageSize === undefined || inputs.imageSize === null
       ? '1024x1024'
       : inputs.imageSize;
-  const imageSizeValue = IMAGE_SIZE_OPTIONS.includes(imageSize)
-    ? imageSize
-    : IMAGE_SIZE_OPTIONS[0];
 
   const currentConfig = {
     inputs,
@@ -145,12 +137,11 @@ const SettingsPanel = ({
             <Typography.Text strong>{t('Image creation')}</Typography.Text>
           </div>
           <div className='grid grid-cols-1 gap-3 sm:grid-cols-2'>
-            <Select
-              placeholder={t('Image size')}
-              value={imageSizeValue}
-              optionList={imageSizeOptions}
+            <ImageSizeControl
+              value={imageSize}
               onChange={(value) => onInputChange('imageSize', value)}
               disabled={customRequestMode}
+              className='playground-settings-size-control'
             />
             <Select
               placeholder={t('Image quality')}

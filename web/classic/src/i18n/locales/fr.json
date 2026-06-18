@@ -3857,6 +3857,13 @@
     "Custom size": "Taille personnalisée",
     "Width": "Largeur",
     "Height": "Hauteur",
-    "Image size": "Taille de l?image"
+    "Image size": "Taille de l'image",
+    "Custom size rules: long edge <= 3840px; multiples of 16; ratio <= 3:1; total pixels 655,360-8,294,400.": "Règles de taille personnalisée : côté long <= 3840 px ; dimensions multiples de 16 ; ratio <= 3:1 ; pixels totaux 655 360-8 294 400.",
+    "Invalid image size.": "Taille d'image non valide.",
+    "The long edge must be 3840px or less.": "Le côté le plus long doit être de 3840 px ou moins.",
+    "The long-to-short side ratio must be 3:1 or less.": "Le rapport côté long/côté court doit être de 3:1 ou moins.",
+    "Total pixels must be between 655,360 and 8,294,400.": "Le nombre total de pixels doit être compris entre 655 360 et 8 294 400.",
+    "Use WIDTHxHEIGHT, for example 2048x1152, or auto.": "Utilisez WIDTHxHEIGHT, par exemple 2048x1152, ou auto.",
+    "Width and height must both be multiples of 16.": "La largeur et la hauteur doivent toutes deux être des multiples de 16."
   }
 }

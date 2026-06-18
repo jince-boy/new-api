@@ -594,7 +594,6 @@ html.dark .sbg-variant-green {
 .pricing-scroll-hide,
 .model-test-scroll,
 .card-content-scroll,
-.model-settings-scroll,
 .thinking-content-scroll,
 .custom-request-textarea .semi-input,
 .custom-request-textarea textarea,
@@ -606,7 +605,6 @@ html.dark .sbg-variant-green {
 .pricing-scroll-hide::-webkit-scrollbar,
 .model-test-scroll::-webkit-scrollbar,
 .card-content-scroll::-webkit-scrollbar,
-.model-settings-scroll::-webkit-scrollbar,
 .thinking-content-scroll::-webkit-scrollbar,
 .custom-request-textarea .semi-input::-webkit-scrollbar,
 .custom-request-textarea textarea::-webkit-scrollbar,
@@ -1264,6 +1262,73 @@ html.dark .with-pastel-balls::before {
   opacity: 1;
 }
 
+.playground-workbench .model-settings-scroll,
+.playground-workbench .playground-studio-panel,
+.playground-workbench .semi-chat,
+.playground-workbench .semi-chat-chatBox,
+.playground-workbench .semi-chat-chatBox-wrap,
+.playground-workbench .semi-chat-chatBox-content,
+.playground-workbench .semi-chat-content,
+.playground-workbench .semi-chat-list,
+.playground-workbench .semi-chat-container {
+  scrollbar-color: color-mix(in srgb, var(--semi-color-text-3) 42%, transparent) transparent;
+  scrollbar-width: thin;
+}
+
+.playground-workbench .model-settings-scroll::-webkit-scrollbar,
+.playground-workbench .playground-studio-panel::-webkit-scrollbar,
+.playground-workbench .semi-chat::-webkit-scrollbar,
+.playground-workbench .semi-chat-chatBox::-webkit-scrollbar,
+.playground-workbench .semi-chat-chatBox-wrap::-webkit-scrollbar,
+.playground-workbench .semi-chat-chatBox-content::-webkit-scrollbar,
+.playground-workbench .semi-chat-content::-webkit-scrollbar,
+.playground-workbench .semi-chat-list::-webkit-scrollbar,
+.playground-workbench .semi-chat-container::-webkit-scrollbar {
+  display: block;
+  width: 6px;
+  height: 6px;
+}
+
+.playground-workbench .model-settings-scroll::-webkit-scrollbar-thumb,
+.playground-workbench .playground-studio-panel::-webkit-scrollbar-thumb,
+.playground-workbench .semi-chat::-webkit-scrollbar-thumb,
+.playground-workbench .semi-chat-chatBox::-webkit-scrollbar-thumb,
+.playground-workbench .semi-chat-chatBox-wrap::-webkit-scrollbar-thumb,
+.playground-workbench .semi-chat-chatBox-content::-webkit-scrollbar-thumb,
+.playground-workbench .semi-chat-content::-webkit-scrollbar-thumb,
+.playground-workbench .semi-chat-list::-webkit-scrollbar-thumb,
+.playground-workbench .semi-chat-container::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--semi-color-text-3) 42%, transparent);
+  background-clip: padding-box;
+}
+
+.playground-workbench .model-settings-scroll::-webkit-scrollbar-thumb:hover,
+.playground-workbench .playground-studio-panel::-webkit-scrollbar-thumb:hover,
+.playground-workbench .semi-chat::-webkit-scrollbar-thumb:hover,
+.playground-workbench .semi-chat-chatBox::-webkit-scrollbar-thumb:hover,
+.playground-workbench .semi-chat-chatBox-wrap::-webkit-scrollbar-thumb:hover,
+.playground-workbench .semi-chat-chatBox-content::-webkit-scrollbar-thumb:hover,
+.playground-workbench .semi-chat-content::-webkit-scrollbar-thumb:hover,
+.playground-workbench .semi-chat-list::-webkit-scrollbar-thumb:hover,
+.playground-workbench .semi-chat-container::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--semi-color-text-2) 54%, transparent);
+  background-clip: padding-box;
+}
+
+.playground-workbench .model-settings-scroll::-webkit-scrollbar-track,
+.playground-workbench .playground-studio-panel::-webkit-scrollbar-track,
+.playground-workbench .semi-chat::-webkit-scrollbar-track,
+.playground-workbench .semi-chat-chatBox::-webkit-scrollbar-track,
+.playground-workbench .semi-chat-chatBox-wrap::-webkit-scrollbar-track,
+.playground-workbench .semi-chat-chatBox-content::-webkit-scrollbar-track,
+.playground-workbench .semi-chat-content::-webkit-scrollbar-track,
+.playground-workbench .semi-chat-list::-webkit-scrollbar-track,
+.playground-workbench .semi-chat-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .playground-composer {
   overflow: hidden;
   backdrop-filter: blur(18px);
@@ -1342,6 +1407,134 @@ html.dark .with-pastel-balls::before {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 6px;
+}
+
+.playground-image-size-control {
+  min-width: 0;
+  width: 100%;
+}
+
+.playground-image-size-row {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.playground-image-size-row > .semi-select {
+  flex: 0 0 150px;
+  width: 150px !important;
+}
+
+.playground-image-size-control .semi-select,
+.playground-image-size-control .semi-inputNumber,
+.playground-image-size-control .semi-input-wrapper {
+  height: 32px !important;
+  min-height: 32px !important;
+}
+
+.playground-image-size-control .semi-select-selection,
+.playground-image-size-control .semi-input,
+.playground-image-size-control input {
+  height: 30px !important;
+  line-height: 30px !important;
+  font-size: 12px;
+}
+
+.playground-image-size-custom {
+  display: grid;
+  flex: 1 1 176px;
+  grid-template-columns: minmax(72px, 1fr) auto minmax(72px, 1fr);
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  min-width: 176px;
+}
+
+.playground-image-size-custom .semi-inputNumber {
+  width: 100%;
+  min-width: 0;
+}
+
+.playground-image-size-custom span {
+  color: var(--semi-color-text-2);
+  font-size: 12px;
+}
+
+.playground-image-size-help {
+  display: block;
+  margin-top: 5px;
+  color: var(--semi-color-text-2);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.playground-image-size-help-error {
+  color: var(--semi-color-danger);
+}
+
+.playground-size-control-inline {
+  min-width: min(100%, 330px);
+}
+
+.playground-studio-size-control {
+  grid-column: 1 / -1;
+}
+
+.playground-settings-size-control {
+  grid-column: 1 / -1;
+}
+
+.playground-image-size-dropdown,
+.playground-image-size-dropdown .semi-select-option-list,
+.playground-image-size-dropdown .semi-select-option-list-chosen,
+.playground-image-size-dropdown .semi-scrolllist,
+.playground-image-size-dropdown .semi-scrolllist-body,
+.playground-image-size-dropdown .semi-scrolllist-list,
+.playground-image-size-dropdown .semi-scrolllist-list-outer,
+.playground-image-size-dropdown .semi-scrolllist * {
+  -ms-overflow-style: auto !important;
+  scrollbar-width: thin !important;
+  scrollbar-color: color-mix(in srgb, var(--semi-color-text-3) 48%, transparent) transparent !important;
+}
+
+.playground-image-size-dropdown::-webkit-scrollbar,
+.playground-image-size-dropdown .semi-select-option-list::-webkit-scrollbar,
+.playground-image-size-dropdown .semi-select-option-list-chosen::-webkit-scrollbar,
+.playground-image-size-dropdown .semi-scrolllist::-webkit-scrollbar,
+.playground-image-size-dropdown .semi-scrolllist-body::-webkit-scrollbar,
+.playground-image-size-dropdown .semi-scrolllist-list::-webkit-scrollbar,
+.playground-image-size-dropdown .semi-scrolllist-list-outer::-webkit-scrollbar,
+.playground-image-size-dropdown .semi-scrolllist *::-webkit-scrollbar {
+  display: block !important;
+  width: 6px !important;
+  height: 6px !important;
+}
+
+.playground-image-size-dropdown::-webkit-scrollbar-thumb,
+.playground-image-size-dropdown .semi-select-option-list::-webkit-scrollbar-thumb,
+.playground-image-size-dropdown .semi-select-option-list-chosen::-webkit-scrollbar-thumb,
+.playground-image-size-dropdown .semi-scrolllist::-webkit-scrollbar-thumb,
+.playground-image-size-dropdown .semi-scrolllist-body::-webkit-scrollbar-thumb,
+.playground-image-size-dropdown .semi-scrolllist-list::-webkit-scrollbar-thumb,
+.playground-image-size-dropdown .semi-scrolllist-list-outer::-webkit-scrollbar-thumb,
+.playground-image-size-dropdown .semi-scrolllist *::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--semi-color-text-3) 48%, transparent);
+  background-clip: padding-box;
+}
+
+.playground-image-size-dropdown::-webkit-scrollbar-track,
+.playground-image-size-dropdown .semi-select-option-list::-webkit-scrollbar-track,
+.playground-image-size-dropdown .semi-select-option-list-chosen::-webkit-scrollbar-track,
+.playground-image-size-dropdown .semi-scrolllist::-webkit-scrollbar-track,
+.playground-image-size-dropdown .semi-scrolllist-body::-webkit-scrollbar-track,
+.playground-image-size-dropdown .semi-scrolllist-list::-webkit-scrollbar-track,
+.playground-image-size-dropdown .semi-scrolllist-list-outer::-webkit-scrollbar-track,
+.playground-image-size-dropdown .semi-scrolllist *::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .playground-custom-size-input input {

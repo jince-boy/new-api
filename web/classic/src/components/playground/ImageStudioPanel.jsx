@@ -29,12 +29,7 @@ import {
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { renderGroupOption, selectFilter } from '../../helpers';
-import { IMAGE_SIZE_OPTIONS } from '../../constants/playground.constants';
-
-const imageSizeOptions = IMAGE_SIZE_OPTIONS.map((value) => ({
-  label: value,
-  value,
-}));
+import ImageSizeControl from './ImageSizeControl';
 
 const imageCountOptions = [1, 2, 3, 4].map((value) => ({
   label: String(value),
@@ -150,9 +145,6 @@ const ImageStudioPanel = ({
   const fileInputRef = useRef(null);
   const isImageMode = activeMode === 'image' || activeMode === 'image_edit';
   const hasReferences = references.length > 0;
-  const imageSizeValue = IMAGE_SIZE_OPTIONS.includes(inputs.imageSize)
-    ? inputs.imageSize
-    : IMAGE_SIZE_OPTIONS[0];
 
   const handleFileChange = useCallback(
     async (event) => {
@@ -238,12 +230,10 @@ const ImageStudioPanel = ({
             onChange={(value) => onInputChange('group', value)}
             size='small'
           />
-          <Select
-            placeholder={t('Image size')}
-            value={imageSizeValue}
-            optionList={imageSizeOptions}
+          <ImageSizeControl
+            value={inputs.imageSize}
             onChange={(value) => onInputChange('imageSize', value)}
-            size='small'
+            className='playground-studio-size-control'
           />
           <Select
             placeholder={t('Image count')}

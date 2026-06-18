@@ -21,6 +21,8 @@ import { Bell, Loader2, Mail, Server, Webhook } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { ROLE } from '@/lib/roles'
+import { formatQuotaWithCurrency } from '@/lib/currency'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -131,6 +133,11 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
   }
 
   const notifyType = normalizeNotifyType(settings.notify_type)
+  const quotaWarningThreshold = Number(settings.quota_warning_threshold) || 0
+  const quotaWarningAmount = formatQuotaWithCurrency(quotaWarningThreshold, {
+    digitsLarge: 2,
+    digitsSmall: 4,
+  })
 
   return (
     <div className='space-y-4 sm:space-y-6'>
@@ -170,15 +177,28 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
 
       {/* Warning Threshold */}
       <div className='space-y-1.5'>
-        <Label htmlFor='threshold'>{t('Quota Warning Threshold')}</Label>
+        <div className='flex flex-wrap items-center justify-between gap-2'>
+          <Label htmlFor='threshold'>{t('Quota Warning Threshold')}</Label>
+          <Badge variant='secondary' className='font-mono'>
+            {t('Equivalent amount: {{amount}}', {
+              amount: quotaWarningAmount,
+            })}
+          </Badge>
+        </div>
         <Input
           id='threshold'
-          type='number'
-          className='h-9'
+          type='text'
+          inputMode='numeric'
+          pattern='[0-9]*'
+          className='h-9 font-mono tabular-nums'
           value={settings.quota_warning_threshold}
-          onChange={(e) =>
-            updateField('quota_warning_threshold', Number(e.target.value))
-          }
+          onChange={(e) => {
+            const rawValue = e.target.value.replace(/\D/g, '')
+            updateField(
+              'quota_warning_threshold',
+              rawValue === '' ? 0 : Number(rawValue)
+            )
+          }}
           placeholder={t('Enter threshold')}
         />
         <p className='text-muted-foreground text-xs'>

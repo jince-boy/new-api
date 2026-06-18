@@ -2808,6 +2808,13 @@
     "Custom size": "自定义尺寸",
     "Width": "宽度",
     "Height": "高度",
-    "Image size": "图片尺寸"
+    "Image size": "图片尺寸",
+    "Custom size rules: long edge <= 3840px; multiples of 16; ratio <= 3:1; total pixels 655,360-8,294,400.": "自定义尺寸规则：长边 <= 3840px；宽高均为 16 的倍数；长短边比例 <= 3:1；总像素 655,360-8,294,400。",
+    "Invalid image size.": "图片尺寸无效。",
+    "The long edge must be 3840px or less.": "长边必须小于或等于 3840px。",
+    "The long-to-short side ratio must be 3:1 or less.": "长边与短边比例必须小于或等于 3:1。",
+    "Total pixels must be between 655,360 and 8,294,400.": "总像素必须在 655,360 到 8,294,400 之间。",
+    "Use WIDTHxHEIGHT, for example 2048x1152, or auto.": "请使用 WIDTHxHEIGHT，例如 2048x1152，或使用 auto。",
+    "Width and height must both be multiples of 16.": "宽度和高度都必须是 16 的倍数。"
   }
 }

@@ -47,6 +47,8 @@ import { useDataLoader } from '../../hooks/playground/useDataLoader';
 import {
   API_ENDPOINTS,
   MESSAGE_ROLES,
+  normalizeImageSizeInput,
+  validateImageSize,
 } from '../../constants/playground.constants';
 import {
   buildApiPayload,
@@ -80,40 +82,6 @@ const PLAYGROUND_MODES = {
 
 const CONVERSATIONS_STORAGE_KEY = 'playground_conversations';
 const MAX_CONVERSATIONS = 40;
-
-const normalizeImageSizeInput = (size) =>
-  String(size || '')
-    .trim()
-    .replace(/[×*]/g, 'x');
-
-const isImage2Model = (model) => {
-  const normalized = String(model || '').toLowerCase();
-  return (
-    normalized === 'image-2' ||
-    normalized.includes('gpt-image-2') ||
-    normalized.includes('image-2')
-  );
-};
-
-const isValidImage2Size = (size) => {
-  const match = String(size || '').match(/^(\d{2,5})x(\d{2,5})$/);
-  if (!match) return false;
-
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  const longEdge = Math.max(width, height);
-  const shortEdge = Math.min(width, height);
-  const pixels = width * height;
-
-  return (
-    longEdge <= 3840 &&
-    width % 16 === 0 &&
-    height % 16 === 0 &&
-    longEdge / shortEdge <= 3 &&
-    pixels >= 655360 &&
-    pixels <= 8294400
-  );
-};
 
 const modeMeta = {
   [PLAYGROUND_MODES.CHAT]: {
@@ -565,12 +533,18 @@ const Playground = () => {
   const sendImageRequest = useCallback(
     async (content) => {
       const prompt = typeof content === 'string' ? content.trim() : '';
+      const requestMode =
+        validImageUrls.length > 0
+          ? PLAYGROUND_MODES.IMAGE_EDIT
+          : activeMode === PLAYGROUND_MODES.IMAGE_EDIT
+            ? PLAYGROUND_MODES.IMAGE_EDIT
+            : PLAYGROUND_MODES.IMAGE;
       if (!prompt) {
         Toast.warning(t('Please enter a prompt first'));
         return;
       }
       if (
-        activeMode === PLAYGROUND_MODES.IMAGE_EDIT &&
+        requestMode === PLAYGROUND_MODES.IMAGE_EDIT &&
         validImageUrls.length === 0
       ) {
         Toast.warning(t('Please upload a reference image first'));
@@ -582,26 +556,20 @@ const Playground = () => {
         buildMessageContent(
           prompt,
           validImageUrls,
-          activeMode === PLAYGROUND_MODES.IMAGE_EDIT,
+          requestMode === PLAYGROUND_MODES.IMAGE_EDIT,
         ),
       );
       const loadingMessage = createLoadingAssistantMessage();
       const endpoint =
-        activeMode === PLAYGROUND_MODES.IMAGE_EDIT
+        requestMode === PLAYGROUND_MODES.IMAGE_EDIT
           ? API_ENDPOINTS.IMAGE_EDITS
           : API_ENDPOINTS.IMAGE_GENERATIONS;
       const requestedImageSize = normalizeImageSizeInput(inputs.imageSize);
-      if (
-        (activeMode === PLAYGROUND_MODES.IMAGE ||
-          activeMode === PLAYGROUND_MODES.IMAGE_EDIT) &&
-        requestedImageSize &&
-        !/^\d{2,5}x\d{2,5}$/.test(requestedImageSize)
-      ) {
-        Toast.warning(`${t('Image size')}: 1536x1024`);
-        return;
-      }
-      if (isImage2Model(inputs.model) && !isValidImage2Size(requestedImageSize)) {
-        Toast.warning(`${t('Image size')}: 2048x1152 / 3840x2160`);
+      const sizeValidation = validateImageSize(requestedImageSize);
+      if (!sizeValidation.valid) {
+        Toast.warning(
+          `${t('Image size')}: ${t(sizeValidation.reason || 'Invalid image size.')}`,
+        );
         return;
       }
       const payload = {
@@ -609,18 +577,18 @@ const Playground = () => {
         group: inputs.group,
         prompt,
         n: Math.max(1, Math.min(Number(inputs.imageCount) || 1, 10)),
-        size: requestedImageSize || '1024x1024',
+        size: sizeValidation.normalized,
         quality: inputs.imageQuality || 'auto',
         response_format: 'url',
       };
 
-      if (activeMode === PLAYGROUND_MODES.IMAGE_EDIT) {
+      if (requestMode === PLAYGROUND_MODES.IMAGE_EDIT) {
         payload.image = validImageUrls[0];
         payload.images = validImageUrls;
       }
 
       const nextMessages = [...message, userMessage, loadingMessage];
-      const conversationId = ensureConversation(activeMode, nextMessages);
+      const conversationId = ensureConversation(requestMode, nextMessages);
 
       updateActiveMessages((prevMessage) => {
         const nextMessages = [...prevMessage, userMessage, loadingMessage];
@@ -656,7 +624,9 @@ const Playground = () => {
         setActiveDebugTab('response');
 
         if (!response.ok) {
-          throw new Error(data?.error?.message || rawText || t('Image generation failed'));
+          throw new Error(
+            data?.error?.message || rawText || t('Image generation failed'),
+          );
         }
 
         const generatedImages = extractGeneratedImages(data);
@@ -667,7 +637,7 @@ const Playground = () => {
         const generatedAssets = createImageAssets({
           urls: generatedImages,
           prompt,
-          mode: activeMode,
+          mode: requestMode,
           model: inputs.model,
           group: inputs.group,
           size: payload.size,
@@ -710,7 +680,6 @@ const Playground = () => {
     },
     [
       activeMode,
-      activeConversationId,
       ensureConversation,
       inputs.group,
       inputs.imageCount,
@@ -719,11 +688,10 @@ const Playground = () => {
       inputs.model,
       message,
       replaceLoadingMessage,
-      saveMessagesImmediately,
       setActiveDebugTab,
       setDebugData,
-      setMessage,
       t,
+      updateActiveMessages,
       validImageUrls,
     ],
   );
@@ -731,7 +699,8 @@ const Playground = () => {
   function onMessageSend(content) {
     if (
       activeMode === PLAYGROUND_MODES.IMAGE ||
-      activeMode === PLAYGROUND_MODES.IMAGE_EDIT
+      activeMode === PLAYGROUND_MODES.IMAGE_EDIT ||
+      validImageUrls.length > 0
     ) {
       sendImageRequest(content);
       return;
@@ -920,11 +889,9 @@ const Playground = () => {
       const currentUrls = (inputs.imageUrls || []).filter((url) => url?.trim());
       handleInputChange('imageUrls', [...currentUrls, base64Data]);
       handleInputChange('imageEnabled', true);
-      if (activeMode === PLAYGROUND_MODES.IMAGE) {
-        setActiveMode(PLAYGROUND_MODES.IMAGE_EDIT);
-      }
+      setActiveMode(PLAYGROUND_MODES.IMAGE_EDIT);
     },
-    [activeMode, inputs.imageUrls, handleInputChange],
+    [inputs.imageUrls, handleInputChange],
   );
 
   const handleAddReferences = useCallback(

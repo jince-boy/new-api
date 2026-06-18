@@ -2,6 +2,7 @@ package openai
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -95,4 +96,60 @@ func TestConvertImageEditRequestMultipart(t *testing.T) {
 
 		convertAndReplay(t, c, prompt)
 	})
+}
+
+func TestConvertImageEditRequestJSONToMultipart(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/images/edits", nil)
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	stream := true
+	count := uint(2)
+	request := dto.ImageRequest{
+		Model:          "gpt-image-2",
+		Prompt:         "redraw this image",
+		N:              &count,
+		Size:           "1024x1024",
+		Quality:        "high",
+		ResponseFormat: "url",
+		Stream:         &stream,
+		Image:          json.RawMessage(`"data:image/png;base64,c2hvdWxkLW5vdC1kdXBsaWNhdGU="`),
+		Images: json.RawMessage(`[
+			"data:image/png;base64,Zmlyc3Q=",
+			"data:image/jpeg;base64,c2Vjb25k"
+		]`),
+		PartialImages: json.RawMessage(`3`),
+	}
+	info := &relaycommon.RelayInfo{
+		RelayMode: relayconstant.RelayModeImagesEdits,
+	}
+
+	converted, err := (&Adaptor{}).ConvertImageRequest(c, info, request)
+	require.NoError(t, err)
+	convertedBody, ok := converted.(*bytes.Buffer)
+	require.True(t, ok)
+	require.Contains(t, c.Request.Header.Get("Content-Type"), "multipart/form-data")
+
+	replayedRequest := httptest.NewRequest(http.MethodPost, "/v1/images/edits", bytes.NewReader(convertedBody.Bytes()))
+	replayedRequest.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))
+	require.NoError(t, replayedRequest.ParseMultipartForm(32<<20))
+
+	require.Equal(t, "gpt-image-2", replayedRequest.PostForm.Get("model"))
+	require.Equal(t, "redraw this image", replayedRequest.PostForm.Get("prompt"))
+	require.Equal(t, "2", replayedRequest.PostForm.Get("n"))
+	require.Equal(t, "1024x1024", replayedRequest.PostForm.Get("size"))
+	require.Equal(t, "high", replayedRequest.PostForm.Get("quality"))
+	require.Equal(t, "url", replayedRequest.PostForm.Get("response_format"))
+	require.Equal(t, "true", replayedRequest.PostForm.Get("stream"))
+	require.Equal(t, "3", replayedRequest.PostForm.Get("partial_images"))
+	require.Len(t, replayedRequest.MultipartForm.File["image[]"], 2)
+
+	firstFile, err := replayedRequest.MultipartForm.File["image[]"][0].Open()
+	require.NoError(t, err)
+	defer firstFile.Close()
+	firstBytes, err := io.ReadAll(firstFile)
+	require.NoError(t, err)
+	require.Equal(t, []byte("first"), firstBytes)
 }

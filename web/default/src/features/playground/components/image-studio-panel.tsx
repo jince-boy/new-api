@@ -58,10 +58,10 @@ import { ModelGroupSelector } from '@/components/model-group-selector'
 import {
   IMAGE_COUNT_OPTIONS,
   IMAGE_QUALITY_OPTIONS,
-  IMAGE_SIZE_OPTIONS,
   PLAYGROUND_MODES,
 } from '../constants'
 import { readImageFilesAsDataUrls } from '../lib'
+import { ImageSizeControl } from './image-size-control'
 import type {
   GroupOption,
   ImageAsset,
@@ -211,11 +211,6 @@ export function ImageStudioPanel({
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const isImageMode = activeMode !== PLAYGROUND_MODES.CHAT
   const hasReferences = references.length > 0
-  const imageSizeValue = IMAGE_SIZE_OPTIONS.includes(
-    config.imageSize as (typeof IMAGE_SIZE_OPTIONS)[number]
-  )
-    ? config.imageSize
-    : IMAGE_SIZE_OPTIONS[0]
 
   const handleFileChange = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
@@ -307,31 +302,12 @@ export function ImageStudioPanel({
             disabled={isModelLoading || models.length === 0 || groups.length === 0}
             className='justify-start'
           />
-          <div className='grid grid-cols-3 gap-2'>
-            <Select
-              items={IMAGE_SIZE_OPTIONS.map((value) => ({
-                value,
-                label: value,
-              }))}
-              value={imageSizeValue}
-              onValueChange={(value) => {
-                if (!value) return
-                onConfigChange('imageSize', value)
-              }}
-            >
-              <SelectTrigger className='w-full'>
-                <SelectValue placeholder={t('Image size')} />
-              </SelectTrigger>
-              <SelectContent alignItemWithTrigger={false}>
-                <SelectGroup>
-                  {IMAGE_SIZE_OPTIONS.map((value) => (
-                    <SelectItem key={value} value={value}>
-                      {value}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+          <div className='grid grid-cols-2 gap-2'>
+            <ImageSizeControl
+              value={config.imageSize}
+              onChange={(value) => onConfigChange('imageSize', value)}
+              className='col-span-2'
+            />
             <Select
               items={IMAGE_COUNT_OPTIONS.map((value) => ({
                 value: String(value),
