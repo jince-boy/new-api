@@ -668,6 +668,9 @@ func (user *User) HardDelete() error {
 		if err := tx.Unscoped().Select("id", "inviter_id").First(&deletedUser, user.Id).Error; err != nil {
 			return err
 		}
+		if err := deleteUserOAuthBindingsByUserId(tx, user.Id); err != nil {
+			return err
+		}
 		if err := tx.Unscoped().Delete(&deletedUser).Error; err != nil {
 			return err
 		}
