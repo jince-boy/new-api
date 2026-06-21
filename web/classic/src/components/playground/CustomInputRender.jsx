@@ -17,76 +17,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useRef, useEffect, useCallback, useState } from 'react';
-import {
-  Button,
-  Select,
-  Switch,
-  TextArea,
-  Toast,
-  Typography,
-} from '@douyinfe/semi-ui';
-import { ArrowUp, Globe, Paperclip, X } from 'lucide-react';
+import React, { useRef, useEffect, useCallback } from 'react';
+import { Toast } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import { usePlayground } from '../../contexts/PlaygroundContext';
-import { renderGroupOption, selectFilter } from '../../helpers';
-import ImageSizeControl from './ImageSizeControl';
-
-const selectPopupProps = {
-  position: 'topLeft',
-  dropdownMatchSelectWidth: true,
-  zIndex: 1200,
-};
-
-const renderSelectedGroup = (option) => option?.value || option?.label || '';
-
-const getCompactModeLabel = (key, label) => {
-  if (key === 'image') return 'Image';
-  return label;
-};
 
 const CustomInputRender = (props) => {
   const { t } = useTranslation();
-  const { onSubmit } = props;
-  const {
-    onPasteImage,
-    imageUrls,
-    activeMode,
-    modeItems,
-    inputs,
-    models,
-    groups,
-    onModeChange,
-    onInputChange,
-    onImageUrlsChange,
-    onImageEnabledChange,
-  } = usePlayground();
+  const { onPasteImage, imageEnabled } = usePlayground();
+  const { detailProps } = props;
+  const { clearContextNode, uploadNode, inputNode, sendNode, onClick } =
+    detailProps;
   const containerRef = useRef(null);
-  const fileInputRef = useRef(null);
-  const [text, setText] = useState('');
-
-  const readImageFile = useCallback(
-    (file) => {
-      if (!file) return;
-      if (!file.type.startsWith('image/')) {
-        Toast.warning(t('Please select image files'));
-        return;
-      }
-
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const base64 = event.target.result;
-        onImageEnabledChange?.(true);
-        onPasteImage?.(base64);
-        Toast.success(t('Reference image added'));
-      };
-      reader.onerror = () => {
-        Toast.error(t('Failed to add pasted image'));
-      };
-      reader.readAsDataURL(file);
-    },
-    [onImageEnabledChange, onPasteImage, t],
-  );
 
   const handlePaste = useCallback(
     async (e) => {
@@ -95,14 +37,59 @@ const CustomInputRender = (props) => {
 
       for (let i = 0; i < items.length; i++) {
         const item = items[i];
+
         if (item.type.indexOf('image') !== -1) {
           e.preventDefault();
-          readImageFile(item.getAsFile());
+          const file = item.getAsFile();
+
+          if (file) {
+            try {
+              if (!imageEnabled) {
+                Toast.warning({
+                  content: t('请先在设置中启用图片功能'),
+                  duration: 3,
+                });
+                return;
+              }
+
+              const reader = new FileReader();
+              reader.onload = (event) => {
+                const base64 = event.target.result;
+
+                if (onPasteImage) {
+                  onPasteImage(base64);
+                  Toast.success({
+                    content: t('图片已添加'),
+                    duration: 2,
+                  });
+                } else {
+                  Toast.error({
+                    content: t('无法添加图片'),
+                    duration: 2,
+                  });
+                }
+              };
+              reader.onerror = () => {
+                console.error('Failed to read image file:', reader.error);
+                Toast.error({
+                  content: t('粘贴图片失败'),
+                  duration: 2,
+                });
+              };
+              reader.readAsDataURL(file);
+            } catch (error) {
+              console.error('Failed to paste image:', error);
+              Toast.error({
+                content: t('粘贴图片失败'),
+                duration: 2,
+              });
+            }
+          }
           break;
         }
       }
     },
-    [readImageFile],
+    [onPasteImage, imageEnabled, t],
   );
 
   useEffect(() => {
@@ -115,241 +102,51 @@ const CustomInputRender = (props) => {
     };
   }, [handlePaste]);
 
-  const handleModeChange = (mode) => {
-    onModeChange?.(mode);
-    if (mode === 'image_edit') {
-      onImageEnabledChange?.(true);
-    }
-  };
+  // 清空按钮
+  const styledClearNode = clearContextNode
+    ? React.cloneElement(clearContextNode, {
+        className: `!rounded-full !bg-gray-100 hover:!bg-red-500 hover:!text-white flex-shrink-0 transition-all ${clearContextNode.props.className || ''}`,
+        style: {
+          ...clearContextNode.props.style,
+          width: '32px',
+          height: '32px',
+          minWidth: '32px',
+          padding: 0,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        },
+      })
+    : null;
 
-  const handleFileChange = (event) => {
-    const files = Array.from(event.target.files || []);
-    files.forEach(readImageFile);
-    event.target.value = '';
-  };
-
-  const handleRemoveImage = (index) => {
-    const nextUrls = (imageUrls || []).filter((_, i) => i !== index);
-    onImageUrlsChange?.(nextUrls.length > 0 ? nextUrls : ['']);
-  };
-
-  const compactImages = (imageUrls || []).filter((url) => url?.trim());
-  const isImageMode = activeMode === 'image' || activeMode === 'image_edit';
-  const imageSize =
-    inputs.imageSize === undefined || inputs.imageSize === null
-      ? '1024x1024'
-      : inputs.imageSize;
-
-  const handleSubmit = useCallback(() => {
-    const content = text.trim();
-    if (!content) return;
-    onSubmit?.(content);
-    setText('');
-  }, [onSubmit, text]);
-
-  const handleKeyDown = useCallback(
-    (event) => {
-      if (event.key !== 'Enter' || event.shiftKey) return;
-      event.preventDefault();
-      handleSubmit();
+  // 发送按钮
+  const styledSendNode = React.cloneElement(sendNode, {
+    className: `!rounded-full !bg-purple-500 hover:!bg-purple-600 flex-shrink-0 transition-all ${sendNode.props.className || ''}`,
+    style: {
+      ...sendNode.props.style,
+      width: '32px',
+      height: '32px',
+      minWidth: '32px',
+      padding: 0,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    [handleSubmit],
-  );
+  });
 
   return (
-    <div className='px-3 pb-2 sm:px-6 sm:pb-3' ref={containerRef}>
-      <div className='mx-auto grid w-full max-w-4xl gap-3'>
-        <div className='playground-composer playground-default-composer rounded-xl border border-[var(--semi-color-border)] bg-[var(--semi-color-bg-0)]'>
-          <div className='px-4 pt-3'>
-            <TextArea
-              autosize={{ minRows: 2, maxRows: 6 }}
-              value={text}
-              onChange={(value) => setText(value)}
-              onKeyDown={handleKeyDown}
-              placeholder={t('Ask anything')}
-              className='playground-inline-textarea playground-default-textarea'
-            />
-          </div>
-
-          {compactImages.length > 0 && (
-            <div className='image-list-scroll flex gap-2 overflow-x-auto px-4 pt-3'>
-              {compactImages.map((url, index) => (
-                <div
-                  key={`${url}-${index}`}
-                  className='group relative h-16 w-16 flex-shrink-0 overflow-hidden rounded-xl border border-[var(--semi-color-border)] bg-[var(--semi-color-fill-0)]'
-                >
-                  <img
-                    src={url}
-                    alt={t('Reference image')}
-                    className='h-full w-full object-cover'
-                  />
-                  <button
-                    type='button'
-                    className='absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/65 text-white opacity-0 transition-opacity group-hover:opacity-100'
-                    onClick={() => handleRemoveImage(index)}
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {activeMode === 'image_edit' && compactImages.length === 0 && (
-            <div className='px-4 pt-3'>
-              <Typography.Text className='text-xs text-[var(--semi-color-text-2)]'>
-                {t('Upload or paste references to redraw, replace, or extend the image.')}
-              </Typography.Text>
-            </div>
-          )}
-
-          <div className='playground-default-footer flex items-center justify-between gap-2 p-2.5'>
-            <div className='playground-default-tools flex min-w-0 items-center gap-2'>
-              <input
-                ref={fileInputRef}
-                type='file'
-                accept='image/*'
-                multiple
-                className='hidden'
-                onChange={handleFileChange}
-              />
-              <Button
-                icon={<Paperclip size={15} />}
-                size='small'
-                theme='outline'
-                type='tertiary'
-                onClick={() => {
-                  onImageEnabledChange?.(true);
-                  fileInputRef.current?.click();
-                }}
-                className='playground-tool-button !rounded-md'
-              >
-                <span className='hidden xl:inline'>{t('Upload photo')}</span>
-              </Button>
-              <Button
-                icon={<Globe size={15} />}
-                size='small'
-                theme='outline'
-                type='tertiary'
-                onClick={() => Toast.info(t('Search feature in development'))}
-                className='playground-tool-button !rounded-md'
-              >
-                <span className='hidden xl:inline'>{t('Search')}</span>
-              </Button>
-              {modeItems.map((item) => {
-                const Icon = item.icon;
-                const selected = activeMode === item.key;
-                return (
-                  <Button
-                    key={item.key}
-                    size='small'
-                    theme={selected ? 'solid' : 'borderless'}
-                    type={selected ? 'primary' : 'tertiary'}
-                    icon={<Icon size={14} />}
-                    onClick={() => handleModeChange(item.key)}
-                    className='playground-mode-button !rounded-full'
-                    data-active={selected ? 'true' : 'false'}
-                  >
-                    {t(getCompactModeLabel(item.key, item.label))}
-                  </Button>
-                );
-              })}
-              {compactImages.length > 0 && (
-                <button
-                  type='button'
-                  className='playground-reference-badge'
-                  onClick={() => onImageUrlsChange?.([''])}
-                  title={t('Clear references')}
-                >
-                  {t('{{count}} references', {
-                    count: compactImages.length,
-                  })}
-                </button>
-              )}
-            </div>
-
-            <div className='playground-default-actions flex min-w-0 items-center justify-end gap-2'>
-              <Select
-                placeholder={t('Select Model')}
-                value={inputs.model}
-                optionList={models}
-                filter={selectFilter}
-                autoClearSearchValue={false}
-                onChange={(value) => onInputChange?.('model', value)}
-                size='small'
-                className='playground-compact-select playground-model-select'
-                {...selectPopupProps}
-              />
-              <Select
-                placeholder={t('Choose Group')}
-                value={inputs.group}
-                optionList={groups}
-                filter={selectFilter}
-                renderOptionItem={renderGroupOption}
-                renderSelectedItem={renderSelectedGroup}
-                autoClearSearchValue={false}
-                onChange={(value) => onInputChange?.('group', value)}
-                size='small'
-                className='playground-compact-select playground-group-select'
-                {...selectPopupProps}
-              />
-              {activeMode === 'chat' && (
-                <div className='playground-stream-toggle hidden h-8 items-center gap-2 rounded-md border border-[var(--semi-color-border)] px-2.5 sm:flex'>
-                  <span className='hidden whitespace-nowrap text-xs text-[var(--semi-color-text-2)] xl:inline'>
-                    {t('Streaming')}
-                  </span>
-                  <Switch
-                    checked={inputs.stream}
-                    onChange={(checked) => onInputChange?.('stream', checked)}
-                    size='small'
-                  />
-                </div>
-              )}
-              <Button
-                icon={<ArrowUp size={18} strokeWidth={2.6} />}
-                aria-label={t('Send')}
-                className='playground-send-button !rounded-full flex-shrink-0'
-                disabled={!text.trim()}
-                onClick={handleSubmit}
-                style={{
-                  width: 34,
-                  height: 34,
-                  minWidth: 34,
-                  padding: 0,
-                }}
-              />
-            </div>
-          </div>
-        </div>
-
-        {isImageMode && (
-          <div className='playground-size-bar flex flex-wrap items-center gap-2 rounded-xl border border-[var(--semi-color-border)] bg-[var(--semi-color-bg-0)] px-3 py-2'>
-            <span className='text-xs font-medium text-[var(--semi-color-text-2)]'>
-              {t('Image size')}
-            </span>
-            <ImageSizeControl
-              value={imageSize}
-              onChange={(value) => onInputChange?.('imageSize', value)}
-              className='playground-size-control-inline'
-              selectClassName='playground-compact-select playground-size-select'
-              selectProps={selectPopupProps}
-              compact
-            />
-          </div>
-        )}
-
-        {activeMode === 'chat' && (
-          <div className='playground-mobile-stream-toggle flex items-center gap-2 rounded-xl border border-[var(--semi-color-border)] bg-[var(--semi-color-bg-0)] px-3 py-2 sm:hidden'>
-            <span className='text-xs font-medium text-[var(--semi-color-text-2)]'>
-              {t('Streaming')}
-            </span>
-            <Switch
-              checked={inputs.stream}
-              onChange={(checked) => onInputChange?.('stream', checked)}
-              size='small'
-            />
-          </div>
-        )}
+    <div className='p-2 sm:p-4' ref={containerRef}>
+      <div
+        className='flex items-center gap-2 sm:gap-3 p-2 bg-gray-50 rounded-xl sm:rounded-2xl shadow-sm hover:shadow-md transition-shadow'
+        style={{ border: '1px solid var(--semi-color-border)' }}
+        onClick={onClick}
+        title={t('支持 Ctrl+V 粘贴图片')}
+      >
+        {/* 清空对话按钮 - 左边 */}
+        {styledClearNode}
+        <div className='flex-1'>{inputNode}</div>
+        {/* 发送按钮 - 右边 */}
+        {styledSendNode}
       </div>
     </div>
   );

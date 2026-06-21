@@ -20,7 +20,6 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   STORAGE_KEYS,
   DEFAULT_CONFIG,
-  validateImageSize,
 } from '../../constants/playground.constants';
 
 const MESSAGES_STORAGE_KEY = 'playground_messages';
@@ -87,13 +86,6 @@ export const loadConfig = () => {
         customRequestBody:
           parsedConfig.customRequestBody || DEFAULT_CONFIG.customRequestBody,
       };
-
-      if (
-        mergedConfig.inputs.imageSize &&
-        !validateImageSize(mergedConfig.inputs.imageSize).valid
-      ) {
-        mergedConfig.inputs.imageSize = DEFAULT_CONFIG.inputs.imageSize;
-      }
 
       return mergedConfig;
     }

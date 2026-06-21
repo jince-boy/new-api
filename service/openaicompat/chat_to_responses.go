@@ -290,6 +290,14 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 		tools := make([]map[string]any, 0, len(req.Tools))
 		for _, tool := range req.Tools {
 			switch tool.Type {
+			case dto.BuildInToolWebSearchPreview:
+				webSearchTool := map[string]any{
+					"type": dto.BuildInToolWebSearchPreview,
+				}
+				if req.WebSearchOptions != nil && req.WebSearchOptions.SearchContextSize != "" {
+					webSearchTool["search_context_size"] = req.WebSearchOptions.SearchContextSize
+				}
+				tools = append(tools, webSearchTool)
 			case "function":
 				tools = append(tools, map[string]any{
 					"type":        "function",
@@ -310,6 +318,15 @@ func ChatCompletionsRequestToResponsesRequest(req *dto.GeneralOpenAIRequest) (*d
 			}
 		}
 		toolsRaw, _ = common.Marshal(tools)
+	}
+	if req.WebSearchOptions != nil && len(toolsRaw) == 0 {
+		webSearchTool := map[string]any{
+			"type": dto.BuildInToolWebSearchPreview,
+		}
+		if req.WebSearchOptions.SearchContextSize != "" {
+			webSearchTool["search_context_size"] = req.WebSearchOptions.SearchContextSize
+		}
+		toolsRaw, _ = common.Marshal([]map[string]any{webSearchTool})
 	}
 
 	var toolChoiceRaw json.RawMessage

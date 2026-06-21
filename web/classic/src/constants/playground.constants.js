@@ -76,112 +76,8 @@ export const DEBUG_TABS = {
 // ========== API 相关常量 ==========
 export const API_ENDPOINTS = {
   CHAT_COMPLETIONS: '/pg/chat/completions',
-  IMAGE_GENERATIONS: '/pg/images/generations',
-  IMAGE_EDITS: '/pg/images/edits',
   USER_MODELS: '/api/user/models',
   USER_GROUPS: '/api/user/self/groups',
-};
-
-export const IMAGE_SIZE_OPTIONS = [
-  '1024x1024',
-  '1536x1024',
-  '1024x1536',
-  '2048x2048',
-  '2048x1152',
-  '3840x2160',
-  '2160x3840',
-  'auto',
-];
-
-export const CUSTOM_IMAGE_SIZE_VALUE = 'custom';
-
-export const IMAGE_SIZE_CONSTRAINTS = {
-  maxLongEdge: 3840,
-  multiple: 16,
-  maxAspectRatio: 3,
-  minPixels: 655360,
-  maxPixels: 8294400,
-};
-
-export const normalizeImageSizeInput = (size) =>
-  String(size || '')
-    .trim()
-    .replace(/[×*]/g, 'x')
-    .toLowerCase();
-
-export const isPresetImageSize = (size) =>
-  IMAGE_SIZE_OPTIONS.includes(normalizeImageSizeInput(size));
-
-export const parseImageSizeDimensions = (size) => {
-  const normalized = normalizeImageSizeInput(size);
-  const match = normalized.match(/^(\d{2,5})x(\d{2,5})$/);
-  if (!match) return null;
-
-  return {
-    width: Number(match[1]),
-    height: Number(match[2]),
-  };
-};
-
-export const validateImageSize = (size) => {
-  const normalized = normalizeImageSizeInput(size);
-  if (normalized === 'auto') {
-    return { valid: true, normalized };
-  }
-
-  const dimensions = parseImageSizeDimensions(normalized);
-  if (!dimensions) {
-    return {
-      valid: false,
-      normalized,
-      reason: 'Use WIDTHxHEIGHT, for example 2048x1152, or auto.',
-    };
-  }
-
-  const { width, height } = dimensions;
-  const longEdge = Math.max(width, height);
-  const shortEdge = Math.min(width, height);
-  const pixels = width * height;
-
-  if (longEdge > IMAGE_SIZE_CONSTRAINTS.maxLongEdge) {
-    return {
-      valid: false,
-      normalized,
-      reason: 'The long edge must be 3840px or less.',
-    };
-  }
-
-  if (
-    width % IMAGE_SIZE_CONSTRAINTS.multiple !== 0 ||
-    height % IMAGE_SIZE_CONSTRAINTS.multiple !== 0
-  ) {
-    return {
-      valid: false,
-      normalized,
-      reason: 'Width and height must both be multiples of 16.',
-    };
-  }
-
-  if (longEdge / shortEdge > IMAGE_SIZE_CONSTRAINTS.maxAspectRatio) {
-    return {
-      valid: false,
-      normalized,
-      reason: 'The long-to-short side ratio must be 3:1 or less.',
-    };
-  }
-
-  if (
-    pixels < IMAGE_SIZE_CONSTRAINTS.minPixels ||
-    pixels > IMAGE_SIZE_CONSTRAINTS.maxPixels
-  ) {
-    return {
-      valid: false,
-      normalized,
-      reason: 'Total pixels must be between 655,360 and 8,294,400.',
-    };
-  }
-
-  return { valid: true, normalized };
 };
 
 // ========== 配置默认值 ==========
@@ -198,9 +94,6 @@ export const DEFAULT_CONFIG = {
     stream: true,
     imageEnabled: false,
     imageUrls: [''],
-    imageSize: '1024x1024',
-    imageCount: 1,
-    imageQuality: 'auto',
   },
   parameterEnabled: {
     temperature: true,

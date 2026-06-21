@@ -71,10 +71,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	adaptor.Init(info)
 
 	passThroughGlobal := model_setting.GetGlobalSettings().PassThroughRequestEnabled
-	if info.RelayMode == relayconstant.RelayModeChatCompletions &&
-		!passThroughGlobal &&
-		!info.ChannelSetting.PassThroughBodyEnabled &&
-		service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) {
+	if shouldUseResponsesCompatibility(info, passThroughGlobal) {
 		applySystemPromptIfNeeded(c, info, request)
 		usage, newApiErr := chatCompletionsViaResponses(c, info, adaptor, request)
 		if newApiErr != nil {
@@ -197,7 +194,7 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		httpResp = resp.(*http.Response)
 		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 		if httpResp.StatusCode != http.StatusOK {
-			newApiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, false)
+			newApiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, info.IsPlayground)
 			// reset status code 重置状态码
 			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
 			return newApiErr
@@ -220,4 +217,23 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 	}
 	return nil
+}
+
+func shouldUseResponsesCompatibility(info *relaycommon.RelayInfo, passThroughGlobal bool) bool {
+	if info == nil ||
+		info.RelayMode != relayconstant.RelayModeChatCompletions ||
+		passThroughGlobal ||
+		info.ChannelSetting.PassThroughBodyEnabled {
+		return false
+	}
+
+	if service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) {
+		return true
+	}
+
+	if !info.IsPlayground || info.ChannelType != constant.ChannelTypeOpenAI {
+		return false
+	}
+
+	return dto.IsOpenAIGPT5Model(info.OriginModelName) || dto.IsOpenAIGPT5Model(info.UpstreamModelName)
 }

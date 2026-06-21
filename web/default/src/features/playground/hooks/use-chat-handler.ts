@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback } from 'react'
 import { toast } from 'sonner'
 import { sendChatCompletion } from '../api'
 import { MESSAGE_STATUS, ERROR_MESSAGES } from '../constants'
@@ -33,13 +33,8 @@ import { useStreamRequest } from './use-stream-request'
 interface UseChatHandlerOptions {
   config: PlaygroundConfig
   parameterEnabled: ParameterEnabled
-  onMessageUpdate: (
-    updater: (prev: Message[]) => Message[],
-    options?: { persist?: boolean; promote?: boolean; conversationId?: string }
-  ) => void
+  onMessageUpdate: (updater: (prev: Message[]) => Message[]) => void
 }
-
-const STREAM_RENDER_INTERVAL_MS = 32
 
 /**
  * Hook for handling chat message sending and receiving
@@ -50,159 +45,59 @@ export function useChatHandler({
   onMessageUpdate,
 }: UseChatHandlerOptions) {
   const { sendStreamRequest, stopStream, isStreaming } = useStreamRequest()
-  const queuedReasoningRef = useRef('')
-  const queuedContentRef = useRef('')
-  const frameRef = useRef<number | null>(null)
-  const flushTimerRef = useRef<number | null>(null)
-  const lastFlushTimeRef = useRef(0)
-  const activeConversationIdRef = useRef('')
 
-  const applyStreamChunks = useCallback(
-    (reasoningChunk: string, contentChunk: string) => {
-      if (!reasoningChunk && !contentChunk) return
+  // Handle stream update
+  const handleStreamUpdate = useCallback(
+    (type: 'reasoning' | 'content', chunk: string) => {
+      onMessageUpdate((prev) =>
+        updateLastAssistantMessage(prev, (message) => {
+          if (message.status === MESSAGE_STATUS.ERROR) return message
 
-      onMessageUpdate(
-        (prev) =>
-          updateLastAssistantMessage(prev, (message) => {
-            if (message.status === MESSAGE_STATUS.ERROR) return message
-
-            let nextMessage = message
-
-            if (reasoningChunk) {
-              nextMessage = {
-                ...nextMessage,
-                reasoning: {
-                  content:
-                    (nextMessage.reasoning?.content || '') + reasoningChunk,
-                  duration: 0,
-                },
-                isReasoningStreaming: true,
-                status: MESSAGE_STATUS.STREAMING,
-              }
+          if (type === 'reasoning') {
+            // Direct API reasoning_content
+            return {
+              ...message,
+              reasoning: {
+                content: (message.reasoning?.content || '') + chunk,
+                duration: 0,
+              },
+              isReasoningStreaming: true,
+              status: MESSAGE_STATUS.STREAMING,
             }
+          }
 
-            if (contentChunk) {
-              nextMessage = {
-                ...processStreamingContent(nextMessage, contentChunk),
-                status: MESSAGE_STATUS.STREAMING,
-              }
-            } else {
-              nextMessage = {
-                ...nextMessage,
-                status: MESSAGE_STATUS.STREAMING,
-              }
-            }
-
-            return nextMessage
-          }),
-        {
-          persist: false,
-          promote: false,
-          conversationId: activeConversationIdRef.current,
-        }
+          // Content streaming: handle <think> tags
+          return {
+            ...processStreamingContent(message, chunk),
+            status: MESSAGE_STATUS.STREAMING,
+          }
+        })
       )
     },
     [onMessageUpdate]
   )
 
-  const flushQueuedStreamChunks = useCallback(() => {
-    const reasoningChunk = queuedReasoningRef.current
-    const contentChunk = queuedContentRef.current
-    queuedReasoningRef.current = ''
-    queuedContentRef.current = ''
-    if (reasoningChunk || contentChunk) {
-      lastFlushTimeRef.current = performance.now()
-    }
-    applyStreamChunks(reasoningChunk, contentChunk)
-  }, [applyStreamChunks])
-
-  const flushStreamChunks = useCallback(() => {
-    if (flushTimerRef.current !== null) {
-      window.clearTimeout(flushTimerRef.current)
-      flushTimerRef.current = null
-    }
-
-    if (frameRef.current !== null) {
-      cancelAnimationFrame(frameRef.current)
-      frameRef.current = null
-    }
-
-    flushQueuedStreamChunks()
-  }, [flushQueuedStreamChunks])
-
-  const scheduleStreamFlush = useCallback(() => {
-    if (frameRef.current !== null || flushTimerRef.current !== null) return
-
-    const scheduleFrame = () => {
-      flushTimerRef.current = null
-      frameRef.current = requestAnimationFrame(() => {
-        frameRef.current = null
-        flushQueuedStreamChunks()
-      })
-    }
-
-    const elapsed = performance.now() - lastFlushTimeRef.current
-    const delay = Math.max(0, STREAM_RENDER_INTERVAL_MS - elapsed)
-
-    if (delay === 0) {
-      scheduleFrame()
-      return
-    }
-
-    flushTimerRef.current = window.setTimeout(scheduleFrame, delay)
-  }, [flushQueuedStreamChunks])
-
-  useEffect(
-    () => () => {
-      if (flushTimerRef.current !== null) {
-        window.clearTimeout(flushTimerRef.current)
-      }
-      if (frameRef.current !== null) {
-        cancelAnimationFrame(frameRef.current)
-      }
-    },
-    []
-  )
-
-  // Handle stream update
-  const handleStreamUpdate = useCallback(
-    (type: 'reasoning' | 'content', chunk: string) => {
-      if (type === 'reasoning') {
-        queuedReasoningRef.current += chunk
-      } else {
-        queuedContentRef.current += chunk
-      }
-      scheduleStreamFlush()
-    },
-    [scheduleStreamFlush]
-  )
-
   // Handle stream complete
   const handleStreamComplete = useCallback(() => {
-    flushStreamChunks()
-    onMessageUpdate(
-      (prev) =>
-        updateLastAssistantMessage(prev, (message) =>
-          message.status === MESSAGE_STATUS.COMPLETE ||
-          message.status === MESSAGE_STATUS.ERROR
-            ? message
-            : { ...finalizeMessage(message), status: MESSAGE_STATUS.COMPLETE }
-        ),
-      { conversationId: activeConversationIdRef.current }
+    onMessageUpdate((prev) =>
+      updateLastAssistantMessage(prev, (message) =>
+        message.status === MESSAGE_STATUS.COMPLETE ||
+        message.status === MESSAGE_STATUS.ERROR
+          ? message
+          : { ...finalizeMessage(message), status: MESSAGE_STATUS.COMPLETE }
+      )
     )
-  }, [flushStreamChunks, onMessageUpdate])
+  }, [onMessageUpdate])
 
   // Handle stream error
   const handleStreamError = useCallback(
     (error: string, errorCode?: string) => {
-      flushStreamChunks()
       toast.error(error)
-      onMessageUpdate(
-        (prev) => updateAssistantMessageWithError(prev, error, errorCode),
-        { conversationId: activeConversationIdRef.current }
+      onMessageUpdate((prev) =>
+        updateAssistantMessageWithError(prev, error, errorCode)
       )
     },
-    [flushStreamChunks, onMessageUpdate]
+    [onMessageUpdate]
   )
 
   // Send streaming chat request
@@ -244,24 +139,22 @@ export function useChatHandler({
         const choice = response.choices?.[0]
         if (!choice) return
 
-        onMessageUpdate(
-          (prev) =>
-            updateLastAssistantMessage(prev, (message) => ({
-              ...finalizeMessage(
-                {
-                  ...message,
-                  versions: [
-                    {
-                      ...message.versions[0],
-                      content: choice.message?.content || '',
-                    },
-                  ],
-                },
-                choice.message?.reasoning_content
-              ),
-              status: MESSAGE_STATUS.COMPLETE,
-            })),
-          { conversationId: activeConversationIdRef.current }
+        onMessageUpdate((prev) =>
+          updateLastAssistantMessage(prev, (message) => ({
+            ...finalizeMessage(
+              {
+                ...message,
+                versions: [
+                  {
+                    ...message.versions[0],
+                    content: choice.message?.content || '',
+                  },
+                ],
+              },
+              choice.message?.reasoning_content
+            ),
+            status: MESSAGE_STATUS.COMPLETE,
+          }))
         )
       } catch (error: unknown) {
         const err = error as {
@@ -283,8 +176,7 @@ export function useChatHandler({
 
   // Send chat request (stream or non-stream based on config)
   const sendChat = useCallback(
-    (messages: Message[], options: { conversationId?: string } = {}) => {
-      activeConversationIdRef.current = options.conversationId || ''
+    (messages: Message[]) => {
       if (config.stream) {
         sendStreamingChat(messages)
       } else {
@@ -297,18 +189,15 @@ export function useChatHandler({
   // Stop generation
   const stopGeneration = useCallback(() => {
     stopStream()
-    flushStreamChunks()
-    onMessageUpdate(
-      (prev) =>
-        updateLastAssistantMessage(prev, (message) =>
-          message.status === MESSAGE_STATUS.LOADING ||
-          message.status === MESSAGE_STATUS.STREAMING
-            ? { ...finalizeMessage(message), status: MESSAGE_STATUS.COMPLETE }
-            : message
-        ),
-      { conversationId: activeConversationIdRef.current }
+    onMessageUpdate((prev) =>
+      updateLastAssistantMessage(prev, (message) =>
+        message.status === MESSAGE_STATUS.LOADING ||
+        message.status === MESSAGE_STATUS.STREAMING
+          ? { ...finalizeMessage(message), status: MESSAGE_STATUS.COMPLETE }
+          : message
+      )
     )
-  }, [stopStream, flushStreamChunks, onMessageUpdate])
+  }, [stopStream, onMessageUpdate])
 
   return {
     sendChat,

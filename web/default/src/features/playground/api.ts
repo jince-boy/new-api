@@ -21,11 +21,8 @@ import { API_ENDPOINTS } from './constants'
 import type {
   ChatCompletionRequest,
   ChatCompletionResponse,
-  ImageGenerationRequest,
-  ImageGenerationResponse,
   ModelOption,
   GroupOption,
-  PlaygroundMode,
 } from './types'
 
 /**
@@ -35,24 +32,6 @@ export async function sendChatCompletion(
   payload: ChatCompletionRequest
 ): Promise<ChatCompletionResponse> {
   const res = await api.post(API_ENDPOINTS.CHAT_COMPLETIONS, payload, {
-    skipErrorHandler: true,
-  } as Record<string, unknown>)
-  return res.data
-}
-
-/**
- * Send image generation or image edit request
- */
-export async function sendImageGeneration(
-  payload: ImageGenerationRequest,
-  mode: PlaygroundMode
-): Promise<ImageGenerationResponse> {
-  const endpoint =
-    mode === 'image_edit'
-      ? API_ENDPOINTS.IMAGE_EDITS
-      : API_ENDPOINTS.IMAGE_GENERATIONS
-
-  const res = await api.post(endpoint, payload, {
     skipErrorHandler: true,
   } as Record<string, unknown>)
   return res.data

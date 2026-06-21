@@ -16,36 +16,30 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  useCallback,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type ClipboardEvent,
-} from 'react'
+import { useState } from 'react'
 import {
   PaperclipIcon,
   FileIcon,
   ImageIcon,
-  ImagesIcon,
-  MessageSquareIcon,
   ScreenShareIcon,
   CameraIcon,
   GlobeIcon,
   SendIcon,
   SquareIcon,
+  BarChartIcon,
+  BoxIcon,
+  NotepadTextIcon,
+  CodeSquareIcon,
+  GraduationCapIcon,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { Badge } from '@/components/ui/badge'
-import { Switch } from '@/components/ui/switch'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
   PromptInput,
   PromptInputButton,
@@ -54,11 +48,9 @@ import {
   PromptInputTools,
   type PromptInputMessage,
 } from '@/components/ai-elements/prompt-input'
+import { Suggestion, Suggestions } from '@/components/ai-elements/suggestion'
 import { ModelGroupSelector } from '@/components/model-group-selector'
-import { PLAYGROUND_MODES } from '../constants'
-import { readImageFilesAsDataUrls } from '../lib'
-import { ImageSizeControl } from './image-size-control'
-import type { ModelOption, GroupOption, PlaygroundMode } from '../types'
+import type { ModelOption, GroupOption } from '../types'
 
 interface PlaygroundInputProps {
   onSubmit: (text: string) => void
@@ -72,22 +64,16 @@ interface PlaygroundInputProps {
   groups: GroupOption[]
   groupValue: string
   onGroupChange: (value: string) => void
-  activeMode: PlaygroundMode
-  onModeChange: (mode: PlaygroundMode) => void
-  onAddReferences: (urls: string[]) => void
-  referenceCount: number
-  onClearReferences: () => void
-  imageSize: string
-  onImageSizeChange: (value: string) => void
-  stream: boolean
-  onStreamChange: (value: boolean) => void
 }
 
-const modeItems = [
-  { key: PLAYGROUND_MODES.CHAT, label: 'Chat', icon: MessageSquareIcon },
-  { key: PLAYGROUND_MODES.IMAGE, label: 'Image', icon: ImageIcon },
-  { key: PLAYGROUND_MODES.IMAGE_EDIT, label: 'Edit image', icon: ImagesIcon },
-] as const
+const suggestions = [
+  { icon: BarChartIcon, text: 'Analyze data', color: '#76d0eb' },
+  { icon: BoxIcon, text: 'Surprise me', color: '#76d0eb' },
+  { icon: NotepadTextIcon, text: 'Summarize text', color: '#ea8444' },
+  { icon: CodeSquareIcon, text: 'Code', color: '#6c71ff' },
+  { icon: GraduationCapIcon, text: 'Get advice', color: '#76d0eb' },
+  { icon: null, text: 'More' },
+]
 
 export function PlaygroundInput({
   onSubmit,
@@ -101,24 +87,13 @@ export function PlaygroundInput({
   groups,
   groupValue,
   onGroupChange,
-  activeMode,
-  onModeChange,
-  onAddReferences,
-  referenceCount,
-  onClearReferences,
-  imageSize,
-  onImageSizeChange,
-  stream,
-  onStreamChange,
 }: PlaygroundInputProps) {
   const { t } = useTranslation()
   const [text, setText] = useState('')
-  const fileInputRef = useRef<HTMLInputElement | null>(null)
 
   const isModelSelectDisabled =
     disabled || isModelLoading || models.length === 0
   const isGroupSelectDisabled = disabled || groups.length === 0
-  const isImageMode = activeMode !== PLAYGROUND_MODES.CHAT
 
   const handleSubmit = (message: PromptInputMessage) => {
     if (!message.text?.trim() || disabled) return
@@ -127,73 +102,17 @@ export function PlaygroundInput({
   }
 
   const handleFileAction = (action: string) => {
-    if (action === 'upload-photo') {
-      fileInputRef.current?.click()
-      return
-    }
-
     toast.info(t('Feature in development'), {
       description: action,
     })
   }
 
-  const addImageFiles = useCallback(
-    async (files: File[]) => {
-      if (files.length === 0) return
-
-      try {
-        const dataUrls = await readImageFilesAsDataUrls(files)
-        onAddReferences(dataUrls)
-        toast.success(t('Reference image added'))
-      } catch {
-        toast.warning(t('Please select image files'))
-      }
-    },
-    [onAddReferences, t]
-  )
-
-  const handleFileChange = useCallback(
-    (event: ChangeEvent<HTMLInputElement>) => {
-      const files = Array.from(event.target.files || [])
-      event.target.value = ''
-      void addImageFiles(files)
-    },
-    [addImageFiles]
-  )
-
-  const handlePaste = useCallback(
-    (event: ClipboardEvent<HTMLTextAreaElement>) => {
-      const files = Array.from(event.clipboardData.files || []).filter((file) =>
-        file.type.startsWith('image/')
-      )
-      if (files.length === 0) return
-
-      event.preventDefault()
-      void addImageFiles(files)
-    },
-    [addImageFiles]
-  )
-
-  const handleModeChange = useCallback(
-    (value: string[]) => {
-      const next = value.find((item) => item !== activeMode) as
-        | PlaygroundMode
-        | undefined
-      if (next) onModeChange(next)
-    },
-    [activeMode, onModeChange]
-  )
+  const handleSuggestionClick = (suggestion: string) => {
+    onSubmit(suggestion)
+  }
 
   return (
     <div className='grid shrink-0 gap-4 px-1 md:pb-4'>
-      <input
-        ref={fileInputRef}
-        type='file'
-        accept='image/*'
-        multiple
-        className='hidden'
-        onChange={handleFileChange}
-      />
       <PromptInput groupClassName='rounded-xl' onSubmit={handleSubmit}>
         <PromptInputTextarea
           autoComplete='off'
@@ -203,7 +122,6 @@ export function PlaygroundInput({
           className='px-5 md:text-base'
           disabled={disabled}
           onChange={(event) => setText(event.target.value)}
-          onPaste={handlePaste}
           placeholder={t('Ask anything')}
           value={text}
         />
@@ -262,43 +180,6 @@ export function PlaygroundInput({
               <span className='hidden sm:inline'>{t('Search')}</span>
               <span className='sr-only sm:hidden'>{t('Search')}</span>
             </PromptInputButton>
-
-            <ToggleGroup
-              value={[activeMode]}
-              onValueChange={handleModeChange}
-              aria-label={t('Creative mode')}
-              variant='outline'
-              size='sm'
-              spacing={1}
-              className='hidden sm:flex'
-            >
-              {modeItems.map((item) => {
-                const Icon = item.icon
-                return (
-                  <ToggleGroupItem
-                    key={item.key}
-                    value={item.key}
-                    className='gap-1 px-2 text-xs'
-                  >
-                    <Icon size={14} />
-                    {t(item.label)}
-                  </ToggleGroupItem>
-                )
-              })}
-            </ToggleGroup>
-
-            {referenceCount > 0 && (
-              <button
-                type='button'
-                className='focus-visible:ring-ring flex items-center rounded-md outline-none focus-visible:ring-2'
-                onClick={onClearReferences}
-                title={t('Clear references')}
-              >
-                <Badge variant='secondary'>
-                  {t('{{count}} references', { count: referenceCount })}
-                </Badge>
-              </button>
-            )}
           </PromptInputTools>
 
           <div className='flex items-center gap-1.5 md:gap-2'>
@@ -311,21 +192,6 @@ export function PlaygroundInput({
               onGroupChange={onGroupChange}
               disabled={isModelSelectDisabled || isGroupSelectDisabled}
             />
-
-            {activeMode === PLAYGROUND_MODES.CHAT && (
-              <label className='border-input bg-background flex h-8 items-center gap-2 rounded-md border px-2.5 text-xs font-medium'>
-                <span className='text-muted-foreground hidden whitespace-nowrap md:inline'>
-                  {t('Streaming')}
-                </span>
-                <Switch
-                  size='sm'
-                  aria-label={t('Streaming')}
-                  checked={stream}
-                  disabled={disabled}
-                  onCheckedChange={onStreamChange}
-                />
-              </label>
-            )}
 
             {isGenerating && onStop ? (
               <PromptInputButton
@@ -345,38 +211,29 @@ export function PlaygroundInput({
                 variant='secondary'
               >
                 <SendIcon size={16} />
-                <span className='hidden sm:inline'>
-                  {activeMode === PLAYGROUND_MODES.CHAT
-                    ? t('Send')
-                    : t('Generate')}
-                </span>
-                <span className='sr-only sm:hidden'>
-                  {activeMode === PLAYGROUND_MODES.CHAT
-                    ? t('Send')
-                    : t('Generate')}
-                </span>
+                <span className='hidden sm:inline'>{t('Send')}</span>
+                <span className='sr-only sm:hidden'>{t('Send')}</span>
               </PromptInputButton>
             )}
           </div>
         </PromptInputFooter>
       </PromptInput>
 
-      {isImageMode && (
-        <div className='bg-background flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2'>
-          <span className='text-muted-foreground text-xs font-medium'>
-            {t('Image size')}
-          </span>
-          <ImageSizeControl
-            value={imageSize}
-            disabled={disabled}
-            onChange={onImageSizeChange}
-            className='min-w-[220px] flex-1 sm:flex-none'
-            selectClassName='h-8 sm:w-36'
-            compact
-          />
-        </div>
-      )}
-
+      <Suggestions>
+        {suggestions.map(({ icon: Icon, text, color }) => (
+          <Suggestion
+            className={`text-xs font-normal sm:text-sm ${
+              text === 'More' ? 'hidden sm:flex' : ''
+            }`}
+            key={text}
+            onClick={() => handleSuggestionClick(text)}
+            suggestion={text}
+          >
+            {Icon && <Icon size={16} style={{ color }} />}
+            {text}
+          </Suggestion>
+        ))}
+      </Suggestions>
     </div>
   )
 }

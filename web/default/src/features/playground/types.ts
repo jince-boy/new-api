@@ -30,8 +30,6 @@ export interface Message {
   key: string
   from: MessageRole
   versions: MessageVersion[]
-  imageUrls?: string[]
-  generatedImages?: ImageAsset[]
   sources?: { href: string; title: string }[]
   reasoning?: {
     content: string
@@ -108,54 +106,6 @@ export interface ChatCompletionResponse {
   }
 }
 
-export interface ImageGenerationRequest {
-  model: string
-  group?: string
-  prompt: string
-  n: number
-  size: string
-  quality: string
-  response_format: 'url' | 'b64_json'
-  image?: string
-  images?: string[]
-}
-
-export interface ImageGenerationResponse {
-  data?: Array<{
-    url?: string
-    b64_json?: string
-    revised_prompt?: string
-  }>
-  error?: {
-    message?: string
-    code?: string
-  }
-}
-
-export type PlaygroundMode = 'chat' | 'image' | 'image_edit'
-
-export interface ImageAsset {
-  id: string
-  url: string
-  prompt: string
-  mode: PlaygroundMode
-  model: string
-  group: string
-  size: string
-  quality: string
-  conversationId?: string
-  createdAt: number
-}
-
-export interface PlaygroundConversation {
-  id: string
-  title: string
-  preview: string
-  mode: PlaygroundMode
-  messages: Message[]
-  updatedAt: number
-}
-
 // Configuration types
 export interface PlaygroundConfig {
   model: string
@@ -167,10 +117,6 @@ export interface PlaygroundConfig {
   presence_penalty: number
   seed: number | null
   stream: boolean
-  imageUrls: string[]
-  imageSize: string
-  imageCount: number
-  imageQuality: string
 }
 
 export interface ParameterEnabled {

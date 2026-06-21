@@ -3,6 +3,7 @@ package ratio_setting
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting/config"
@@ -107,6 +108,11 @@ func GroupGroupRatio2JSONString() string {
 }
 
 func UpdateGroupGroupRatioByJSONString(jsonStr string) error {
+	if strings.TrimSpace(jsonStr) == "" {
+		groupGroupRatioMap = types.NewRWMap[string, map[string]float64]()
+		groupRatioSetting.GroupGroupRatio = groupGroupRatioMap
+		return nil
+	}
 	return types.LoadFromJsonString(groupGroupRatioMap, jsonStr)
 }
 

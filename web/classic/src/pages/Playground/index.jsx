@@ -17,90 +17,51 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, {
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import React, { useContext, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import { Button, Layout, Modal, Tag, Toast, Typography } from '@douyinfe/semi-ui';
-import {
-  Image as ImageIcon,
-  Images,
-  MessageSquare,
-  MoreHorizontal,
-  Plus,
-  Trash2,
-} from 'lucide-react';
+import { Layout, Toast, Modal } from '@douyinfe/semi-ui';
 
+// Context
 import { UserContext } from '../../context/User';
 import { useIsMobile } from '../../hooks/common/useIsMobile';
+
+// hooks
 import { usePlaygroundState } from '../../hooks/playground/usePlaygroundState';
 import { useMessageActions } from '../../hooks/playground/useMessageActions';
 import { useApiRequest } from '../../hooks/playground/useApiRequest';
+import { useSyncMessageAndCustomBody } from '../../hooks/playground/useSyncMessageAndCustomBody';
 import { useMessageEdit } from '../../hooks/playground/useMessageEdit';
 import { useDataLoader } from '../../hooks/playground/useDataLoader';
+
+// Constants and utils
 import {
-  API_ENDPOINTS,
   MESSAGE_ROLES,
-  normalizeImageSizeInput,
-  validateImageSize,
+  ERROR_MESSAGES,
 } from '../../constants/playground.constants';
 import {
-  buildApiPayload,
-  buildMessageContent,
-  createLoadingAssistantMessage,
-  createMessage,
-  encodeToBase64,
   getLogo,
-  getTextContent,
-  getUserIdFromLocalStorage,
   stringToColor,
+  buildMessageContent,
+  createMessage,
+  createLoadingAssistantMessage,
+  getTextContent,
+  buildApiPayload,
+  encodeToBase64,
 } from '../../helpers';
+
+// Components
 import {
-  OptimizedMessageActions,
+  OptimizedSettingsPanel,
+  OptimizedDebugPanel,
   OptimizedMessageContent,
+  OptimizedMessageActions,
 } from '../../components/playground/OptimizedComponents';
 import ChatArea from '../../components/playground/ChatArea';
-import ImageStudioPanel from '../../components/playground/ImageStudioPanel';
-import {
-  createImageAssets,
-  loadImageLibrary,
-  persistImageLibrary,
-} from '../../components/playground/imageLibraryStorage';
+import FloatingButtons from '../../components/playground/FloatingButtons';
 import { PlaygroundProvider } from '../../contexts/PlaygroundContext';
 
-const PLAYGROUND_MODES = {
-  CHAT: 'chat',
-  IMAGE: 'image',
-  IMAGE_EDIT: 'image_edit',
-};
-
-const CONVERSATIONS_STORAGE_KEY = 'playground_conversations';
-const MAX_CONVERSATIONS = 40;
-
-const modeMeta = {
-  [PLAYGROUND_MODES.CHAT]: {
-    label: 'Chat',
-    description: 'Ask, analyze, and write in a natural conversation.',
-    icon: MessageSquare,
-  },
-  [PLAYGROUND_MODES.IMAGE]: {
-    label: 'Generate image',
-    description: 'Enter a prompt to generate images.',
-    icon: ImageIcon,
-  },
-  [PLAYGROUND_MODES.IMAGE_EDIT]: {
-    label: 'Image to image',
-    description: 'Upload references to edit or redraw images.',
-    icon: Images,
-  },
-};
-
+// 生成头像
 const generateAvatarDataUrl = (username) => {
   if (!username) {
     return 'https://lf3-static.bytednsdoc.com/obj/eden-cn/ptlz_zlp/ljhwZthlaukjlkulzlp/docs-icon.png';
@@ -116,265 +77,62 @@ const generateAvatarDataUrl = (username) => {
   return `data:image/svg+xml;base64,${encodeToBase64(svg)}`;
 };
 
-const loadConversations = () => {
-  try {
-    const raw = localStorage.getItem(CONVERSATIONS_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-};
-
-const persistConversations = (conversations) => {
-  const next = conversations.slice(0, MAX_CONVERSATIONS);
-  try {
-    localStorage.setItem(CONVERSATIONS_STORAGE_KEY, JSON.stringify(next));
-    return next;
-  } catch {
-    const compact = next.slice(0, 10).map((conversation) => ({
-      ...conversation,
-      messages: (conversation.messages || []).map((message) => {
-        if (!Array.isArray(message.content)) return message;
-
-        return {
-          ...message,
-          content: message.content.filter((item) => {
-            const url =
-              typeof item?.image_url === 'string'
-                ? item.image_url
-                : item?.image_url?.url;
-            return item?.type !== 'image_url' || !url?.startsWith('data:image');
-          }),
-        };
-      }),
-    }));
-
-    try {
-      localStorage.setItem(CONVERSATIONS_STORAGE_KEY, JSON.stringify(compact));
-      return compact;
-    } catch {
-      localStorage.removeItem(CONVERSATIONS_STORAGE_KEY);
-      return [];
-    }
-  }
-};
-
-const getMessagePlainText = (msg) => {
-  if (!msg) return '';
-  const text = getTextContent(msg);
-  return typeof text === 'string' ? text.trim() : '';
-};
-
-const getConversationTitle = (messages, fallback) => {
-  const firstUserMessage = (messages || []).find(
-    (msg) => msg.role === MESSAGE_ROLES.USER && getMessagePlainText(msg),
-  );
-  const text = getMessagePlainText(firstUserMessage);
-  if (!text) return fallback;
-  return text.length > 28 ? `${text.slice(0, 28)}...` : text;
-};
-
-const getConversationPreview = (messages) => {
-  const lastMessage = [...(messages || [])]
-    .reverse()
-    .find((msg) => getMessagePlainText(msg));
-  const text = getMessagePlainText(lastMessage);
-  if (!text) return '';
-  return text.length > 44 ? `${text.slice(0, 44)}...` : text;
-};
-
-const createConversation = (messages = [], mode = PLAYGROUND_MODES.CHAT) => {
-  const now = Date.now();
-  return {
-    id: `pg-${now}-${Math.random().toString(36).slice(2, 8)}`,
-    title: getConversationTitle(messages, 'New chat'),
-    preview: getConversationPreview(messages),
-    mode,
-    messages,
-    updatedAt: now,
-  };
-};
-
-const extractGeneratedImages = (data) => {
-  const items = Array.isArray(data?.data) ? data.data : [];
-  return items
-    .map((item) => {
-      if (item?.url) return item.url;
-      if (item?.b64_json) return `data:image/png;base64,${item.b64_json}`;
-      return '';
-    })
-    .filter(Boolean);
-};
-
-const extractImageAssetsFromMessages = (messages) => {
-  const assets = [];
-
-  (messages || []).forEach((msg) => {
-    if (msg.role !== MESSAGE_ROLES.ASSISTANT) return;
-    if (!Array.isArray(msg.content)) return;
-    const prompt = getMessagePlainText(msg) || 'Creative result';
-
-    msg.content
-      .filter((item) => item?.type === 'image_url' && item?.image_url?.url)
-      .forEach((item, index) => {
-        assets.push({
-          id: `${msg.id || msg.createAt || 'message'}-${index}`,
-          url: item.image_url.url,
-          prompt,
-          createdAt: msg.createAt || Date.now(),
-        });
-      });
-  });
-
-  return assets.reverse();
-};
-
 const Playground = () => {
   const { t } = useTranslation();
   const [userState] = useContext(UserContext);
   const isMobile = useIsMobile();
   const styleState = { isMobile };
   const [searchParams] = useSearchParams();
-  const [activeMode, setActiveMode] = useState(PLAYGROUND_MODES.CHAT);
-  const [conversations, setConversations] = useState(loadConversations);
-  const [activeConversationId, setActiveConversationId] = useState(
-    () => loadConversations()[0]?.id || '',
-  );
-  const [imageLibrary, setImageLibrary] = useState(loadImageLibrary);
-  const hasHydratedConversation = useRef(false);
-  const skipNextConversationPersist = useRef(false);
-  const messageRef = useRef([]);
-  const activeConversationIdRef = useRef(activeConversationId);
-  const activeModeRef = useRef(activeMode);
 
   const state = usePlaygroundState();
   const {
     inputs,
     parameterEnabled,
+    showDebugPanel,
+    customRequestMode,
+    customRequestBody,
+    showSettings,
     models,
     groups,
+    status,
     message,
+    debugData,
+    activeDebugTab,
+    previewPayload,
     sseSourceRef,
     chatRef,
     handleInputChange,
+    handleParameterToggle,
     debouncedSaveConfig,
     saveMessagesImmediately,
+    handleConfigImport,
+    handleConfigReset,
+    setShowSettings,
     setModels,
     setGroups,
+    setStatus,
     setMessage,
     setDebugData,
     setActiveDebugTab,
+    setPreviewPayload,
+    setShowDebugPanel,
+    setCustomRequestMode,
+    setCustomRequestBody,
   } = state;
 
-  messageRef.current = message;
-  activeConversationIdRef.current = activeConversationId;
-  activeModeRef.current = activeMode;
-
-  const syncActiveConversation = useCallback(
-    (nextMessages, options = {}) => {
-      const conversationId =
-        options.conversationId ?? activeConversationIdRef.current;
-      if (!conversationId) return;
-
-      const mode = activeModeRef.current;
-      const promote = options.promote ?? true;
-
-      const syncConversations = (prev) => {
-        const existingIndex = prev.findIndex(
-          (conversation) => conversation.id === conversationId,
-        );
-        const nextMode =
-          conversationId === activeConversationIdRef.current
-            ? activeModeRef.current
-            : prev[existingIndex]?.mode || mode;
-        const updatedConversation = {
-          ...(existingIndex >= 0 ? prev[existingIndex] : createConversation()),
-          id: conversationId,
-          title: getConversationTitle(nextMessages, t('New chat')),
-          preview: getConversationPreview(nextMessages),
-          mode: nextMode,
-          messages: nextMessages,
-          updatedAt: Date.now(),
-        };
-
-        if (existingIndex < 0) {
-          return [updatedConversation, ...prev];
-        }
-
-        const next = [...prev];
-        next[existingIndex] = updatedConversation;
-        if (!promote) {
-          return next;
-        }
-
-        return [
-          updatedConversation,
-          ...next.slice(0, existingIndex),
-          ...next.slice(existingIndex + 1),
-        ];
-      };
-
-      const persisted = persistConversations(
-        syncConversations(loadConversations()),
-      );
-      setConversations(persisted);
-    },
-    [t],
-  );
-
-  const updateActiveMessages = useCallback(
-    (updater, options = {}) => {
-      const targetConversationId =
-        options.conversationId ?? activeConversationIdRef.current;
-      const isActiveConversation =
-        !targetConversationId ||
-        targetConversationId === activeConversationIdRef.current;
-      const baseMessages =
-        isActiveConversation
-          ? messageRef.current
-          : loadConversations().find(
-              (conversation) => conversation.id === targetConversationId,
-            )?.messages || [];
-      const nextMessages =
-        typeof updater === 'function' ? updater(baseMessages) : updater;
-      if (isActiveConversation) {
-        messageRef.current = nextMessages;
-        saveMessagesImmediately(nextMessages);
-        setMessage(nextMessages);
-      }
-      syncActiveConversation(nextMessages, {
-        ...options,
-        conversationId: targetConversationId,
-      });
-    },
-    [saveMessagesImmediately, setMessage, syncActiveConversation],
-  );
-
-  const saveMessagesForConversation = useCallback(
-    (nextMessages, options = {}) => {
-      const targetConversationId =
-        options.conversationId ?? activeConversationIdRef.current;
-      if (
-        !targetConversationId ||
-        targetConversationId === activeConversationIdRef.current
-      ) {
-        saveMessagesImmediately(nextMessages);
-      }
-    },
-    [saveMessagesImmediately],
-  );
-
+  // API 请求相关
   const { sendRequest, onStopGenerator } = useApiRequest(
-    updateActiveMessages,
+    setMessage,
     setDebugData,
     setActiveDebugTab,
     sseSourceRef,
-    saveMessagesForConversation,
+    saveMessagesImmediately,
   );
 
+  // 数据加载
   useDataLoader(userState, inputs, handleInputChange, setModels, setGroups);
 
+  // 消息编辑
   const {
     editingMessageId,
     editValue,
@@ -383,13 +141,26 @@ const Playground = () => {
     handleEditSave,
     handleEditCancel,
   } = useMessageEdit(
-    updateActiveMessages,
+    setMessage,
     inputs,
     parameterEnabled,
     sendRequest,
     saveMessagesImmediately,
   );
 
+  // 消息和自定义请求体同步
+  const { syncMessageToCustomBody, syncCustomBodyToMessage } =
+    useSyncMessageAndCustomBody(
+      customRequestMode,
+      customRequestBody,
+      message,
+      inputs,
+      setCustomRequestBody,
+      setMessage,
+      debouncedSaveConfig,
+    );
+
+  // 角色信息
   const roleInfo = {
     user: {
       name: userState?.user?.username || 'User',
@@ -405,308 +176,99 @@ const Playground = () => {
     },
   };
 
+  // 消息操作
   const messageActions = useMessageActions(
     message,
-    updateActiveMessages,
+    setMessage,
     onMessageSend,
     saveMessagesImmediately,
   );
 
-  const isGenerating = message.some(
-    (msg) => msg.status === 'loading' || msg.status === 'incomplete',
-  );
-  const validImageUrls = useMemo(
-    () => (inputs.imageUrls || []).filter((url) => url?.trim()),
-    [inputs.imageUrls],
-  );
-  const currentImageAssets = useMemo(
-    () => extractImageAssetsFromMessages(message).slice(0, 6),
-    [message],
-  );
-
-  useEffect(() => {
-    if (hasHydratedConversation.current) return;
-    hasHydratedConversation.current = true;
-
-    if (conversations.length > 0 && activeConversationId) {
-      const current = conversations.find(
-        (conversation) => conversation.id === activeConversationId,
-      );
-      if (current) {
-        skipNextConversationPersist.current = true;
-        messageRef.current = current.messages || [];
-        activeModeRef.current = current.mode || PLAYGROUND_MODES.CHAT;
-        setMessage(current.messages || []);
-        setActiveMode(current.mode || PLAYGROUND_MODES.CHAT);
-      }
-      return;
-    }
-
-    if (message.length === 0) return;
-
-    const initialConversation = createConversation(message, activeMode);
-    setActiveConversationId(initialConversation.id);
-    setConversations((prev) =>
-      persistConversations([initialConversation, ...prev]),
-    );
-  }, [activeConversationId, activeMode, conversations, message, setMessage]);
-
-  useEffect(() => {
-    if (!activeConversationId || !hasHydratedConversation.current) return;
-    if (skipNextConversationPersist.current) {
-      skipNextConversationPersist.current = false;
-      return;
-    }
-
-    setConversations((prev) => {
-      const existingIndex = prev.findIndex(
-        (conversation) => conversation.id === activeConversationId,
-      );
-      const updatedConversation = {
-        ...(existingIndex >= 0 ? prev[existingIndex] : createConversation()),
-        id: activeConversationId,
-        title: getConversationTitle(message, t('New chat')),
-        preview: getConversationPreview(message),
-        mode: activeMode,
-        messages: message,
-        updatedAt: Date.now(),
-      };
-
-      if (existingIndex < 0) {
-        return persistConversations([updatedConversation, ...prev]);
+  // 构建预览请求体
+  const constructPreviewPayload = useCallback(() => {
+    try {
+      // 如果是自定义请求体模式且有自定义内容，直接返回解析后的自定义请求体
+      if (customRequestMode && customRequestBody && customRequestBody.trim()) {
+        try {
+          return JSON.parse(customRequestBody);
+        } catch (parseError) {
+          console.warn('自定义请求体JSON解析失败，回退到默认预览:', parseError);
+        }
       }
 
-      const next = [...prev];
-      next[existingIndex] = updatedConversation;
-      return persistConversations(next);
-    });
-  }, [activeConversationId, activeMode, message, t]);
+      // 默认预览逻辑
+      let messages = [...message];
 
-  useEffect(() => {
-    if (searchParams.get('expired')) {
-      Toast.warning(t('Session expired!'));
-    }
-  }, [searchParams, t]);
-
-  useEffect(() => {
-    debouncedSaveConfig();
-  }, [inputs, parameterEnabled, debouncedSaveConfig]);
-
-  const replaceLoadingMessage = useCallback(
-    (loadingId, nextMessage, conversationId) => {
-      updateActiveMessages((prevMessage) => {
-        const updatedMessages = prevMessage.map((msg) =>
-          msg.id === loadingId ? nextMessage : msg,
-        );
-        return updatedMessages;
-      }, { conversationId });
-    },
-    [updateActiveMessages],
-  );
-
-  const handleModeChange = useCallback(
-    (mode) => {
-      setActiveMode(mode);
-      if (mode === PLAYGROUND_MODES.IMAGE_EDIT) {
-        handleInputChange('imageEnabled', true);
-      }
-    },
-    [handleInputChange],
-  );
-
-  const ensureConversation = useCallback(
-    (mode, nextMessages = []) => {
-      if (activeConversationId) return activeConversationId;
-
-      const nextConversation = createConversation(nextMessages, mode);
-      activeConversationIdRef.current = nextConversation.id;
-      activeModeRef.current = mode;
-      setActiveConversationId(nextConversation.id);
-      setConversations((prev) =>
-        persistConversations([nextConversation, ...prev]),
-      );
-      return nextConversation.id;
-    },
-    [activeConversationId],
-  );
-
-  const sendImageRequest = useCallback(
-    async (content) => {
-      const prompt = typeof content === 'string' ? content.trim() : '';
-      const requestMode =
-        validImageUrls.length > 0
-          ? PLAYGROUND_MODES.IMAGE_EDIT
-          : activeMode === PLAYGROUND_MODES.IMAGE_EDIT
-            ? PLAYGROUND_MODES.IMAGE_EDIT
-            : PLAYGROUND_MODES.IMAGE;
-      if (!prompt) {
-        Toast.warning(t('Please enter a prompt first'));
-        return;
-      }
+      // 如果存在用户消息
       if (
-        requestMode === PLAYGROUND_MODES.IMAGE_EDIT &&
-        validImageUrls.length === 0
+        !(
+          messages.length === 0 ||
+          messages.every((msg) => msg.role !== MESSAGE_ROLES.USER)
+        )
       ) {
-        Toast.warning(t('Please upload a reference image first'));
-        return;
+        // 处理最后一个用户消息的图片
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i].role === MESSAGE_ROLES.USER) {
+            if (inputs.imageEnabled && inputs.imageUrls) {
+              const validImageUrls = inputs.imageUrls.filter(
+                (url) => url.trim() !== '',
+              );
+              if (validImageUrls.length > 0) {
+                const textContent = getTextContent(messages[i]) || '示例消息';
+                const content = buildMessageContent(
+                  textContent,
+                  validImageUrls,
+                  true,
+                );
+                messages[i] = { ...messages[i], content };
+              }
+            }
+            break;
+          }
+        }
       }
 
-      const userMessage = createMessage(
-        MESSAGE_ROLES.USER,
-        buildMessageContent(
-          prompt,
-          validImageUrls,
-          requestMode === PLAYGROUND_MODES.IMAGE_EDIT,
-        ),
-      );
-      const loadingMessage = createLoadingAssistantMessage();
-      const endpoint =
-        requestMode === PLAYGROUND_MODES.IMAGE_EDIT
-          ? API_ENDPOINTS.IMAGE_EDITS
-          : API_ENDPOINTS.IMAGE_GENERATIONS;
-      const requestedImageSize = normalizeImageSizeInput(inputs.imageSize);
-      const sizeValidation = validateImageSize(requestedImageSize);
-      if (!sizeValidation.valid) {
-        Toast.warning(
-          `${t('Image size')}: ${t(sizeValidation.reason || 'Invalid image size.')}`,
-        );
-        return;
-      }
-      const payload = {
-        model: inputs.model,
-        group: inputs.group,
-        prompt,
-        n: Math.max(1, Math.min(Number(inputs.imageCount) || 1, 10)),
-        size: sizeValidation.normalized,
-        quality: inputs.imageQuality || 'auto',
-        response_format: 'url',
-      };
+      return buildApiPayload(messages, null, inputs, parameterEnabled);
+    } catch (error) {
+      console.error('构造预览请求体失败:', error);
+      return null;
+    }
+  }, [inputs, parameterEnabled, message, customRequestMode, customRequestBody]);
 
-      if (requestMode === PLAYGROUND_MODES.IMAGE_EDIT) {
-        payload.image = validImageUrls[0];
-        payload.images = validImageUrls;
-      }
+  // 发送消息
+  function onMessageSend(content, attachment) {
+    console.log('attachment: ', attachment);
 
-      const nextMessages = [...message, userMessage, loadingMessage];
-      const conversationId = ensureConversation(requestMode, nextMessages);
+    // 创建用户消息和加载消息
+    const userMessage = createMessage(MESSAGE_ROLES.USER, content);
+    const loadingMessage = createLoadingAssistantMessage();
 
-      updateActiveMessages((prevMessage) => {
-        const nextMessages = [...prevMessage, userMessage, loadingMessage];
-        return nextMessages;
-      }, { conversationId });
-      setDebugData((prev) => ({
-        ...prev,
-        request: payload,
-        timestamp: new Date().toISOString(),
-        response: null,
-        sseMessages: null,
-        isStreaming: false,
-      }));
-      setActiveDebugTab('request');
-
+    // 如果是自定义请求体模式
+    if (customRequestMode && customRequestBody) {
       try {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'New-Api-User': getUserIdFromLocalStorage(),
-          },
-          body: JSON.stringify(payload),
+        const customPayload = JSON.parse(customRequestBody);
+
+        setMessage((prevMessage) => {
+          const newMessages = [...prevMessage, userMessage, loadingMessage];
+
+          // 发送自定义请求体
+          sendRequest(customPayload, customPayload.stream !== false);
+
+          // 发送消息后保存，传入新消息列表
+          setTimeout(() => saveMessagesImmediately(newMessages), 0);
+
+          return newMessages;
         });
-
-        const rawText = await response.text();
-        const data = rawText ? JSON.parse(rawText) : {};
-
-        setDebugData((prev) => ({
-          ...prev,
-          response: JSON.stringify(data, null, 2),
-        }));
-        setActiveDebugTab('response');
-
-        if (!response.ok) {
-          throw new Error(
-            data?.error?.message || rawText || t('Image generation failed'),
-          );
-        }
-
-        const generatedImages = extractGeneratedImages(data);
-        if (generatedImages.length === 0) {
-          throw new Error(t('No images returned'));
-        }
-
-        const generatedAssets = createImageAssets({
-          urls: generatedImages,
-          prompt,
-          mode: requestMode,
-          model: inputs.model,
-          group: inputs.group,
-          size: payload.size,
-          quality: payload.quality,
-          conversationId,
-        });
-        setImageLibrary((prev) =>
-          persistImageLibrary([...generatedAssets, ...prev]),
-        );
-
-        const assistantContent = generatedImages.map((url) => ({
-          type: 'image_url',
-          image_url: { url },
-        }));
-
-        replaceLoadingMessage(
-          loadingMessage.id,
-          createMessage(MESSAGE_ROLES.ASSISTANT, assistantContent, {
-            status: 'complete',
-            reasoningContent: '',
-            isReasoningExpanded: false,
-          }),
-          conversationId,
-        );
+        return;
       } catch (error) {
-        console.error('Image generation failed:', error);
-        replaceLoadingMessage(
-          loadingMessage.id,
-          createMessage(
-            MESSAGE_ROLES.ASSISTANT,
-            `${t('Image generation failed')}: ${error.message}`,
-            {
-              status: 'error',
-              errorCode: null,
-            },
-          ),
-          conversationId,
-        );
+        console.error('自定义请求体JSON解析失败:', error);
+        Toast.error(ERROR_MESSAGES.JSON_PARSE_ERROR);
+        return;
       }
-    },
-    [
-      activeMode,
-      ensureConversation,
-      inputs.group,
-      inputs.imageCount,
-      inputs.imageQuality,
-      inputs.imageSize,
-      inputs.model,
-      message,
-      replaceLoadingMessage,
-      setActiveDebugTab,
-      setDebugData,
-      t,
-      updateActiveMessages,
-      validImageUrls,
-    ],
-  );
-
-  function onMessageSend(content) {
-    if (
-      activeMode === PLAYGROUND_MODES.IMAGE ||
-      activeMode === PLAYGROUND_MODES.IMAGE_EDIT ||
-      validImageUrls.length > 0
-    ) {
-      sendImageRequest(content);
-      return;
     }
 
-    const loadingMessage = createLoadingAssistantMessage();
+    // 默认模式
+    const validImageUrls = inputs.imageUrls.filter((url) => url.trim() !== '');
     const messageContent = buildMessageContent(
       content,
       validImageUrls,
@@ -717,36 +279,47 @@ const Playground = () => {
       messageContent,
     );
 
-    const newMessages = [...messageRef.current, userMessageWithImages];
-    const messagesWithLoading = [...newMessages, loadingMessage];
-    const conversationId = ensureConversation(activeMode, messagesWithLoading);
-    const payload = buildApiPayload(newMessages, null, inputs, parameterEnabled);
+    setMessage((prevMessage) => {
+      const newMessages = [...prevMessage, userMessageWithImages];
 
-    updateActiveMessages(messagesWithLoading, { conversationId });
-    sendRequest(payload, inputs.stream, { conversationId });
+      const payload = buildApiPayload(
+        newMessages,
+        null,
+        inputs,
+        parameterEnabled,
+      );
+      sendRequest(payload, inputs.stream);
 
-    if (inputs.imageEnabled) {
-      setTimeout(() => {
-        handleInputChange('imageEnabled', false);
-      }, 100);
-    }
+      // 禁用图片模式
+      if (inputs.imageEnabled) {
+        setTimeout(() => {
+          handleInputChange('imageEnabled', false);
+        }, 100);
+      }
+
+      // 发送消息后保存，传入新消息列表（包含用户消息和加载消息）
+      const messagesWithLoading = [...newMessages, loadingMessage];
+      setTimeout(() => saveMessagesImmediately(messagesWithLoading), 0);
+
+      return messagesWithLoading;
+    });
   }
 
+  // 切换推理展开状态
   const toggleReasoningExpansion = useCallback(
     (messageId) => {
-      updateActiveMessages(
-        (prevMessages) =>
-          prevMessages.map((msg) =>
-            msg.id === messageId && msg.role === MESSAGE_ROLES.ASSISTANT
-              ? { ...msg, isReasoningExpanded: !msg.isReasoningExpanded }
-              : msg,
-          ),
-        { promote: false },
+      setMessage((prevMessages) =>
+        prevMessages.map((msg) =>
+          msg.id === messageId && msg.role === MESSAGE_ROLES.ASSISTANT
+            ? { ...msg, isReasoningExpanded: !msg.isReasoningExpanded }
+            : msg,
+        ),
       );
     },
-    [updateActiveMessages],
+    [setMessage],
   );
 
+  // 渲染函数
   const renderCustomChatContent = useCallback(
     ({ message, className }) => {
       const isCurrentlyEditing = editingMessageId === message.id;
@@ -779,6 +352,9 @@ const Playground = () => {
   const renderChatBoxAction = useCallback(
     (props) => {
       const { message: currentMessage } = props;
+      const isAnyMessageGenerating = message.some(
+        (msg) => msg.status === 'loading' || msg.status === 'incomplete',
+      );
       const isCurrentlyEditing = editingMessageId === currentMessage.id;
 
       return (
@@ -790,354 +366,196 @@ const Playground = () => {
           onMessageDelete={messageActions.handleMessageDelete}
           onRoleToggle={messageActions.handleRoleToggle}
           onMessageEdit={handleMessageEdit}
-          isAnyMessageGenerating={isGenerating}
+          isAnyMessageGenerating={isAnyMessageGenerating}
           isEditing={isCurrentlyEditing}
         />
       );
     },
-    [
-      messageActions,
-      styleState,
-      editingMessageId,
-      handleMessageEdit,
-      isGenerating,
-    ],
+    [messageActions, styleState, message, editingMessageId, handleMessageEdit],
   );
 
+  // Effects
+
+  // 同步消息和自定义请求体
+  useEffect(() => {
+    syncMessageToCustomBody();
+  }, [message, syncMessageToCustomBody]);
+
+  useEffect(() => {
+    syncCustomBodyToMessage();
+  }, [customRequestBody, syncCustomBodyToMessage]);
+
+  // 处理URL参数
+  useEffect(() => {
+    if (searchParams.get('expired')) {
+      Toast.warning(t('登录过期，请重新登录！'));
+    }
+  }, [searchParams, t]);
+
+  // Playground 组件无需再监听窗口变化，isMobile 由 useIsMobile Hook 自动更新
+
+  // 构建预览payload
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const preview = constructPreviewPayload();
+      setPreviewPayload(preview);
+      setDebugData((prev) => ({
+        ...prev,
+        previewRequest: preview ? JSON.stringify(preview, null, 2) : null,
+        previewTimestamp: preview ? new Date().toISOString() : null,
+      }));
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [
+    message,
+    inputs,
+    parameterEnabled,
+    customRequestMode,
+    customRequestBody,
+    constructPreviewPayload,
+    setPreviewPayload,
+    setDebugData,
+  ]);
+
+  // 自动保存配置
+  useEffect(() => {
+    debouncedSaveConfig();
+  }, [
+    inputs,
+    parameterEnabled,
+    showDebugPanel,
+    customRequestMode,
+    customRequestBody,
+    debouncedSaveConfig,
+  ]);
+
+  // 清空对话的处理函数
   const handleClearMessages = useCallback(() => {
-    updateActiveMessages([], { promote: false });
-  }, [updateActiveMessages]);
-
-  const handleClearAllConversations = useCallback(() => {
-    messageRef.current = [];
-    activeConversationIdRef.current = '';
-    activeModeRef.current = PLAYGROUND_MODES.CHAT;
-    setConversations(persistConversations([]));
-    setActiveConversationId('');
-    setActiveMode(PLAYGROUND_MODES.CHAT);
     setMessage([]);
-    saveMessagesImmediately([]);
-    handleInputChange('imageUrls', ['']);
-    handleInputChange('imageEnabled', false);
-  }, [handleInputChange, saveMessagesImmediately, setMessage]);
+    // 清空对话后保存，传入空数组
+    setTimeout(() => saveMessagesImmediately([]), 0);
+  }, [setMessage, saveMessagesImmediately]);
 
-  const handleNewChat = useCallback(() => {
-    const nextConversation = createConversation([], PLAYGROUND_MODES.CHAT);
-    setConversations((prev) => persistConversations([nextConversation, ...prev]));
-    activeConversationIdRef.current = nextConversation.id;
-    activeModeRef.current = PLAYGROUND_MODES.CHAT;
-    messageRef.current = [];
-    setActiveConversationId(nextConversation.id);
-    setActiveMode(PLAYGROUND_MODES.CHAT);
-    setMessage([]);
-    saveMessagesImmediately([]);
-    handleInputChange('imageUrls', ['']);
-    handleInputChange('imageEnabled', false);
-  }, [handleInputChange, saveMessagesImmediately, setMessage]);
-
-  const handleSelectConversation = useCallback(
-    (conversation) => {
-      skipNextConversationPersist.current = true;
-      activeConversationIdRef.current = conversation.id;
-      activeModeRef.current = conversation.mode || PLAYGROUND_MODES.CHAT;
-      messageRef.current = conversation.messages || [];
-      setActiveConversationId(conversation.id);
-      setActiveMode(conversation.mode || PLAYGROUND_MODES.CHAT);
-      setMessage(conversation.messages || []);
-      saveMessagesImmediately(conversation.messages || []);
-    },
-    [saveMessagesImmediately, setMessage],
-  );
-
-  const handleDeleteConversation = useCallback(
-    (conversationId) => {
-      setConversations((prev) => {
-        const next = persistConversations(
-          prev.filter((conversation) => conversation.id !== conversationId),
-        );
-        if (next.length === 0) {
-          setActiveConversationId('');
-          activeConversationIdRef.current = '';
-          activeModeRef.current = PLAYGROUND_MODES.CHAT;
-          messageRef.current = [];
-          setActiveMode(PLAYGROUND_MODES.CHAT);
-          setMessage([]);
-          saveMessagesImmediately([]);
-          handleInputChange('imageUrls', ['']);
-          handleInputChange('imageEnabled', false);
-          return next;
-        }
-        if (conversationId === activeConversationId) {
-          const fallback = next[0];
-          skipNextConversationPersist.current = true;
-          activeConversationIdRef.current = fallback.id;
-          activeModeRef.current = fallback.mode || PLAYGROUND_MODES.CHAT;
-          messageRef.current = fallback.messages || [];
-          setActiveConversationId(fallback.id);
-          setActiveMode(fallback.mode || PLAYGROUND_MODES.CHAT);
-          setMessage(fallback.messages || []);
-          saveMessagesImmediately(fallback.messages || []);
-        }
-        return next;
-      });
-    },
-    [activeConversationId, handleInputChange, saveMessagesImmediately, setMessage],
-  );
-
+  // 处理粘贴图片
   const handlePasteImage = useCallback(
     (base64Data) => {
-      const currentUrls = (inputs.imageUrls || []).filter((url) => url?.trim());
-      handleInputChange('imageUrls', [...currentUrls, base64Data]);
-      handleInputChange('imageEnabled', true);
-      setActiveMode(PLAYGROUND_MODES.IMAGE_EDIT);
-    },
-    [inputs.imageUrls, handleInputChange],
-  );
-
-  const handleAddReferences = useCallback(
-    (urls) => {
-      const currentUrls = (inputs.imageUrls || []).filter((url) => url?.trim());
-      const nextUrls = [...currentUrls, ...(urls || [])].filter(Boolean);
-      handleInputChange('imageUrls', nextUrls);
-      handleInputChange('imageEnabled', nextUrls.length > 0);
-      if (nextUrls.length > 0) {
-        setActiveMode(PLAYGROUND_MODES.IMAGE_EDIT);
+      if (!inputs.imageEnabled) {
+        return;
       }
+      // 添加图片到 imageUrls 数组
+      const newUrls = [...(inputs.imageUrls || []), base64Data];
+      handleInputChange('imageUrls', newUrls);
     },
-    [handleInputChange, inputs.imageUrls],
+    [inputs.imageEnabled, inputs.imageUrls, handleInputChange],
   );
 
-  const handleRemoveReference = useCallback(
-    (index) => {
-      const nextUrls = validImageUrls.filter((_, itemIndex) => itemIndex !== index);
-      handleInputChange('imageUrls', nextUrls.length > 0 ? nextUrls : ['']);
-      handleInputChange('imageEnabled', nextUrls.length > 0);
-    },
-    [handleInputChange, validImageUrls],
-  );
-
-  const handleClearReferences = useCallback(() => {
-    handleInputChange('imageUrls', ['']);
-    handleInputChange('imageEnabled', false);
-  }, [handleInputChange]);
-
-  const handleUseImageAsReference = useCallback(
-    (url) => {
-      const currentUrls = (inputs.imageUrls || []).filter((item) => item?.trim());
-      const nextUrls = currentUrls.includes(url) ? currentUrls : [url, ...currentUrls];
-      handleInputChange('imageUrls', nextUrls);
-      handleInputChange('imageEnabled', true);
-      setActiveMode(PLAYGROUND_MODES.IMAGE_EDIT);
-      Toast.success(t('Added to image-to-image references'));
-    },
-    [handleInputChange, inputs.imageUrls, t],
-  );
-
-  const handleDeleteImageAsset = useCallback((assetId) => {
-    setImageLibrary((prev) =>
-      persistImageLibrary(prev.filter((asset) => asset.id !== assetId)),
-    );
-  }, []);
-
-  const handleClearImageLibrary = useCallback(() => {
-    Modal.confirm({
-      title: t('Clear local image library?'),
-      content: t('Generated images saved in this browser will be removed.'),
-      onOk: () => setImageLibrary(persistImageLibrary([])),
-    });
-  }, [t]);
-
+  // Playground Context 值
   const playgroundContextValue = {
     onPasteImage: handlePasteImage,
     imageUrls: inputs.imageUrls || [],
     imageEnabled: inputs.imageEnabled || false,
-    activeMode,
-    modeItems: Object.entries(modeMeta).map(([key, meta]) => ({
-      key,
-      label: meta.label,
-      icon: meta.icon,
-    })),
-    inputs,
-    models,
-    groups,
-    onModeChange: handleModeChange,
-    onInputChange: handleInputChange,
-    onImageUrlsChange: (urls) => handleInputChange('imageUrls', urls),
-    onImageEnabledChange: (enabled) => handleInputChange('imageEnabled', enabled),
   };
 
   return (
     <PlaygroundProvider value={playgroundContextValue}>
-      <div className='playground-workbench h-full bg-[var(--semi-color-bg-0)]'>
-        <Layout className='h-full bg-transparent'>
-          <div className='mt-[64px] flex h-[calc(100vh-64px)] min-h-0 w-full bg-[var(--semi-color-bg-0)]'>
-            <aside className='playground-history hidden w-[300px] flex-shrink-0 flex-col px-3 py-3 md:flex'>
-              <div className='playground-history-head mb-3 flex items-center justify-between'>
-                <div className='min-w-0'>
-                  <Typography.Title heading={6} className='!mb-0'>
-                    {t('Conversation history')}
-                  </Typography.Title>
-                  <Typography.Text className='text-xs text-[var(--semi-color-text-2)]'>
-                    {t('Saved locally')}
-                  </Typography.Text>
-                </div>
-                <Button
-                  icon={<MoreHorizontal size={16} />}
-                  theme='borderless'
-                  type='tertiary'
-                  className='!rounded-full'
+      <div className='h-full'>
+        <Layout className='h-full bg-transparent flex flex-col md:flex-row'>
+          {(showSettings || !isMobile) && (
+            <Layout.Sider
+              className={`
+              bg-transparent border-r-0 flex-shrink-0 overflow-auto mt-[60px]
+              ${
+                isMobile
+                  ? 'fixed top-0 left-0 right-0 bottom-0 z-[1000] w-full h-auto bg-white shadow-lg'
+                  : 'relative z-[1] w-80 h-[calc(100vh-66px)]'
+              }
+            `}
+              width={isMobile ? '100%' : 320}
+            >
+              <OptimizedSettingsPanel
+                inputs={inputs}
+                parameterEnabled={parameterEnabled}
+                models={models}
+                groups={groups}
+                styleState={styleState}
+                showSettings={showSettings}
+                showDebugPanel={showDebugPanel}
+                customRequestMode={customRequestMode}
+                customRequestBody={customRequestBody}
+                onInputChange={handleInputChange}
+                onParameterToggle={handleParameterToggle}
+                onCloseSettings={() => setShowSettings(false)}
+                onConfigImport={handleConfigImport}
+                onConfigReset={handleConfigReset}
+                onCustomRequestModeChange={setCustomRequestMode}
+                onCustomRequestBodyChange={setCustomRequestBody}
+                previewPayload={previewPayload}
+                messages={message}
+              />
+            </Layout.Sider>
+          )}
+
+          <Layout.Content className='relative flex-1 overflow-hidden'>
+            <div className='overflow-hidden flex flex-col lg:flex-row h-[calc(100vh-66px)] mt-[60px]'>
+              <div className='flex-1 flex flex-col'>
+                <ChatArea
+                  chatRef={chatRef}
+                  message={message}
+                  inputs={inputs}
+                  styleState={styleState}
+                  showDebugPanel={showDebugPanel}
+                  roleInfo={roleInfo}
+                  onMessageSend={onMessageSend}
+                  onMessageCopy={messageActions.handleMessageCopy}
+                  onMessageReset={messageActions.handleMessageReset}
+                  onMessageDelete={messageActions.handleMessageDelete}
+                  onStopGenerator={onStopGenerator}
+                  onClearMessages={handleClearMessages}
+                  onToggleDebugPanel={() => setShowDebugPanel(!showDebugPanel)}
+                  renderCustomChatContent={renderCustomChatContent}
+                  renderChatBoxAction={renderChatBoxAction}
                 />
               </div>
-              <Button
-                icon={<Plus size={16} />}
-                onClick={handleNewChat}
-                theme='light'
-                type='primary'
-                block
-                className='playground-new-chat !h-10 !rounded-xl'
-              >
-                {t('New chat')}
-              </Button>
 
-              <div className='model-settings-scroll mt-3 min-h-0 flex-1 space-y-1.5 overflow-y-auto pr-1'>
-                {conversations.map((conversation) => {
-                  const selected = conversation.id === activeConversationId;
-                  const ModeIcon =
-                    modeMeta[conversation.mode || PLAYGROUND_MODES.CHAT]?.icon ||
-                    MessageSquare;
-                  return (
-                    <div
-                      key={conversation.id}
-                      className={`group playground-history-row flex items-center gap-2 rounded-xl px-2.5 py-2.5 transition-all ${
-                        selected
-                          ? 'playground-history-item-active'
-                          : 'playground-history-item'
-                      }`}
-                    >
-                      <button
-                        type='button'
-                        onClick={() => handleSelectConversation(conversation)}
-                        className='flex min-w-0 flex-1 items-start gap-2 text-left'
-                      >
-                        <ModeIcon
-                          size={15}
-                          className={`mt-0.5 flex-shrink-0 ${
-                            selected
-                              ? 'text-[var(--semi-color-primary)]'
-                              : 'text-[var(--semi-color-text-2)]'
-                          }`}
-                        />
-                        <span className='min-w-0 flex-1'>
-                          <span className='playground-history-title block truncate text-sm font-medium text-[var(--semi-color-text-0)]'>
-                            {conversation.title || t('New chat')}
-                          </span>
-                          <span className='playground-history-preview block truncate text-xs text-[var(--semi-color-text-2)]'>
-                            {conversation.preview || t('No messages yet')}
-                          </span>
-                        </span>
-                      </button>
-                      <button
-                        type='button'
-                        className='playground-history-delete flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg text-[var(--semi-color-text-2)] opacity-0 transition-opacity hover:bg-[var(--semi-color-danger-light-default)] hover:text-[var(--semi-color-danger)] group-hover:opacity-100'
-                        onClick={() => {
-                          Modal.confirm({
-                            title: t('Delete conversation'),
-                            content: t('Delete this conversation?'),
-                            onOk: () => handleDeleteConversation(conversation.id),
-                          });
-                        }}
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className='mt-3 border-t border-[var(--semi-color-border)] pt-3'>
-                <Button
-                  icon={<Trash2 size={14} />}
-                  onClick={() => {
-                    Modal.confirm({
-                      title: t('Clear all Playground conversations?'),
-                      content: t('All Playground conversation history will be removed.'),
-                      onOk: handleClearAllConversations,
-                    });
-                  }}
-                  theme='borderless'
-                  type='danger'
-                  size='small'
-                  className='!rounded-xl'
-                >
-                  {t('Clear all conversations')}
-                </Button>
-              </div>
-            </aside>
-
-            <Layout.Content className='flex min-w-0 flex-1 flex-col overflow-hidden'>
-              <header className='flex min-h-[56px] flex-shrink-0 items-center gap-3 border-b border-[var(--semi-color-border)] px-3 py-2 sm:px-5 md:hidden'>
-                <Button
-                  icon={<Plus size={16} />}
-                  onClick={handleNewChat}
-                  theme='borderless'
-                  type='tertiary'
-                  className='!rounded-full'
-                />
-                <div className='min-w-0 flex-1'>
-                  <Typography.Title heading={6} className='!mb-0 truncate'>
-                    {conversations.find((item) => item.id === activeConversationId)
-                      ?.title || t('New chat')}
-                  </Typography.Title>
-                </div>
-                {isGenerating && (
-                  <Tag color='blue' size='small'>
-                    {t('Generating')}
-                  </Tag>
-                )}
-              </header>
-
-              <div className='playground-content-grid min-h-0 flex-1 overflow-hidden'>
-                <div className='min-h-0 min-w-0 overflow-hidden'>
-                  <ChatArea
-                    chatRef={chatRef}
-                    message={message}
-                    roleInfo={roleInfo}
-                    onMessageSend={onMessageSend}
-                    onMessageCopy={messageActions.handleMessageCopy}
-                    onMessageReset={messageActions.handleMessageReset}
-                    onMessageDelete={messageActions.handleMessageDelete}
-                    onStopGenerator={onStopGenerator}
-                    onClearMessages={handleClearMessages}
-                    renderCustomChatContent={renderCustomChatContent}
-                    renderChatBoxAction={renderChatBoxAction}
+              {/* 调试面板 - 桌面端 */}
+              {showDebugPanel && !isMobile && (
+                <div className='w-96 flex-shrink-0 h-full'>
+                  <OptimizedDebugPanel
+                    debugData={debugData}
+                    activeDebugTab={activeDebugTab}
+                    onActiveDebugTabChange={setActiveDebugTab}
+                    styleState={styleState}
+                    customRequestMode={customRequestMode}
                   />
                 </div>
-                <ImageStudioPanel
-                  activeMode={activeMode}
-                  modeItems={Object.entries(modeMeta).map(([key, meta]) => ({
-                    key,
-                    label: meta.label,
-                    icon: meta.icon,
-                  }))}
-                  inputs={inputs}
-                  models={models}
-                  groups={groups}
-                  references={validImageUrls}
-                  latestImages={currentImageAssets}
-                  imageLibrary={imageLibrary}
-                  isGenerating={isGenerating}
-                  onModeChange={handleModeChange}
-                  onInputChange={handleInputChange}
-                  onAddReferences={handleAddReferences}
-                  onRemoveReference={handleRemoveReference}
-                  onClearReferences={handleClearReferences}
-                  onUseImageAsReference={handleUseImageAsReference}
-                  onDeleteImageAsset={handleDeleteImageAsset}
-                  onClearImageLibrary={handleClearImageLibrary}
+              )}
+            </div>
+
+            {/* 调试面板 - 移动端覆盖层 */}
+            {showDebugPanel && isMobile && (
+              <div className='fixed top-0 left-0 right-0 bottom-0 z-[1000] bg-white overflow-auto shadow-lg'>
+                <OptimizedDebugPanel
+                  debugData={debugData}
+                  activeDebugTab={activeDebugTab}
+                  onActiveDebugTabChange={setActiveDebugTab}
+                  styleState={styleState}
+                  showDebugPanel={showDebugPanel}
+                  onCloseDebugPanel={() => setShowDebugPanel(false)}
+                  customRequestMode={customRequestMode}
                 />
               </div>
-            </Layout.Content>
-          </div>
+            )}
+
+            {/* 浮动按钮 */}
+            <FloatingButtons
+              styleState={styleState}
+              showSettings={showSettings}
+              showDebugPanel={showDebugPanel}
+              onToggleSettings={() => setShowSettings(!showSettings)}
+              onToggleDebugPanel={() => setShowDebugPanel(!showDebugPanel)}
+            />
+          </Layout.Content>
         </Layout>
       </div>
     </PlaygroundProvider>

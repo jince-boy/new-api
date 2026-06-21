@@ -68,38 +68,6 @@ export function createUserMessage(content: string): Message {
 }
 
 /**
- * Create a new user message with optional image references
- */
-export function createUserMessageWithImages(
-  content: string,
-  imageUrls: string[] = []
-): Message {
-  const validImageUrls = imageUrls.filter((url) => url.trim() !== '')
-  return {
-    ...createUserMessage(content),
-    imageUrls: validImageUrls.length > 0 ? validImageUrls : undefined,
-  }
-}
-
-/**
- * Create a complete assistant message
- */
-export function createAssistantMessage(
-  content: string,
-  options: Partial<Pick<Message, 'status' | 'errorCode' | 'generatedImages'>> =
-    {}
-): Message {
-  return {
-    key: nanoid(),
-    from: MESSAGE_ROLES.ASSISTANT,
-    versions: [createMessageVersion(content)],
-    status: options.status || MESSAGE_STATUS.COMPLETE,
-    errorCode: options.errorCode,
-    generatedImages: options.generatedImages,
-  }
-}
-
-/**
  * Create a loading assistant message
  */
 export function createLoadingAssistantMessage(): Message {
@@ -165,7 +133,7 @@ export function formatMessageForAPI(message: Message): ChatCompletionMessage {
   const currentVersion = getCurrentVersion(message)
   return {
     role: message.from,
-    content: buildMessageContent(currentVersion.content, message.imageUrls),
+    content: currentVersion.content,
   }
 }
 

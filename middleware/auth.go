@@ -39,7 +39,9 @@ func authHelper(c *gin.Context, minRole int) {
 	role := session.Get("role")
 	id := session.Get("id")
 	status := session.Get("status")
+	userGroup := session.Get("group")
 	useAccessToken := false
+	var accessTokenUser *model.User
 	if username == nil {
 		// Check access token
 		accessToken := c.Request.Header.Get("Authorization")
@@ -83,6 +85,7 @@ func authHelper(c *gin.Context, minRole int) {
 			id = user.Id
 			status = user.Status
 			useAccessToken = true
+			accessTokenUser = user
 		} else {
 			c.JSON(http.StatusOK, gin.H{
 				"success": false,
@@ -144,13 +147,16 @@ func authHelper(c *gin.Context, minRole int) {
 		c.Abort()
 		return
 	}
+	if useAccessToken && accessTokenUser != nil {
+		userGroup = accessTokenUser.Group
+	}
 	// 防止不同newapi版本冲突，导致数据不通用
 	c.Header("Auth-Version", "864b7076dbcd0a3c01b5520316720ebf")
 	c.Set("username", username)
 	c.Set("role", role)
 	c.Set("id", id)
-	c.Set("group", session.Get("group"))
-	c.Set("user_group", session.Get("group"))
+	c.Set("group", userGroup)
+	c.Set("user_group", userGroup)
 	c.Set("use_access_token", useAccessToken)
 
 	// 管理/root 写操作审计兜底：内聚在鉴权链路里，保证任何经过 AdminAuth/RootAuth
