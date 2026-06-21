@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
 import type {
+  FlowQuotaDataItem,
   QuotaDataItem,
   TokenRankingData,
   UptimeGroupResult,
@@ -75,6 +76,24 @@ export async function getTokenRanking(params: {
     '/api/data/token-ranking',
     { params }
   )
+  return res.data
+}
+
+export async function getFlowQuotaDates(
+  params: {
+    start_timestamp: number
+    end_timestamp: number
+    default_time?: string
+    username?: string
+  },
+  isAdmin = false
+) {
+  const endpoint = isAdmin ? '/api/data/flow' : '/api/data/flow/self'
+  const res = await api.get<{
+    success: boolean
+    data?: FlowQuotaDataItem[]
+    message?: string
+  }>(endpoint, { params })
   return res.data
 }
 

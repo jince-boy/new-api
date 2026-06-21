@@ -37,8 +37,6 @@ import {
 import { getUserQuotaDataByUsers } from '@/features/dashboard/api'
 import {
   DASHBOARD_QUICK_RANGE_PRESETS,
-  DEFAULT_DASHBOARD_QUICK_RANGE,
-  DEFAULT_TIME_GRANULARITY,
   TIME_GRANULARITY_OPTIONS,
 } from '@/features/dashboard/constants'
 import {
@@ -47,7 +45,10 @@ import {
   saveGranularity,
   processUserChartData,
 } from '@/features/dashboard/lib'
-import type { ProcessedUserChartData } from '@/features/dashboard/types'
+import type {
+  ProcessedUserChartData,
+  UserChartsFilters,
+} from '@/features/dashboard/types'
 
 let themeManagerPromise: Promise<
   (typeof import('@visactor/vchart'))['ThemeManager']
@@ -174,7 +175,12 @@ function UserRankList({ spec }: { spec: unknown }) {
   )
 }
 
-export function UserCharts() {
+interface UserChartsProps {
+  filters: UserChartsFilters
+  onFiltersChange: (filters: UserChartsFilters) => void
+}
+
+export function UserCharts(props: UserChartsProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { resolvedTheme } = useTheme()
@@ -184,31 +190,33 @@ export function UserCharts() {
     (typeof import('@visactor/vchart'))['ThemeManager'] | null
   >(null)
 
-  const [timeGranularity, setTimeGranularity] = useState<TimeGranularity>(
-    DEFAULT_TIME_GRANULARITY
-  )
-  const [activeQuickRange, setActiveQuickRange] = useState<string | null>(
-    DEFAULT_DASHBOARD_QUICK_RANGE
-  )
-  const [topUserLimit, setTopUserLimit] = useState(10)
-  const [timeRange, setTimeRange] = useState(() => {
-    const result = buildQuickRangeDashboardFilters(DEFAULT_DASHBOARD_QUICK_RANGE)
-    const start = result.filters.start_timestamp as Date
-    const end = result.filters.end_timestamp as Date
+  // The selection is owned by the dashboard parent so it persists across
+  // sub-section switches; the rolling window is derived from the chosen range.
+  const timeGranularity = props.filters.timeGranularity
+  const selectedRange = props.filters.selectedRange
+  const topUserLimit = props.filters.topUserLimit
+  const activeQuickRange = props.filters.activeQuickRange
+  const onFiltersChange = props.onFiltersChange
+
+  const timeRange = useMemo(() => {
+    if (activeQuickRange) {
+      const result = buildQuickRangeDashboardFilters(activeQuickRange, {
+        time_granularity: timeGranularity,
+      })
+      const start = result.filters.start_timestamp as Date
+      const end = result.filters.end_timestamp as Date
+      return {
+        start_timestamp: Math.floor(start.getTime() / 1000),
+        end_timestamp: Math.floor(end.getTime() / 1000),
+      }
+    }
+
+    const { start, end } = getRollingDateRange(selectedRange)
     return {
       start_timestamp: Math.floor(start.getTime() / 1000),
       end_timestamp: Math.floor(end.getTime() / 1000),
     }
-  })
-
-  const handleRangeChange = useCallback((days: number) => {
-    setActiveQuickRange(null)
-    const { start, end } = getRollingDateRange(days)
-    setTimeRange({
-      start_timestamp: Math.floor(start.getTime() / 1000),
-      end_timestamp: Math.floor(end.getTime() / 1000),
-    })
-  }, [])
+  }, [activeQuickRange, selectedRange, timeGranularity])
 
   const handleQuickRangeChange = useCallback(
     (value: string[]) => {
@@ -219,28 +227,36 @@ export function UserCharts() {
         time_granularity: timeGranularity,
       })
 
-      setActiveQuickRange(result.presetKey)
-      setTimeGranularity(result.filters.time_granularity || timeGranularity)
-      setTimeRange({
-        start_timestamp: Math.floor(
-          (result.filters.start_timestamp as Date).getTime() / 1000
-        ),
-        end_timestamp: Math.floor(
-          (result.filters.end_timestamp as Date).getTime() / 1000
-        ),
+      const nextGranularity =
+        result.filters.time_granularity || timeGranularity
+      onFiltersChange({
+        ...props.filters,
+        activeQuickRange: result.presetKey,
+        timeGranularity: nextGranularity,
+        selectedRange: getDefaultDays(nextGranularity),
       })
     },
-    [activeQuickRange, timeGranularity]
+    [activeQuickRange, onFiltersChange, props.filters, timeGranularity]
   )
 
   const handleGranularityChange = useCallback(
     (g: TimeGranularity) => {
-      setTimeGranularity(g)
       saveGranularity(g)
-      const days = getDefaultDays(g)
-      handleRangeChange(days)
+      onFiltersChange({
+        ...props.filters,
+        activeQuickRange: null,
+        timeGranularity: g,
+        selectedRange: getDefaultDays(g),
+      })
     },
-    [handleRangeChange]
+    [onFiltersChange, props.filters]
+  )
+
+  const handleTopUserLimitChange = useCallback(
+    (limit: number) => {
+      onFiltersChange({ ...props.filters, topUserLimit: limit })
+    },
+    [onFiltersChange, props.filters]
   )
 
   useEffect(() => {
@@ -342,7 +358,7 @@ export function UserCharts() {
 
         <Tabs
           value={String(topUserLimit)}
-          onValueChange={(value) => setTopUserLimit(Number(value))}
+          onValueChange={(value) => handleTopUserLimitChange(Number(value))}
           className='shrink-0'
         >
           <TabsList>

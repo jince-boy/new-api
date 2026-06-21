@@ -49,7 +49,7 @@ const parseCustomNavLinks = (raw: unknown): TopNavLink[] => {
     }
 
     return parsed
-      .map((item) => {
+      .map<TopNavLink | null>((item) => {
         const title = typeof item.name === 'string' ? item.name.trim() : ''
         const href = typeof item.url === 'string' ? item.url.trim() : ''
         if (

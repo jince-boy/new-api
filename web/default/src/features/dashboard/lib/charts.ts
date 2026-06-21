@@ -90,6 +90,17 @@ function getThemeChartColors(themeKey?: string): string[] {
   }).filter(Boolean)
 }
 
+export function getDashboardChartColors(domainLength: number): string[] {
+  const scheme =
+    vchartDefaultDataScheme.find(
+      (item) => !item.maxDomainLength || domainLength <= item.maxDomainLength
+    ) ?? vchartDefaultDataScheme[vchartDefaultDataScheme.length - 1]
+
+  return scheme.scheme.filter(
+    (color): color is string => typeof color === 'string'
+  )
+}
+
 function getVChartDefaultColors(domainLength: number, themeKey?: string) {
   const themeColors = getThemeChartColors(themeKey)
   if (themeColors.length > 0) {
@@ -99,12 +110,7 @@ function getVChartDefaultColors(domainLength: number, themeKey?: string) {
     )
   }
 
-  const scheme =
-    vchartDefaultDataScheme.find(
-      (item) => !item.maxDomainLength || domainLength <= item.maxDomainLength
-    ) ?? vchartDefaultDataScheme[vchartDefaultDataScheme.length - 1]
-
-  return scheme.scheme
+  return getDashboardChartColors(domainLength)
 }
 
 function renderQuotaCompat(rawQuota: number, digits = 4): string {
@@ -749,7 +755,7 @@ export function processChartData(
   }
 }
 
-const USER_COLOR_FALLBACKS = [
+const USER_COLORS = [
   '#5B8FF9',
   '#5AD8A6',
   '#F6BD16',
@@ -779,7 +785,7 @@ export function processUserChartData(
           { length: Math.max(limit, themeUserColors.length) },
           (_, index) => themeUserColors[index % themeUserColors.length]
         )
-      : USER_COLOR_FALLBACKS
+      : USER_COLORS
 
   const formatVal = (raw: number) => renderQuotaCompat(raw, 2)
 
