@@ -121,6 +121,8 @@ func main() {
 
 	// Group chat QR code expiration reminder task
 	service.StartGroupChatQRCodeExpirationReminderTask()
+	// Persistent system maintenance task runner
+	service.StartSystemTaskRunner()
 
 	// Wire task polling adaptor factory (breaks service -> relay import cycle)
 	service.GetTaskAdaptorFunc = func(platform constant.TaskPlatform) service.TaskPollingAdaptor {
