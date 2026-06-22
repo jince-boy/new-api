@@ -22,6 +22,7 @@ import {
   Button,
   Card,
   Col,
+  DatePicker,
   Form,
   Input,
   Modal,
@@ -30,7 +31,7 @@ import {
   Space,
   Typography,
 } from '@douyinfe/semi-ui';
-import { Crop, ExternalLink, Upload } from 'lucide-react';
+import { CalendarClock, Crop, ExternalLink, Upload } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { StatusContext } from '../../context/Status';
 import { API, copy, showError, showSuccess } from '../../helpers';
@@ -76,23 +77,24 @@ function dateFromOptionValue(value) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function toDatetimeLocalValue(value) {
-  const date = dateFromOptionValue(value);
-  if (!date) return '';
-
-  const pad = (nextValue) => String(nextValue).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}
-
-function toExpiresAtPayload(value) {
-  if (!value) return '';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '' : date.toISOString();
-}
-
 function formatExpirationTime(value) {
   const date = dateFromOptionValue(value);
   return date ? date.toLocaleString() : '';
+}
+
+function normalizeDatePickerValue(value) {
+  if (!value) return undefined;
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? undefined : value;
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
+function endOfDay(date) {
+  const nextDate = new Date(date);
+  nextDate.setHours(23, 59, 59, 999);
+  return nextDate;
 }
 
 function clamp(value, min, max) {
@@ -203,7 +205,7 @@ const GroupChatQRCodeSetting = () => {
   const dragStateRef = useRef(null);
   const [groupChatQRCodeURL, setGroupChatQRCodeURL] = useState('');
   const [groupChatQRCodeExpiresAt, setGroupChatQRCodeExpiresAt] = useState('');
-  const [expiresAtValue, setExpiresAtValue] = useState('');
+  const [expiresAtDate, setExpiresAtDate] = useState();
   const [previewCacheBust, setPreviewCacheBust] = useState(() => Date.now());
   const [loading, setLoading] = useState(false);
   const [cropVisible, setCropVisible] = useState(false);
@@ -229,9 +231,19 @@ const GroupChatQRCodeSetting = () => {
     [previewCacheBust, resolvedGroupChatQRCodeURL],
   );
 
-  const minExpirationValue = useMemo(
-    () => toDatetimeLocalValue(new Date(Date.now() + 60_000).toISOString()),
+  const minExpirationDate = useMemo(
+    () => new Date(Date.now() + 60_000),
     [],
+  );
+
+  const minSelectableDate = useMemo(
+    () =>
+      new Date(
+        minExpirationDate.getFullYear(),
+        minExpirationDate.getMonth(),
+        minExpirationDate.getDate(),
+      ),
+    [minExpirationDate],
   );
 
   const expirationText = useMemo(() => {
@@ -288,12 +300,16 @@ const GroupChatQRCodeSetting = () => {
     const nextExpiresAt = expiresAtOption?.value || '';
     setGroupChatQRCodeURL(imageURLOption?.value || '');
     setGroupChatQRCodeExpiresAt(nextExpiresAt);
-    setExpiresAtValue(toDatetimeLocalValue(nextExpiresAt));
+    setExpiresAtDate(dateFromOptionValue(nextExpiresAt) || undefined);
   };
 
   const uploadQRCodeFile = async (file) => {
-    const expiresAtPayload = toExpiresAtPayload(expiresAtValue);
-    if (!expiresAtPayload) {
+    const expiresAtPayload = expiresAtDate?.toISOString() || '';
+    if (
+      !expiresAtPayload ||
+      !expiresAtDate ||
+      expiresAtDate < minExpirationDate
+    ) {
       showError(t('Please select the QR code expiration time'));
       return false;
     }
@@ -314,7 +330,7 @@ const GroupChatQRCodeSetting = () => {
       const nextExpiresAt = data?.expires_at || expiresAtPayload;
       setGroupChatQRCodeURL(nextURL);
       setGroupChatQRCodeExpiresAt(nextExpiresAt);
-      setExpiresAtValue(toDatetimeLocalValue(nextExpiresAt));
+      setExpiresAtDate(dateFromOptionValue(nextExpiresAt) || undefined);
       setPreviewCacheBust(Date.now());
       const nextStatus = {
         ...(statusState?.status || {}),
@@ -336,11 +352,20 @@ const GroupChatQRCodeSetting = () => {
   };
 
   const handleSelectQRCodeImage = () => {
-    if (!toExpiresAtPayload(expiresAtValue)) {
+    if (!expiresAtDate || expiresAtDate < minExpirationDate) {
       showError(t('Please select the QR code expiration time'));
       return;
     }
     fileInputRef.current?.click();
+  };
+
+  const handleExpiresDateChange = (date) => {
+    const selectedDate = normalizeDatePickerValue(date);
+    if (!selectedDate) {
+      setExpiresAtDate(undefined);
+      return;
+    }
+    setExpiresAtDate(endOfDay(selectedDate));
   };
 
   const handleFileChange = async (event) => {
@@ -528,11 +553,21 @@ const GroupChatQRCodeSetting = () => {
                     <Typography.Text strong>
                       {t('QR code expiration time')}
                     </Typography.Text>
-                    <Input
-                      type='datetime-local'
-                      value={expiresAtValue}
-                      min={minExpirationValue}
-                      onChange={(value) => setExpiresAtValue(value)}
+                    <DatePicker
+                      type='date'
+                      value={expiresAtDate}
+                      format='yyyy-MM-dd'
+                      placeholder={t(
+                        'Please select the QR code expiration time',
+                      )}
+                      prefix={<CalendarClock size={16} />}
+                      inputReadOnly
+                      showClear
+                      onChangeWithDateFirst
+                      disabledDate={(date) =>
+                        Boolean(date && date < minSelectableDate)
+                      }
+                      onChange={handleExpiresDateChange}
                       aria-label={t('QR code expiration time')}
                       style={{ marginTop: 8, width: '100%' }}
                     />

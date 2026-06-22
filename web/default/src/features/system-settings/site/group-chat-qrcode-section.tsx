@@ -36,6 +36,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { CopyButton } from '@/components/copy-button'
+import { DateTimePicker } from '@/components/datetime-picker'
 import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
 import {
@@ -123,23 +124,15 @@ function dateFromOptionValue(value: string): Date | null {
   return Number.isNaN(date.getTime()) ? null : date
 }
 
-function toDatetimeLocalValue(value: string): string {
-  const date = dateFromOptionValue(value)
-  if (!date) return ''
-
-  const pad = (nextValue: number) => String(nextValue).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
-
-function toExpiresAtPayload(value: string): string {
-  if (!value) return ''
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '' : date.toISOString()
-}
-
 function formatExpirationTime(value: string): string {
   const date = dateFromOptionValue(value)
   return date ? date.toLocaleString() : ''
+}
+
+function endOfDay(date: Date): Date {
+  const nextDate = new Date(date)
+  nextDate.setHours(23, 59, 59, 999)
+  return nextDate
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -259,8 +252,8 @@ export function GroupChatQRCodeSection({
   const [groupChatQRCodeExpiresAt, setGroupChatQRCodeExpiresAt] = useState(
     normalizeValue(defaultExpiresAt)
   )
-  const [expiresAtValue, setExpiresAtValue] = useState(() =>
-    toDatetimeLocalValue(normalizeValue(defaultExpiresAt))
+  const [expiresAtDate, setExpiresAtDate] = useState<Date | undefined>(() =>
+    dateFromOptionValue(normalizeValue(defaultExpiresAt)) ?? undefined
   )
   const [previewCacheBust, setPreviewCacheBust] = useState(() => Date.now())
   const [isUploadingQRCode, setIsUploadingQRCode] = useState(false)
@@ -275,7 +268,7 @@ export function GroupChatQRCodeSection({
   useEffect(() => {
     const nextExpiresAt = normalizeValue(defaultExpiresAt)
     setGroupChatQRCodeExpiresAt(nextExpiresAt)
-    setExpiresAtValue(toDatetimeLocalValue(nextExpiresAt))
+    setExpiresAtDate(dateFromOptionValue(nextExpiresAt) ?? undefined)
   }, [defaultExpiresAt])
 
   useEffect(
@@ -297,8 +290,8 @@ export function GroupChatQRCodeSection({
     [previewCacheBust, resolvedGroupChatQRCodeURL]
   )
 
-  const minExpirationValue = useMemo(
-    () => toDatetimeLocalValue(new Date(Date.now() + 60_000).toISOString()),
+  const minExpirationDate = useMemo(
+    () => new Date(Date.now() + 60_000),
     []
   )
 
@@ -340,8 +333,12 @@ export function GroupChatQRCodeSection({
   }
 
   const uploadQRCodeFile = async (file: File) => {
-    const expiresAtPayload = toExpiresAtPayload(expiresAtValue)
-    if (!expiresAtPayload) {
+    const expiresAtPayload = expiresAtDate?.toISOString() ?? ''
+    if (
+      !expiresAtPayload ||
+      !expiresAtDate ||
+      expiresAtDate < minExpirationDate
+    ) {
       toast.error(t('Please select the QR code expiration time'))
       return false
     }
@@ -358,7 +355,7 @@ export function GroupChatQRCodeSection({
       const nextExpiresAt = response.data?.expires_at || expiresAtPayload
       setGroupChatQRCodeURL(nextURL)
       setGroupChatQRCodeExpiresAt(nextExpiresAt)
-      setExpiresAtValue(toDatetimeLocalValue(nextExpiresAt))
+      setExpiresAtDate(dateFromOptionValue(nextExpiresAt) ?? undefined)
       setPreviewCacheBust(Date.now())
       queryClient.invalidateQueries({ queryKey: ['system-options'] })
       queryClient.invalidateQueries({ queryKey: ['status'] })
@@ -381,7 +378,7 @@ export function GroupChatQRCodeSection({
   }
 
   const handleSelectQRCodeImage = () => {
-    if (!toExpiresAtPayload(expiresAtValue)) {
+    if (!expiresAtDate || expiresAtDate < minExpirationDate) {
       toast.error(t('Please select the QR code expiration time'))
       return
     }
@@ -531,15 +528,16 @@ export function GroupChatQRCodeSection({
           </p>
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor='group-chat-qrcode-expires-at'>
-                {t('QR code expiration time')}
-              </FieldLabel>
-              <Input
-                id='group-chat-qrcode-expires-at'
-                type='datetime-local'
-                value={expiresAtValue}
-                min={minExpirationValue}
-                onChange={(event) => setExpiresAtValue(event.target.value)}
+              <FieldLabel>{t('QR code expiration time')}</FieldLabel>
+              <DateTimePicker
+                value={expiresAtDate}
+                minDate={minExpirationDate}
+                dateOnly
+                placeholder={t('Please select the QR code expiration time')}
+                className='w-full max-w-md'
+                onChange={(date) =>
+                  setExpiresAtDate(date ? endOfDay(date) : undefined)
+                }
               />
               <FieldDescription>
                 {t(
