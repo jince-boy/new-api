@@ -29,6 +29,7 @@ import { NoticeSection } from '../maintenance/notice-section'
 import { SidebarModulesSection } from '../maintenance/sidebar-modules-section'
 import type { SiteSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
+import { GroupChatQRCodeSection } from './group-chat-qrcode-section'
 
 const SITE_SECTIONS = [
   {
@@ -51,6 +52,16 @@ const SITE_SECTIONS = [
             privacy_policy: settings['legal.privacy_policy'],
           },
         }}
+      />
+    ),
+  },
+  {
+    id: 'group-chat-qrcode',
+    titleKey: 'Group Chat QR Code',
+    build: (settings: SiteSettings) => (
+      <GroupChatQRCodeSection
+        defaultValue={settings.GroupChatQRCodeImageURL ?? ''}
+        defaultExpiresAt={settings.GroupChatQRCodeExpiresAt ?? ''}
       />
     ),
   },

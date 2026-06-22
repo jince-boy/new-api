@@ -39,6 +39,15 @@ export type UpdateOptionResponse = {
   message: string
 }
 
+export type GroupChatQRCodeUploadResponse = {
+  success: boolean
+  message: string
+  data?: {
+    url: string
+    expires_at: string
+  }
+}
+
 export type ConfirmPaymentComplianceResponse = {
   success: boolean
   message: string
@@ -61,6 +70,8 @@ export type SiteSettings = {
   Notice: string
   SystemName: string
   Logo: string
+  GroupChatQRCodeImageURL: string
+  GroupChatQRCodeExpiresAt: string
   Footer: string
   About: string
   HomePageContent: string

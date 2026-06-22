@@ -29,6 +29,8 @@ const defaultSiteSettings: SiteSettings = {
   Notice: '',
   SystemName: 'New API',
   Logo: '',
+  GroupChatQRCodeImageURL: '',
+  GroupChatQRCodeExpiresAt: '',
   Footer: '',
   About: '',
   HomePageContent: '',

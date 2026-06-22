@@ -51,7 +51,7 @@ const OtherSetting = () => {
   });
   let [loading, setLoading] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
-  const [statusState, statusDispatch] = useContext(StatusContext);
+  const [statusState] = useContext(StatusContext);
   const [updateData, setUpdateData] = useState({
     tag_name: '',
     content: '',
@@ -183,6 +183,7 @@ const OtherSetting = () => {
       setLoadingInput((loadingInput) => ({ ...loadingInput, Logo: false }));
     }
   };
+
   // 个性化设置 - 首页内容
   const submitOption = async (key) => {
     try {

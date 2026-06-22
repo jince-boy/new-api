@@ -17,10 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
+
 import type {
   ConfirmPaymentComplianceResponse,
   DeleteLogsResponse,
   FetchUpstreamRatiosRequest,
+  GroupChatQRCodeUploadResponse,
   SystemOptionsResponse,
   UpdateOptionRequest,
   UpdateOptionResponse,
@@ -35,6 +37,17 @@ export async function getSystemOptions() {
 
 export async function updateSystemOption(request: UpdateOptionRequest) {
   const res = await api.put<UpdateOptionResponse>('/api/option/', request)
+  return res.data
+}
+
+export async function uploadGroupChatQRCode(file: File, expiresAt: string) {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('expires_at', expiresAt)
+  const res = await api.post<GroupChatQRCodeUploadResponse>(
+    '/api/option/group-chat-qrcode',
+    formData
+  )
   return res.data
 }
 

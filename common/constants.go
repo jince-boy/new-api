@@ -17,6 +17,9 @@ var Version = "v0.0.0"            // this hard coding will be replaced automatic
 var SystemName = "New API"
 var Footer = ""
 var Logo = ""
+var GroupChatQRCodeImageURL = ""
+var GroupChatQRCodeExpiresAt = ""
+var GroupChatQRCodeReminderSentFor = ""
 var TopUpLink = ""
 
 var themeValue atomic.Value // stores string; safe for concurrent read/write

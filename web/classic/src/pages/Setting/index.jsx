@@ -34,6 +34,7 @@ import {
   CreditCard,
   Server,
   Activity,
+  QrCode,
 } from 'lucide-react';
 
 import SystemSetting from '../../components/settings/SystemSetting';
@@ -49,6 +50,7 @@ import DrawingSetting from '../../components/settings/DrawingSetting';
 import PaymentSetting from '../../components/settings/PaymentSetting';
 import ModelDeploymentSetting from '../../components/settings/ModelDeploymentSetting';
 import PerformanceSetting from '../../components/settings/PerformanceSetting';
+import GroupChatQRCodeSetting from '../../components/settings/GroupChatQRCodeSetting';
 
 const Setting = () => {
   const { t } = useTranslation();
@@ -87,6 +89,16 @@ const Setting = () => {
       ),
       content: <ChatsSetting />,
       itemKey: 'chats',
+    });
+    panes.push({
+      tab: (
+        <span style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+          <QrCode size={18} />
+          {t('Group Chat QR Code')}
+        </span>
+      ),
+      content: <GroupChatQRCodeSetting />,
+      itemKey: 'group-chat-qrcode',
     });
     panes.push({
       tab: (
