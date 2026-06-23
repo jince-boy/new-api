@@ -95,6 +95,16 @@ const STATUS_CODE_MAPPING_EXAMPLE = {
   400: '500',
 };
 
+const ERROR_RESPONSE_MAPPING_EXAMPLE = {
+  403: {
+    status_code: 429,
+    message: 'Too Many Requests',
+    type: 'rate_limit_error',
+    code: 'rate_limit_exceeded',
+    message_contains: '预扣费额度失败',
+  },
+};
+
 const REGION_EXAMPLE = {
   default: 'global',
   'gemini-1.5-pro-002': 'europe-west2',
@@ -179,6 +189,7 @@ const EditChannelModal = (props) => {
     model_mapping: '',
     param_override: '',
     status_code_mapping: '',
+    error_response_mapping: '',
     models: [],
     auto_ban: 1,
     test_model: '',
@@ -1024,6 +1035,7 @@ const EditChannelModal = (props) => {
         (data.model_mapping && data.model_mapping.trim()) ||
         (data.param_override && data.param_override.trim()) ||
         (data.status_code_mapping && data.status_code_mapping.trim()) ||
+        (data.error_response_mapping && data.error_response_mapping.trim()) ||
         (data.header_override && data.header_override.trim()) ||
         (data.tag && data.tag.trim()) ||
         (data.remark && data.remark.trim()) ||
@@ -1716,6 +1728,28 @@ const EditChannelModal = (props) => {
         `${t('状态码复写包含无效的状态码')}: ${invalidStatusCodeEntries.join(', ')}`,
       );
       return;
+    }
+
+    if (
+      typeof localInputs.error_response_mapping === 'string' &&
+      localInputs.error_response_mapping.trim() !== ''
+    ) {
+      try {
+        const parsedErrorResponseMapping = JSON.parse(
+          localInputs.error_response_mapping,
+        );
+        if (
+          !parsedErrorResponseMapping ||
+          typeof parsedErrorResponseMapping !== 'object' ||
+          Array.isArray(parsedErrorResponseMapping)
+        ) {
+          showError(t('错误响应改写必须是合法的 JSON 对象'));
+          return;
+        }
+      } catch (error) {
+        showError(t('错误响应改写必须是合法的 JSON 对象'));
+        return;
+      }
     }
 
     const riskyStatusCodeRedirects = collectNewDisallowedStatusCodeRedirects(
@@ -2430,6 +2464,25 @@ const EditChannelModal = (props) => {
                     editorType='keyValue'
                     formApi={formApiRef.current}
                     extraText={t('键为原状态码，值为要复写的状态码，仅影响本地判断')}
+                  />
+                  <JSONEditor
+                    key={`error_response_mapping-${isEdit ? channelId : 'new'}`}
+                    field='error_response_mapping'
+                    label={t('错误响应改写')}
+                    placeholder={
+                      t('按上游原始状态码改写返回给用户的错误状态码、消息、类型和代码，例如：') +
+                      '\n' +
+                      JSON.stringify(ERROR_RESPONSE_MAPPING_EXAMPLE, null, 2)
+                    }
+                    value={inputs.error_response_mapping || ''}
+                    onChange={(value) =>
+                      handleInputChange('error_response_mapping', value)
+                    }
+                    template={ERROR_RESPONSE_MAPPING_EXAMPLE}
+                    templateLabel={t('填入模板')}
+                    editorType='object'
+                    formApi={formApiRef.current}
+                    extraText={t('键为上游原始状态码，值可设置 status_code、message、type、code 和 message_contains')}
                   />
                 </div>
 

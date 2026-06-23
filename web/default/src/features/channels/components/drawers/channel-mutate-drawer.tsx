@@ -210,6 +210,7 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     values.header_override?.trim() ||
     values.advanced_custom?.trim() ||
     values.status_code_mapping?.trim() ||
+    values.error_response_mapping?.trim() ||
     values.tag?.trim() ||
     values.remark?.trim() ||
     values.priority ||
@@ -2745,6 +2746,50 @@ export function ChannelMutateDrawer({
                                   )}
                                   template={{ '400': '500', '429': '503' }}
                                   valueType='string'
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name='error_response_mapping'
+                          render={({ field }) => (
+                            <FormItem className='space-y-3 border-t pt-4'>
+                              <div className='space-y-1'>
+                                <FormLabel>
+                                  {t('Error Response Mapping')}
+                                </FormLabel>
+                                <FormDescription>
+                                  {t(
+                                    'Rewrite upstream error status and response body'
+                                  )}
+                                </FormDescription>
+                              </div>
+                              <FormControl>
+                                <JsonEditor
+                                  value={field.value || ''}
+                                  onChange={field.onChange}
+                                  disabled={isSubmitting}
+                                  keyPlaceholder='403'
+                                  valuePlaceholder='{"status_code":429,"message":"Too Many Requests"}'
+                                  keyLabel={t('Status Code')}
+                                  valueLabel={t('Response Override')}
+                                  emptyMessage={t(
+                                    'No error response mappings configured.'
+                                  )}
+                                  template={{
+                                    '403': {
+                                      status_code: 429,
+                                      message: 'Too Many Requests',
+                                      type: 'rate_limit_error',
+                                      code: 'rate_limit_exceeded',
+                                      message_contains: '预扣费额度失败',
+                                    },
+                                  }}
+                                  valueType='any'
                                 />
                               </FormControl>
                               <FormMessage />
