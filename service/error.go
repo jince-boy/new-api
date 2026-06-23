@@ -160,6 +160,151 @@ func ResetStatusCode(newApiErr *types.NewAPIError, statusCodeMappingStr string) 
 	}
 }
 
+type errorResponseMappingRule struct {
+	StatusCode       int
+	Message          string
+	Type             string
+	Code             any
+	MessageContains  []string
+	HasCode          bool
+	HasResponseField bool
+}
+
+func ApplyStatusCodeAndErrorResponseMapping(newApiErr *types.NewAPIError, statusCodeMappingStr string, errorResponseMappingStr string) {
+	if newApiErr == nil {
+		return
+	}
+	originalStatusCode := newApiErr.StatusCode
+	ResetStatusCode(newApiErr, statusCodeMappingStr)
+	ApplyErrorResponseMapping(newApiErr, errorResponseMappingStr, originalStatusCode)
+}
+
+func ApplyErrorResponseMapping(newApiErr *types.NewAPIError, errorResponseMappingStr string, originalStatusCode int) {
+	if newApiErr == nil {
+		return
+	}
+	if errorResponseMappingStr == "" || errorResponseMappingStr == "{}" {
+		return
+	}
+
+	mapping := make(map[string]any)
+	if err := common.Unmarshal([]byte(errorResponseMappingStr), &mapping); err != nil {
+		return
+	}
+
+	rule, ok := lookupErrorResponseMappingRule(mapping, originalStatusCode, newApiErr.StatusCode)
+	if !ok || !ruleMatchesErrorResponse(rule, newApiErr.Error()) {
+		return
+	}
+	if rule.StatusCode >= http.StatusContinue && rule.StatusCode <= http.StatusNetworkAuthenticationRequired {
+		newApiErr.StatusCode = rule.StatusCode
+	}
+	if rule.HasResponseField {
+		var code any
+		if rule.HasCode {
+			code = rule.Code
+		}
+		newApiErr.OverrideOpenAIErrorResponse(rule.Message, rule.Type, code)
+	}
+}
+
+func lookupErrorResponseMappingRule(mapping map[string]any, originalStatusCode int, currentStatusCode int) (errorResponseMappingRule, bool) {
+	keys := []string{strconv.Itoa(originalStatusCode)}
+	currentKey := strconv.Itoa(currentStatusCode)
+	if currentKey != keys[0] {
+		keys = append(keys, currentKey)
+	}
+	keys = append(keys, "*")
+
+	for _, key := range keys {
+		rawRule, ok := mapping[key]
+		if !ok {
+			continue
+		}
+		rule, ok := parseErrorResponseMappingRule(rawRule)
+		if ok {
+			return rule, true
+		}
+	}
+	return errorResponseMappingRule{}, false
+}
+
+func parseErrorResponseMappingRule(rawRule any) (errorResponseMappingRule, bool) {
+	switch value := rawRule.(type) {
+	case string:
+		if strings.TrimSpace(value) == "" {
+			return errorResponseMappingRule{}, false
+		}
+		return errorResponseMappingRule{
+			Message:          value,
+			HasResponseField: true,
+		}, true
+	case map[string]any:
+		rule := errorResponseMappingRule{}
+		if statusRaw, ok := value["status_code"]; ok {
+			statusCode, ok := parseStatusCodeMappingValue(statusRaw)
+			if ok {
+				rule.StatusCode = statusCode
+			}
+		} else if statusRaw, ok := value["status"]; ok {
+			statusCode, ok := parseStatusCodeMappingValue(statusRaw)
+			if ok {
+				rule.StatusCode = statusCode
+			}
+		}
+		if message, ok := value["message"].(string); ok {
+			rule.Message = message
+			rule.HasResponseField = true
+		}
+		if errorType, ok := value["type"].(string); ok {
+			rule.Type = errorType
+			rule.HasResponseField = true
+		}
+		if code, ok := value["code"]; ok {
+			rule.Code = code
+			rule.HasCode = true
+			rule.HasResponseField = true
+		}
+		rule.MessageContains = parseErrorResponseMappingStringList(value["message_contains"])
+		return rule, rule.StatusCode != 0 || rule.HasResponseField
+	default:
+		return errorResponseMappingRule{}, false
+	}
+}
+
+func parseErrorResponseMappingStringList(raw any) []string {
+	switch value := raw.(type) {
+	case string:
+		if strings.TrimSpace(value) == "" {
+			return nil
+		}
+		return []string{value}
+	case []any:
+		result := make([]string, 0, len(value))
+		for _, item := range value {
+			if str, ok := item.(string); ok && strings.TrimSpace(str) != "" {
+				result = append(result, str)
+			}
+		}
+		return result
+	default:
+		return nil
+	}
+}
+
+func ruleMatchesErrorResponse(rule errorResponseMappingRule, message string) bool {
+	if len(rule.MessageContains) == 0 {
+		return true
+	}
+	lowerMessage := strings.ToLower(message)
+	for _, keyword := range rule.MessageContains {
+		if strings.Contains(lowerMessage, strings.ToLower(keyword)) {
+			return true
+		}
+	}
+	return false
+}
+
 func parseStatusCodeMappingValue(value any) (int, bool) {
 	switch v := value.(type) {
 	case string:

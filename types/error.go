@@ -177,6 +177,44 @@ func (e *NewAPIError) SetMessage(message string) {
 	e.Err = errors.New(message)
 }
 
+func (e *NewAPIError) OverrideOpenAIErrorResponse(message string, errorType string, code any) {
+	if e == nil {
+		return
+	}
+
+	var openAIError OpenAIError
+	if e.errorType == ErrorTypeOpenAIError {
+		if existing, ok := e.RelayError.(OpenAIError); ok {
+			openAIError = existing
+		}
+	}
+
+	if message != "" {
+		openAIError.Message = message
+		e.Err = errors.New(message)
+	} else if openAIError.Message == "" {
+		openAIError.Message = e.Error()
+	}
+
+	if errorType != "" {
+		openAIError.Type = errorType
+	} else if openAIError.Type == "" {
+		openAIError.Type = string(e.errorCode)
+	}
+
+	if code != nil && fmt.Sprintf("%v", code) != "" {
+		openAIError.Code = code
+		if codeStr, ok := code.(string); ok {
+			e.errorCode = ErrorCode(codeStr)
+		}
+	} else if openAIError.Code == nil {
+		openAIError.Code = e.errorCode
+	}
+
+	e.RelayError = openAIError
+	e.errorType = ErrorTypeOpenAIError
+}
+
 func (e *NewAPIError) ToOpenAIError() OpenAIError {
 	var result OpenAIError
 	switch e.errorType {

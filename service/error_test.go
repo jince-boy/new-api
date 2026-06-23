@@ -122,6 +122,27 @@ func TestRelayErrorHandlerKeepsOpenAIErrorMessage(t *testing.T) {
 	require.Equal(t, message, newAPIError.Error())
 }
 
+func TestApplyErrorResponseMappingRewritesUpstreamQuotaError(t *testing.T) {
+	body := `{"error":{"message":"Please run /login · API Error: 403 预扣费额度失败, 用户剩余额度: ＄0.145778, 需要预扣费额度: ＄0.271876","type":"insufficient_user_quota","code":"insufficient_user_quota"}}`
+	resp := &http.Response{
+		StatusCode: http.StatusForbidden,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
+
+	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+	ApplyStatusCodeAndErrorResponseMapping(
+		newAPIError,
+		"",
+		`{"403":{"status_code":429,"message":"Too Many Requests","type":"rate_limit_error","code":"rate_limit_exceeded","message_contains":"预扣费额度失败"}}`,
+	)
+
+	require.NotNil(t, newAPIError)
+	require.Equal(t, http.StatusTooManyRequests, newAPIError.StatusCode)
+	require.Equal(t, "Too Many Requests", newAPIError.ToOpenAIError().Message)
+	require.Equal(t, "rate_limit_error", newAPIError.ToOpenAIError().Type)
+	require.Equal(t, "rate_limit_exceeded", newAPIError.ToOpenAIError().Code)
+}
+
 func TestRelayErrorHandlerKeepsInvalidJSONBodyInDebugLog(t *testing.T) {
 	withDebugEnabled(t, true)
 
