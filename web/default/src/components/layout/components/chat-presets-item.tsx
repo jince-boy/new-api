@@ -40,6 +40,7 @@ import {
   SidebarMenuSubItem,
   useSidebar,
 } from '@/components/ui/sidebar'
+import { useTheme } from '@/context/theme-provider'
 import { fetchActiveChatKey } from '@/features/chat/hooks/use-active-chat-key'
 import { useChatPresets } from '@/features/chat/hooks/use-chat-presets'
 import {
@@ -154,6 +155,7 @@ function DropdownPresetItem({
  */
 export function ChatPresetsItem({ item }: { item: NavChatPresets }) {
   const { t } = useTranslation()
+  const { resolvedTheme } = useTheme()
   const { chatPresets, serverAddress } = useChatPresets()
   const { state, isMobile, setOpenMobile } = useSidebar()
   const href = useLocation({ select: (location) => location.href })
@@ -201,6 +203,7 @@ export function ChatPresetsItem({ item }: { item: NavChatPresets }) {
         template: preset.url,
         apiKey: needsKey ? activeKey : undefined,
         serverAddress,
+        theme: resolvedTheme,
       })
 
       if (!url) {
@@ -213,7 +216,7 @@ export function ChatPresetsItem({ item }: { item: NavChatPresets }) {
       window.open(url, '_blank', 'noopener')
       setOpenMobile(false)
     },
-    [serverAddress, setOpenMobile, t]
+    [resolvedTheme, serverAddress, setOpenMobile, t]
   )
 
   const normalizedHref = normalizeHref(href)

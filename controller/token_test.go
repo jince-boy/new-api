@@ -16,6 +16,8 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -32,10 +34,11 @@ type tokenPageResponse struct {
 }
 
 type tokenResponseItem struct {
-	ID     int    `json:"id"`
-	Name   string `json:"name"`
-	Key    string `json:"key"`
-	Status int    `json:"status"`
+	ID          int    `json:"id"`
+	Name        string `json:"name"`
+	Key         string `json:"key"`
+	Status      int    `json:"status"`
+	DefaultChat bool   `json:"default_chat"`
 }
 
 type tokenKeyResponse struct {
@@ -537,4 +540,63 @@ func TestGetTokenKeyRequiresOwnershipAndReturnsFullKey(t *testing.T) {
 	if strings.Contains(unauthorizedRecorder.Body.String(), token.Key) {
 		t.Fatalf("unauthorized key response leaked raw token key: %s", unauthorizedRecorder.Body.String())
 	}
+}
+
+func TestSetDefaultChatTokenMarksOnlySelectedToken(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	firstToken := seedToken(t, db, 1, "first-token", "first1234token5678")
+	secondToken := seedToken(t, db, 1, "second-token", "second1234token5678")
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/"+strconv.Itoa(secondToken.Id)+"/default_chat", nil, 1)
+	ctx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(secondToken.Id)}}
+
+	SetDefaultChatToken(ctx)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	response := decodeAPIResponse(t, recorder)
+	require.True(t, response.Success)
+
+	var responseToken tokenResponseItem
+	require.NoError(t, common.Unmarshal(response.Data, &responseToken))
+	assert.Equal(t, secondToken.Id, responseToken.ID)
+	assert.True(t, responseToken.DefaultChat)
+
+	var tokens []model.Token
+	require.NoError(t, db.Order("id asc").Find(&tokens).Error)
+	require.Len(t, tokens, 2)
+	assert.False(t, tokens[0].DefaultChat)
+	assert.True(t, tokens[1].DefaultChat)
+
+	ctx, recorder = newAuthenticatedContext(t, http.MethodPut, "/api/token/"+strconv.Itoa(firstToken.Id)+"/default_chat", nil, 1)
+	ctx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(firstToken.Id)}}
+
+	SetDefaultChatToken(ctx)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	response = decodeAPIResponse(t, recorder)
+	require.True(t, response.Success)
+
+	require.NoError(t, db.Order("id asc").Find(&tokens).Error)
+	require.Len(t, tokens, 2)
+	assert.True(t, tokens[0].DefaultChat)
+	assert.False(t, tokens[1].DefaultChat)
+}
+
+func TestSetDefaultChatTokenRejectsDisabledToken(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	token := seedToken(t, db, 1, "disabled-token", "disabled1234token5678")
+	require.NoError(t, db.Model(token).Update("status", common.TokenStatusDisabled).Error)
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/"+strconv.Itoa(token.Id)+"/default_chat", nil, 1)
+	ctx.Params = gin.Params{{Key: "id", Value: strconv.Itoa(token.Id)}}
+
+	SetDefaultChatToken(ctx)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	response := decodeAPIResponse(t, recorder)
+	assert.False(t, response.Success)
+
+	var persisted model.Token
+	require.NoError(t, db.First(&persisted, token.Id).Error)
+	assert.False(t, persisted.DefaultChat)
 }

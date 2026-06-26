@@ -22,11 +22,15 @@ import { useTokenKeys } from '../../hooks/chat/useTokenKeys';
 import { Spin } from '@douyinfe/semi-ui';
 import { useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { encodeToBase64 } from '../../helpers';
+import { parseChatPresets, resolveChatUrl } from '../../helpers/chat';
+import { useActualTheme } from '../../context/Theme';
 
 const ChatPage = () => {
   const { t } = useTranslation();
   const { id } = useParams();
   const { keys, serverAddress, isLoading } = useTokenKeys(id);
+  const actualTheme = useActualTheme();
 
   const comLink = (key) => {
     // console.log('chatLink:', chatLink);
@@ -35,16 +39,16 @@ const ChatPage = () => {
     if (id) {
       let chats = localStorage.getItem('chats');
       if (chats) {
-        chats = JSON.parse(chats);
-        if (Array.isArray(chats) && chats.length > 0) {
-          for (let k in chats[id]) {
-            link = chats[id][k];
-            link = link.replaceAll(
-              '{address}',
-              encodeURIComponent(serverAddress),
-            );
-            link = link.replaceAll('{key}', 'sk-' + key);
-          }
+        chats = parseChatPresets(chats);
+        const preset = chats.find((item) => String(item.id) === String(id));
+        if (preset) {
+          link = resolveChatUrl({
+            template: preset.url,
+            apiKey: key,
+            serverAddress,
+            encodeToBase64,
+            theme: actualTheme,
+          });
         }
       }
     }
@@ -55,6 +59,7 @@ const ChatPage = () => {
 
   return !isLoading && iframeSrc ? (
     <iframe
+      key={iframeSrc}
       src={iframeSrc}
       style={{
         width: '100%',

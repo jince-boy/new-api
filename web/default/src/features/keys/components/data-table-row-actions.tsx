@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useCallback, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import type { Row } from '@tanstack/react-table'
 import {
   Trash2,
@@ -28,6 +29,7 @@ import {
   Copy,
   Link,
   Loader2,
+  Star,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -47,12 +49,13 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useTheme } from '@/context/theme-provider'
 import { useChatPresets } from '@/features/chat/hooks/use-chat-presets'
 import { resolveChatUrl, type ChatPreset } from '@/features/chat/lib/chat-links'
 import { sendToFluent } from '@/features/chat/lib/send-to-fluent'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 
-import { updateApiKeyStatus } from '../api'
+import { setDefaultChatApiKey, updateApiKeyStatus } from '../api'
 import { API_KEY_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import { apiKeySchema } from '../types'
 import { useApiKeys } from './api-keys-provider'
@@ -86,6 +89,7 @@ export function DataTableRowActions<TData>({
   row,
 }: DataTableRowActionsProps<TData>) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
   const apiKey = apiKeySchema.parse(row.original)
   const {
     setOpen,
@@ -99,11 +103,13 @@ export function DataTableRowActions<TData>({
   const isEnabled = apiKey.status === API_KEY_STATUS.ENABLED
   const { chatPresets, serverAddress } = useChatPresets()
   const [isTogglingStatus, setIsTogglingStatus] = useState(false)
+  const [isSettingDefaultChat, setIsSettingDefaultChat] = useState(false)
   const resolvedRealKey = resolvedKeys[apiKey.id]
   const isRealKeyLoading = Boolean(loadingKeys[apiKey.id])
 
   const hasChatPresets = chatPresets.length > 0
   const toggleLabel = isEnabled ? t('Disable') : t('Enable')
+  const { resolvedTheme } = useTheme()
 
   const handleMenuOpenChange = useCallback(
     (open: boolean) => {
@@ -144,6 +150,7 @@ export function DataTableRowActions<TData>({
         template: preset.url,
         apiKey: realKey,
         serverAddress,
+        theme: resolvedTheme,
       })
 
       if (!resolvedUrl) {
@@ -159,7 +166,7 @@ export function DataTableRowActions<TData>({
         window.location.href = resolvedUrl
       }
     },
-    [resolveRealKey, apiKey.id, serverAddress, t]
+    [resolveRealKey, apiKey.id, serverAddress, resolvedTheme, t]
   )
 
   const handleToggleStatus = async (
@@ -186,6 +193,26 @@ export function DataTableRowActions<TData>({
       toast.error(t(ERROR_MESSAGES.UNEXPECTED))
     } finally {
       setIsTogglingStatus(false)
+    }
+  }
+
+  const handleSetDefaultChatKey = async () => {
+    setIsSettingDefaultChat(true)
+    try {
+      const result = await setDefaultChatApiKey(apiKey.id)
+      if (result.success) {
+        toast.success(t('Default chat API key updated'))
+        triggerRefresh()
+        void queryClient.invalidateQueries({ queryKey: ['chat-active-key'] })
+      } else {
+        toast.error(
+          result.message || t('Failed to update default chat API key')
+        )
+      }
+    } catch {
+      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
+    } finally {
+      setIsSettingDefaultChat(false)
     }
   }
 
@@ -285,6 +312,21 @@ export function DataTableRowActions<TData>({
           {t('CC Switch')}
           <DropdownMenuShortcut>
             <ArrowRightLeft size={16} />
+          </DropdownMenuShortcut>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={!isEnabled || apiKey.default_chat || isSettingDefaultChat}
+          onClick={handleSetDefaultChatKey}
+        >
+          {apiKey.default_chat
+            ? t('Default chat API key')
+            : t('Set as default chat API key')}
+          <DropdownMenuShortcut>
+            {isSettingDefaultChat ? (
+              <Loader2 size={16} className='animate-spin' />
+            ) : (
+              <Star size={16} />
+            )}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         {hasChatPresets && (

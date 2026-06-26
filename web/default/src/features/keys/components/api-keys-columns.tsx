@@ -97,9 +97,24 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
     {
       accessorKey: 'name',
       header: t('Name'),
-      cell: ({ row }) => (
-        <span className='font-medium'>{row.getValue('name')}</span>
-      ),
+      cell: ({ row }) => {
+        const apiKey = row.original
+        return (
+          <div className='flex min-w-0 items-center gap-2'>
+            <span className='truncate font-medium'>
+              {row.getValue('name')}
+            </span>
+            {apiKey.default_chat && (
+              <StatusBadge
+                label={t('Default chat')}
+                variant='info'
+                copyable={false}
+                className='shrink-0'
+              />
+            )}
+          </div>
+        )
+      },
       size: 180,
       meta: { mobileTitle: true },
     },

@@ -32,12 +32,16 @@ import {
 } from '@/components/ui/form'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  normalizeChatConfigForStorage,
+  parseChatPresetValue,
+} from '@/features/chat/lib/chat-links'
 import { SettingsForm } from '../components/settings-form-layout'
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
 import { ChatSettingsVisualEditor } from './chat-settings-visual-editor'
-import { formatJsonForEditor, normalizeJsonString } from './utils'
+import { formatJsonForEditor } from './utils'
 
 const createChatSchema = (t: (key: string) => string) =>
   z.object({
@@ -70,6 +74,16 @@ const createChatSchema = (t: (key: string) => string) =>
             ctx.addIssue({
               code: z.ZodIssueCode.custom,
               message: t('Each item must have exactly one key-value pair.'),
+            })
+            return
+          }
+          const parsedValue = parseChatPresetValue(entries[0][1])
+          if (!parsedValue) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: t(
+                'Each chat preset value must be a URL string or an object with url and enabled fields.'
+              ),
             })
             return
           }
@@ -106,15 +120,20 @@ export function ChatSettingsSection({
     },
   })
 
-  const initialNormalizedRef = useRef(normalizeJsonString(defaultValue, '[]'))
+  const initialNormalizedRef = useRef(
+    normalizeChatConfigForStorage(defaultValue, '[]')
+  )
 
   useEffect(() => {
     form.reset({ Chats: formatJsonForEditor(defaultValue, '[]') })
-    initialNormalizedRef.current = normalizeJsonString(defaultValue, '[]')
+    initialNormalizedRef.current = normalizeChatConfigForStorage(
+      defaultValue,
+      '[]'
+    )
   }, [defaultValue, form])
 
   const onSubmit = async (values: ChatSettingsFormValues) => {
-    const normalized = normalizeJsonString(values.Chats, '[]')
+    const normalized = normalizeChatConfigForStorage(values.Chats, '[]')
     if (normalized === initialNormalizedRef.current) {
       return
     }
@@ -172,9 +191,7 @@ export function ChatSettingsSection({
                     <FormControl>
                       <Textarea
                         rows={12}
-                        placeholder={t(
-                          '[{"ChatGPT":"https://chat.openai.com"},{"Lobe Chat":"https://chat-preview.lobehub.com/?settings={...}"}]'
-                        )}
+                        placeholder='[{"ChatGPT":{"url":"https://chat.openai.com","enabled":true}},{"Lobe Chat":{"url":"https://chat-preview.lobehub.com/?settings={...}","enabled":false}}]'
                         {...field}
                       />
                     </FormControl>

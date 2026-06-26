@@ -20,7 +20,7 @@ For commercial licensing, please contact support@quantumnous.com
 import React from 'react';
 import { Card, Tabs, TabPane } from '@douyinfe/semi-ui';
 import { PieChart } from 'lucide-react';
-import { VChart } from '@visactor/react-vchart';
+import SafeVChart from './SafeVChart';
 
 const getRankRows = (spec) =>
   (spec?.data?.[0]?.values || []).filter((item) => !item?.__rankPlaceholder);
@@ -133,16 +133,16 @@ const ChartsPanel = ({
     >
       <div className={`${isCompactRankTab ? 'h-64' : 'h-96'} p-2`}>
         {activeChartTab === '1' && (
-          <VChart spec={spec_line} option={CHART_CONFIG} />
+          <SafeVChart spec={spec_line} option={CHART_CONFIG} />
         )}
         {activeChartTab === '2' && (
-          <VChart spec={spec_model_line} option={CHART_CONFIG} />
+          <SafeVChart spec={spec_model_line} option={CHART_CONFIG} />
         )}
         {activeChartTab === '3' && (
-          <VChart spec={spec_pie} option={CHART_CONFIG} />
+          <SafeVChart spec={spec_pie} option={CHART_CONFIG} />
         )}
         {activeChartTab === '4' && (
-          <VChart spec={spec_rank_bar} option={CHART_CONFIG} />
+          <SafeVChart spec={spec_rank_bar} option={CHART_CONFIG} />
         )}
         {activeChartTab === '5' && (
           <RankBarList spec={spec_token_rank} />
@@ -151,7 +151,7 @@ const ChartsPanel = ({
           <RankBarList spec={spec_user_rank} />
         )}
         {activeChartTab === '7' && isAdminUser && (
-          <VChart spec={spec_user_trend} option={CHART_CONFIG} />
+          <SafeVChart spec={spec_user_trend} option={CHART_CONFIG} />
         )}
       </div>
     </Card>

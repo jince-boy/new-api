@@ -31,6 +31,8 @@ import {
   Modal,
   Input,
   Divider,
+  Switch,
+  Tag,
 } from '@douyinfe/semi-ui';
 import {
   IconPlus,
@@ -48,6 +50,7 @@ import {
   showWarning,
   verifyJSON,
 } from '../../../helpers';
+import { parseChatPresets, serializeChatPresets } from '../../../helpers/chat';
 import { useTranslation } from 'react-i18next';
 
 export default function SettingsChats(props) {
@@ -92,6 +95,7 @@ export default function SettingsChats(props) {
       id: ++maxId,
       name: tpl.name,
       url: tpl.url,
+      enabled: true,
     }));
     const newConfigs = [...chatConfigs, ...newItems];
     setChatConfigs(newConfigs);
@@ -100,26 +104,11 @@ export default function SettingsChats(props) {
   };
 
   const jsonToConfigs = (jsonString) => {
-    try {
-      const configs = JSON.parse(jsonString);
-      return Array.isArray(configs)
-        ? configs.map((config, index) => ({
-            id: index,
-            name: Object.keys(config)[0] || '',
-            url: Object.values(config)[0] || '',
-          }))
-        : [];
-    } catch (error) {
-      console.error('JSON parse error:', error);
-      return [];
-    }
+    return parseChatPresets(jsonString, { includeDisabled: true });
   };
 
   const configsToJson = (configs) => {
-    const jsonArray = configs.map((config) => ({
-      [config.name]: config.url,
-    }));
-    return JSON.stringify(jsonArray, null, 2);
+    return serializeChatPresets(configs);
   };
 
   const syncJsonToConfigs = () => {
@@ -150,15 +139,42 @@ export default function SettingsChats(props) {
         }
       }
 
-      const updateArray = compareObjects(inputs, inputsRow);
+      let parsedChats = [];
+      try {
+        parsedChats = JSON.parse(inputs.Chats || '[]');
+      } catch {
+        showError(t('请检查输入'));
+        return;
+      }
+      if (!Array.isArray(parsedChats)) {
+        showError(t('请检查输入'));
+        return;
+      }
+
+      const normalizedConfigs = jsonToConfigs(parsedChats);
+      if (normalizedConfigs.length !== parsedChats.length) {
+        showError(t('请检查输入'));
+        return;
+      }
+
+      const submitInputs = {
+        ...inputs,
+        Chats: configsToJson(normalizedConfigs),
+      };
+      if (editMode === 'json' && refForm.current) {
+        refForm.current.setValues(submitInputs);
+      }
+      setInputs(submitInputs);
+
+      const updateArray = compareObjects(submitInputs, inputsRow);
       if (!updateArray.length)
         return showWarning(t('你似乎并没有修改什么'));
       const requestQueue = updateArray.map((item) => {
         let value = '';
-        if (typeof inputs[item.key] === 'boolean') {
-          value = String(inputs[item.key]);
+        if (typeof submitInputs[item.key] === 'boolean') {
+          value = String(submitInputs[item.key]);
         } else {
-          value = inputs[item.key];
+          value = submitInputs[item.key];
         }
         return API.put('/api/option/', {
           key: item.key,
@@ -223,12 +239,12 @@ export default function SettingsChats(props) {
   }, [editMode, inputs]);
 
   const handleAddConfig = () => {
-    setEditingConfig({ name: '', url: '' });
+    setEditingConfig({ name: '', url: '', enabled: true });
     setIsEdit(false);
     setModalVisible(true);
     setTimeout(() => {
       if (modalFormRef.current) {
-        modalFormRef.current.setValues({ name: '', url: '' });
+        modalFormRef.current.setValues({ name: '', url: '', enabled: true });
       }
     }, 100);
   };
@@ -271,7 +287,12 @@ export default function SettingsChats(props) {
           if (isEdit) {
             const newConfigs = chatConfigs.map((config) =>
               config.id === editingConfig.id
-                ? { ...editingConfig, name: values.name, url: values.url }
+                ? {
+                    ...editingConfig,
+                    name: values.name,
+                    url: values.url,
+                    enabled: values.enabled !== false,
+                  }
                 : config,
             );
             setChatConfigs(newConfigs);
@@ -285,6 +306,7 @@ export default function SettingsChats(props) {
               id: maxId + 1,
               name: values.name,
               url: values.url,
+              enabled: values.enabled !== false,
             };
             const newConfigs = [...chatConfigs, newConfig];
             setChatConfigs(newConfigs);
@@ -311,20 +333,36 @@ export default function SettingsChats(props) {
       config.name.toLowerCase().includes(searchText.toLowerCase()),
   );
 
+  const handleToggleEnabled = (id, enabled) => {
+    const newConfigs = chatConfigs.map((config) =>
+      config.id === id ? { ...config, enabled } : config,
+    );
+    setChatConfigs(newConfigs);
+    syncConfigsToJson(newConfigs);
+  };
+
   const highlightKeywords = (text) => {
     if (!text) return text;
 
-    const parts = text.split(/(\{address\}|\{key\})/g);
+    const parts = text.split(
+      /(\{address\}|\{\{address\}\}|\{key\}|\{\{key\}\}|\{theme\}|\{\{theme\}\})/g,
+    );
     return parts.map((part, index) => {
-      if (part === '{address}') {
+      if (part === '{address}' || part === '{{address}}') {
         return (
           <span key={index} style={{ color: '#0077cc', fontWeight: 600 }}>
             {part}
           </span>
         );
-      } else if (part === '{key}') {
+      } else if (part === '{key}' || part === '{{key}}') {
         return (
           <span key={index} style={{ color: '#ff6b35', fontWeight: 600 }}>
+            {part}
+          </span>
+        );
+      } else if (part === '{theme}' || part === '{{theme}}') {
+        return (
+          <span key={index} style={{ color: '#16a34a', fontWeight: 600 }}>
             {part}
           </span>
         );
@@ -348,6 +386,23 @@ export default function SettingsChats(props) {
         <div style={{ maxWidth: 300, wordBreak: 'break-all' }}>
           {highlightKeywords(text)}
         </div>
+      ),
+    },
+    {
+      title: t('启用状态'),
+      dataIndex: 'enabled',
+      key: 'enabled',
+      render: (enabled, record) => (
+        <Space>
+          <Switch
+            size='small'
+            checked={enabled !== false}
+            onChange={(checked) => handleToggleEnabled(record.id, checked)}
+          />
+          <Tag color={enabled !== false ? 'green' : 'grey'} shape='circle'>
+            {enabled !== false ? t('已启用') : t('已禁用')}
+          </Tag>
+        </Space>
       ),
     },
     {
@@ -549,6 +604,7 @@ export default function SettingsChats(props) {
             placeholder={t('请输入完整的URL链接')}
             rules={[{ required: true, message: t('请输入URL链接') }]}
           />
+          <Form.Switch field='enabled' label={t('启用')} initValue={true} />
           <Banner
             type='info'
             description={t(

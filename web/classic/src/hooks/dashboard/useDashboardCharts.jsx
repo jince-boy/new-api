@@ -17,8 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import { useState, useCallback, useEffect } from 'react';
-import { initVChartSemiTheme } from '@visactor/vchart-semi-theme';
+import { useState, useCallback } from 'react';
 import {
   modelColorMap,
   renderNumber,
@@ -72,7 +71,7 @@ const padRankValues = (values, makePlaceholder) => {
 };
 
 const maskTokenRankUsername = (username, fallback) => {
-  const value = username || fallback;
+  const value = String(username || fallback || '');
   if (value.includes('***')) return value;
   const chars = Array.from(value);
   if (chars.length <= 1) return `${value}***`;
@@ -778,7 +777,9 @@ export const useDashboardCharts = (
 
   const updateTokenRankChart = useCallback(
     (tokenRankingData) => {
-      const ranking = tokenRankingData?.ranking || [];
+      const ranking = Array.isArray(tokenRankingData?.ranking)
+        ? tokenRankingData.ranking
+        : [];
       const maskedNames = new Map();
       const tokenRankValues = padRankValues(ranking
         .map((item) => {
@@ -833,12 +834,6 @@ export const useDashboardCharts = (
   );
 
   // ========== 初始化图表主题 ==========
-  useEffect(() => {
-    initVChartSemiTheme({
-      isWatchingThemeSwitch: true,
-    });
-  }, []);
-
   return {
     spec_pie,
     spec_line,

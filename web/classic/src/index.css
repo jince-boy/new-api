@@ -1175,3 +1175,61 @@ html.dark .with-pastel-balls::before {
 }
 
 .ec-dbcd0a3c01b55203 { forced-color-adjust: auto; }
+
+/* Data dashboard statistic cards */
+.dashboard-stat-card {
+  border-color: transparent !important;
+  background-color: var(--dashboard-stat-bg) !important;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.dashboard-stat-card .semi-card-header,
+.dashboard-stat-card .semi-card-body {
+  background-color: transparent !important;
+}
+
+.dashboard-stat-card-blue {
+  --dashboard-stat-bg: rgba(59, 130, 246, 0.08);
+}
+
+.dashboard-stat-card-green {
+  --dashboard-stat-bg: rgba(16, 185, 129, 0.08);
+}
+
+.dashboard-stat-card-yellow {
+  --dashboard-stat-bg: rgba(245, 158, 11, 0.10);
+}
+
+.dashboard-stat-card-indigo {
+  --dashboard-stat-bg: rgba(99, 102, 241, 0.08);
+}
+
+html.dark .dashboard-stat-card {
+  border-color: rgba(148, 163, 184, 0.16) !important;
+}
+
+html.dark .dashboard-stat-card-blue {
+  --dashboard-stat-bg: rgba(37, 99, 235, 0.16);
+}
+
+html.dark .dashboard-stat-card-green {
+  --dashboard-stat-bg: rgba(5, 150, 105, 0.16);
+}
+
+html.dark .dashboard-stat-card-yellow {
+  --dashboard-stat-bg: rgba(180, 83, 9, 0.18);
+}
+
+html.dark .dashboard-stat-card-indigo {
+  --dashboard-stat-bg: rgba(79, 70, 229, 0.18);
+}
+
+/* Data dashboard charts */
+.dashboard-vchart,
+.dashboard-vchart > div,
+.dashboard-vchart canvas {
+  background: transparent !important;
+}

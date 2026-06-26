@@ -53,18 +53,11 @@ export async function fetchTokenKeysBatch(tokenIds) {
  */
 export async function fetchTokenKeys() {
   try {
-    const response = await API.get('/api/token/?p=1&size=10');
+    const response = await API.get('/api/token/default_chat_key');
     const { success, data } = response.data;
     if (!success) throw new Error('Failed to fetch token keys');
 
-    const tokenItems = Array.isArray(data) ? data : data.items || [];
-    const activeTokens = tokenItems.filter((token) => token.status === 1);
-    const keyResults = await Promise.allSettled(
-      activeTokens.map((token) => fetchTokenKey(token.id)),
-    );
-    return keyResults
-      .filter((result) => result.status === 'fulfilled' && result.value)
-      .map((result) => result.value);
+    return data?.key ? [data.key] : [];
   } catch (error) {
     console.error('Error fetching token keys:', error);
     return [];

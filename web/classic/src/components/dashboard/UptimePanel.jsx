@@ -46,6 +46,11 @@ const UptimePanel = ({
   ILLUSTRATION_SIZE,
   t,
 }) => {
+  const safeUptimeData = Array.isArray(uptimeData) ? uptimeData : [];
+  const safeUptimeLegendData = Array.isArray(uptimeLegendData)
+    ? uptimeLegendData
+    : [];
+
   return (
     <Card
       {...CARD_PROPS}
@@ -72,10 +77,10 @@ const UptimePanel = ({
       {/* 内容区域 */}
       <div className='relative'>
         <Spin spinning={uptimeLoading}>
-          {uptimeData.length > 0 ? (
-            uptimeData.length === 1 ? (
+          {safeUptimeData.length > 0 ? (
+            safeUptimeData.length === 1 ? (
               <ScrollableContainer maxHeight='24rem'>
-                {renderMonitorList(uptimeData[0].monitors)}
+                {renderMonitorList(safeUptimeData[0]?.monitors)}
               </ScrollableContainer>
             ) : (
               <Tabs
@@ -85,33 +90,41 @@ const UptimePanel = ({
                 onChange={setActiveUptimeTab}
                 size='small'
               >
-                {uptimeData.map((group, groupIdx) => (
+                {safeUptimeData.map((group, groupIdx) => {
+                  const categoryName =
+                    group?.categoryName || String(groupIdx + 1);
+                  const monitors = Array.isArray(group?.monitors)
+                    ? group.monitors
+                    : [];
+
+                  return (
                   <TabPane
                     tab={
                       <span className='flex items-center gap-2'>
                         <Gauge size={14} />
-                        {group.categoryName}
+                        {categoryName}
                         <Tag
                           color={
-                            activeUptimeTab === group.categoryName
+                            activeUptimeTab === categoryName
                               ? 'red'
                               : 'grey'
                           }
                           size='small'
                           shape='circle'
                         >
-                          {group.monitors ? group.monitors.length : 0}
+                          {monitors.length}
                         </Tag>
                       </span>
                     }
-                    itemKey={group.categoryName}
+                    itemKey={categoryName}
                     key={groupIdx}
                   >
                     <ScrollableContainer maxHeight='21.5rem'>
-                      {renderMonitorList(group.monitors)}
+                      {renderMonitorList(monitors)}
                     </ScrollableContainer>
                   </TabPane>
-                ))}
+                  );
+                })}
               </Tabs>
             )
           ) : (
@@ -130,10 +143,10 @@ const UptimePanel = ({
       </div>
 
       {/* 图例 */}
-      {uptimeData.length > 0 && (
+      {safeUptimeData.length > 0 && (
         <div className='p-3 bg-gray-50 rounded-b-2xl'>
           <div className='flex flex-wrap gap-3 text-xs justify-center'>
-            {uptimeLegendData.map((legend, index) => (
+            {safeUptimeLegendData.map((legend, index) => (
               <div key={index} className='flex items-center gap-1'>
                 <div
                   className='w-2 h-2 rounded-full'

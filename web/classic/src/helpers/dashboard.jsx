@@ -39,6 +39,13 @@ import {
   DEFAULT_QUICK_RANGE_PRESET,
 } from '../constants/dashboard.constants';
 
+const toFiniteNumber = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+};
+
+const toDashboardRows = (data) => (Array.isArray(data) ? data : []);
+
 // ========== 时间相关工具函数 ==========
 export const getDefaultTime = () => {
   return localStorage.getItem(STORAGE_KEYS.DATA_EXPORT_DEFAULT_TIME) || 'hour';
@@ -104,7 +111,7 @@ export const updateMapValue = (map, key, value) => {
   if (!map.has(key)) {
     map.set(key, 0);
   }
-  map.set(key, map.get(key) + value);
+  map.set(key, map.get(key) + toFiniteNumber(value));
 };
 
 export const initializeMaps = (key, ...maps) => {
@@ -138,7 +145,15 @@ export const updateChartSpec = (
 
 export const getTrendSpec = (data, color) => ({
   type: 'line',
-  data: [{ id: 'trend', values: data.map((val, idx) => ({ x: idx, y: val })) }],
+  data: [
+    {
+      id: 'trend',
+      values: toDashboardRows(data).map((val, idx) => ({
+        x: idx,
+        y: toFiniteNumber(val),
+      })),
+    },
+  ],
   xField: 'x',
   yField: 'y',
   height: 40,
@@ -211,7 +226,9 @@ export const renderMonitorList = (
   getUptimeStatusText,
   t,
 ) => {
-  if (!monitors || monitors.length === 0) {
+  const safeMonitors = Array.isArray(monitors) ? monitors : [];
+
+  if (safeMonitors.length === 0) {
     return (
       <div className='flex justify-center items-center py-4'>
         <Empty
@@ -226,43 +243,47 @@ export const renderMonitorList = (
   }
 
   const grouped = {};
-  monitors.forEach((m) => {
-    const g = m.group || '';
+  safeMonitors.forEach((m) => {
+    const g = m?.group || '';
     if (!grouped[g]) grouped[g] = [];
     grouped[g].push(m);
   });
 
-  const renderItem = (monitor, idx) => (
-    <div key={idx} className='p-2 hover:bg-white rounded-lg transition-colors'>
-      <div className='flex items-center justify-between mb-1'>
-        <div className='flex items-center gap-2'>
-          <div
-            className='w-2 h-2 rounded-full flex-shrink-0'
-            style={{ backgroundColor: getUptimeStatusColor(monitor.status) }}
-          />
-          <span className='text-sm font-medium text-gray-900'>
-            {monitor.name}
+  const renderItem = (monitor, idx) => {
+    const status = monitor?.status;
+    const uptimePercent = toFiniteNumber(monitor?.uptime) * 100;
+    const name = String(monitor?.name || '-');
+
+    return (
+      <div key={idx} className='p-2 hover:bg-white rounded-lg transition-colors'>
+        <div className='flex items-center justify-between mb-1'>
+          <div className='flex items-center gap-2'>
+            <div
+              className='w-2 h-2 rounded-full flex-shrink-0'
+              style={{ backgroundColor: getUptimeStatusColor(status) }}
+            />
+            <span className='text-sm font-medium text-gray-900'>{name}</span>
+          </div>
+          <span className='text-xs text-gray-500'>
+            {uptimePercent.toFixed(2)}%
           </span>
         </div>
-        <span className='text-xs text-gray-500'>
-          {((monitor.uptime || 0) * 100).toFixed(2)}%
-        </span>
-      </div>
-      <div className='flex items-center gap-2'>
-        <span className='text-xs text-gray-500'>
-          {getUptimeStatusText(monitor.status)}
-        </span>
-        <div className='flex-1'>
-          <Progress
-            percent={(monitor.uptime || 0) * 100}
-            showInfo={false}
-            aria-label={`${monitor.name} uptime`}
-            stroke={getUptimeStatusColor(monitor.status)}
-          />
+        <div className='flex items-center gap-2'>
+          <span className='text-xs text-gray-500'>
+            {getUptimeStatusText(status)}
+          </span>
+          <div className='flex-1'>
+            <Progress
+              percent={uptimePercent}
+              showInfo={false}
+              aria-label={`${name} uptime`}
+              stroke={getUptimeStatusColor(status)}
+            />
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return Object.entries(grouped).map(([gname, list]) => (
     <div key={gname || 'default'} className='mb-2'>
@@ -297,17 +318,22 @@ export const processRawData = (
     timeCountMap: new Map(),
   };
 
-  // 检查数据是否跨年
-  const showYear = isDataCrossYear(data.map((item) => item.created_at));
+  const rows = toDashboardRows(data);
+  const showYear = isDataCrossYear(rows.map((item) => item?.created_at));
 
-  data.forEach((item) => {
-    result.uniqueModels.add(item.model_name);
-    result.totalTokens += item.token_used;
-    result.totalQuota += item.quota;
-    result.totalTimes += item.count;
+  rows.forEach((item) => {
+    const modelName = item?.model_name || '';
+    const tokenUsed = toFiniteNumber(item?.token_used);
+    const quota = toFiniteNumber(item?.quota);
+    const count = toFiniteNumber(item?.count);
+
+    result.uniqueModels.add(modelName);
+    result.totalTokens += tokenUsed;
+    result.totalQuota += quota;
+    result.totalTimes += count;
 
     const timeKey = timestamp2string1(
-      item.created_at,
+      toFiniteNumber(item?.created_at),
       dataExportDefaultTime,
       showYear,
     );
@@ -321,9 +347,9 @@ export const processRawData = (
       result.timeTokensMap,
       result.timeCountMap,
     );
-    updateMapValue(result.timeQuotaMap, timeKey, item.quota);
-    updateMapValue(result.timeTokensMap, timeKey, item.token_used);
-    updateMapValue(result.timeCountMap, timeKey, item.count);
+    updateMapValue(result.timeQuotaMap, timeKey, quota);
+    updateMapValue(result.timeTokensMap, timeKey, tokenUsed);
+    updateMapValue(result.timeCountMap, timeKey, count);
   });
 
   result.timePoints.sort();
@@ -367,17 +393,16 @@ export const calculateTrendData = (
 
 export const aggregateDataByTimeAndModel = (data, dataExportDefaultTime) => {
   const aggregatedData = new Map();
+  const rows = toDashboardRows(data);
+  const showYear = isDataCrossYear(rows.map((item) => item?.created_at));
 
-  // 检查数据是否跨年
-  const showYear = isDataCrossYear(data.map((item) => item.created_at));
-
-  data.forEach((item) => {
+  rows.forEach((item) => {
     const timeKey = timestamp2string1(
-      item.created_at,
+      toFiniteNumber(item?.created_at),
       dataExportDefaultTime,
       showYear,
     );
-    const modelKey = item.model_name;
+    const modelKey = item?.model_name || '';
     const key = `${timeKey}-${modelKey}`;
 
     if (!aggregatedData.has(key)) {
@@ -390,8 +415,8 @@ export const aggregateDataByTimeAndModel = (data, dataExportDefaultTime) => {
     }
 
     const existing = aggregatedData.get(key);
-    existing.quota += item.quota;
-    existing.count += item.count;
+    existing.quota += toFiniteNumber(item?.quota);
+    existing.count += toFiniteNumber(item?.count);
   });
 
   return aggregatedData;
@@ -402,14 +427,18 @@ export const generateChartTimePoints = (
   data,
   dataExportDefaultTime,
 ) => {
+  const rows = toDashboardRows(data);
   let chartTimePoints = Array.from(
     new Set([...aggregatedData.values()].map((d) => d.time)),
   );
 
   if (chartTimePoints.length < DEFAULTS.MAX_TREND_POINTS) {
-    const lastTime = Math.max(...data.map((item) => item.created_at));
+    const now = Math.floor(Date.now() / 1000);
+    const lastTime = Math.max(
+      ...rows.map((item) => toFiniteNumber(item?.created_at)),
+      now,
+    );
     const interval = getTimeInterval(dataExportDefaultTime, true);
-
     // 生成时间点数组，用于检查是否跨年
     const generatedTimestamps = Array.from(
       { length: DEFAULTS.MAX_TREND_POINTS },
@@ -428,9 +457,12 @@ export const generateChartTimePoints = (
 // ========== 用户维度数据处理 ==========
 export const processUserData = (data, dataExportDefaultTime, limit = 10) => {
   const userQuotaTotal = new Map();
-  data.forEach((item) => {
-    const prev = userQuotaTotal.get(item.username) || 0;
-    userQuotaTotal.set(item.username, prev + item.quota);
+  const rows = toDashboardRows(data);
+
+  rows.forEach((item) => {
+    const username = String(item?.username || '');
+    const prev = userQuotaTotal.get(username) || 0;
+    userQuotaTotal.set(username, prev + toFiniteNumber(item?.quota));
   });
 
   const sorted = Array.from(userQuotaTotal.entries()).sort(
@@ -444,23 +476,25 @@ export const processUserData = (data, dataExportDefaultTime, limit = 10) => {
     Quota: quota,
   }));
 
-  const showYear = isDataCrossYear(data.map((item) => item.created_at));
+  const showYear = isDataCrossYear(rows.map((item) => item?.created_at));
 
   const timeUserMap = new Map();
   const allTimePoints = new Set();
 
-  data.forEach((item) => {
+  rows.forEach((item) => {
+    const username = String(item?.username || '');
+    const quota = toFiniteNumber(item?.quota);
     const timeKey = timestamp2string1(
-      item.created_at,
+      toFiniteNumber(item?.created_at),
       dataExportDefaultTime,
       showYear,
     );
     allTimePoints.add(timeKey);
-    const user = topUserSet.has(item.username) ? item.username : null;
+    const user = topUserSet.has(username) ? username : null;
     if (!user) return;
     const key = `${timeKey}-${user}`;
     const prev = timeUserMap.get(key) || { quota: 0 };
-    timeUserMap.set(key, { quota: prev.quota + item.quota });
+    timeUserMap.set(key, { quota: prev.quota + quota });
   });
 
   const sortedTimePoints = Array.from(allTimePoints).sort();

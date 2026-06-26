@@ -35,9 +35,12 @@ import {
   getServerAddress,
   encodeChannelConnectionString,
 } from '../../helpers/token';
+import { resolveChatUrl } from '../../helpers/chat';
+import { useActualTheme } from '../../context/Theme';
 
 export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
   const { t } = useTranslation();
+  const actualTheme = useActualTheme();
 
   // Basic state
   const [tokens, setTokens] = useState([]);
@@ -231,41 +234,13 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     if (serverAddress === '') {
       serverAddress = window.location.origin;
     }
-    if (url.includes('{cherryConfig}') === true) {
-      let cherryConfig = {
-        id: 'new-api',
-        baseUrl: serverAddress,
-        apiKey: `sk-${fullKey}`,
-      };
-      let encodedConfig = encodeURIComponent(
-        encodeToBase64(JSON.stringify(cherryConfig)),
-      );
-      url = url.replaceAll('{cherryConfig}', encodedConfig);
-    } else if (url.includes('{aionuiConfig}') === true) {
-      let aionuiConfig = {
-        platform: 'new-api',
-        baseUrl: serverAddress,
-        apiKey: `sk-${fullKey}`,
-      };
-      let encodedConfig = encodeURIComponent(
-        encodeToBase64(JSON.stringify(aionuiConfig)),
-      );
-      url = url.replaceAll('{aionuiConfig}', encodedConfig);
-    } else if (url.includes('{deepchatConfig}') === true) {
-      let deepchatConfig = {
-        id: 'new-api',
-        baseUrl: serverAddress,
-        apiKey: `sk-${fullKey}`,
-      };
-      let encodedConfig = encodeURIComponent(
-        encodeToBase64(JSON.stringify(deepchatConfig)),
-      );
-      url = url.replaceAll('{deepchatConfig}', encodedConfig);
-    } else {
-      let encodedServerAddress = encodeURIComponent(serverAddress);
-      url = url.replaceAll('{address}', encodedServerAddress);
-      url = url.replaceAll('{key}', `sk-${fullKey}`);
-    }
+    url = resolveChatUrl({
+      template: url,
+      apiKey: fullKey,
+      serverAddress,
+      encodeToBase64,
+      theme: actualTheme,
+    });
 
     window.open(url, '_blank');
   };
@@ -287,13 +262,21 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
         data.status = 2;
         res = await API.put('/api/token/?status_only=true', data);
         break;
+      case 'default_chat':
+        res = await API.put(`/api/token/${id}/default_chat`);
+        break;
     }
     const { success, message } = res.data;
     if (success) {
       showSuccess(t('操作成功完成！'));
       let token = res.data.data;
       let newTokens = [...tokens];
-      if (action !== 'delete') {
+      if (action === 'default_chat') {
+        newTokens = newTokens.map((item) => ({
+          ...item,
+          default_chat: item.id === id,
+        }));
+      } else if (action !== 'delete') {
         record.status = token.status;
       }
       setTokens(newTokens);

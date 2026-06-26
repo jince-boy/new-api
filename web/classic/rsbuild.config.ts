@@ -11,6 +11,8 @@ const semiUiDir = path.resolve(
   '../..',
 )
 const semiDateFnsDir = path.resolve(semiUiDir, 'node_modules/date-fns')
+const vchartDir = path.dirname(require.resolve('@visactor/vchart/package.json'))
+const visactorRuntimeDir = path.resolve(vchartDir, 'node_modules/@visactor')
 
 export default defineConfig(({ envMode }) => {
   const env = loadEnv({ mode: envMode, prefixes: ['VITE_'] })
@@ -48,6 +50,26 @@ export default defineConfig(({ envMode }) => {
         '@douyinfe/semi-ui/dist/css/semi.css': path.resolve(
           semiUiDir,
           'dist/css/semi.css',
+        ),
+        '@visactor/vchart': vchartDir,
+        '@visactor/vdataset': path.resolve(visactorRuntimeDir, 'vdataset'),
+        '@visactor/vrender-components': path.resolve(
+          visactorRuntimeDir,
+          'vrender-components',
+        ),
+        '@visactor/vrender-core': path.resolve(
+          visactorRuntimeDir,
+          'vrender-core',
+        ),
+        '@visactor/vrender-kits': path.resolve(
+          visactorRuntimeDir,
+          'vrender-kits',
+        ),
+        '@visactor/vscale': path.resolve(visactorRuntimeDir, 'vscale'),
+        '@visactor/vutils': path.resolve(visactorRuntimeDir, 'vutils'),
+        '@visactor/vutils-extension': path.resolve(
+          visactorRuntimeDir,
+          'vutils-extension',
         ),
       },
     },

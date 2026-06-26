@@ -32,12 +32,14 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { Dialog } from '@/components/dialog'
 
 const createChatDialogSchema = (t: (key: string) => string) =>
   z.object({
     name: z.string().min(1, t('Chat client name is required')),
     url: z.string().min(1, t('URL is required')),
+    enabled: z.boolean(),
   })
 
 type ChatDialogFormValues = z.infer<ReturnType<typeof createChatDialogSchema>>
@@ -47,6 +49,7 @@ const CHAT_DIALOG_FORM_ID = 'chat-dialog-form'
 export type ChatEntryData = {
   name: string
   url: string
+  enabled: boolean
 }
 
 type ChatDialogProps = {
@@ -71,6 +74,7 @@ export function ChatDialog({
     defaultValues: {
       name: '',
       url: '',
+      enabled: true,
     },
   })
 
@@ -81,6 +85,7 @@ export function ChatDialog({
       form.reset({
         name: '',
         url: '',
+        enabled: true,
       })
     }
   }, [editData, form, open])
@@ -151,9 +156,37 @@ export function ChatDialog({
                   <Input placeholder={t('Please enter the URL')} {...field} />
                 </FormControl>
                 <FormDescription>
-                  {t('The URL for this chat client.')}
+                  <span>{t('The URL for this chat client.')}</span>
+                  <span className='mt-1 block'>
+                    {t('Available variables:')}{' '}
+                    <code>{'{address}'}</code>, <code>{'{key}'}</code>,{' '}
+                    <code>{'{theme}'}</code>.{' '}
+                    {t('Double-brace syntax is also supported.')}{' '}
+                    <code>{'{{theme}}'}</code>
+                  </span>
                 </FormDescription>
                 <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='enabled'
+            render={({ field }) => (
+              <FormItem className='flex flex-row items-center justify-between rounded-md border px-3 py-2'>
+                <div className='space-y-0.5'>
+                  <FormLabel>{t('Enabled')}</FormLabel>
+                  <FormDescription>
+                    {t('Show this chat preset to users.')}
+                  </FormDescription>
+                </div>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
               </FormItem>
             )}
           />

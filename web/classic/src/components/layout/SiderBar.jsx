@@ -26,6 +26,7 @@ import { useSidebarCollapsed } from '../../hooks/common/useSidebarCollapsed';
 import { useSidebar } from '../../hooks/common/useSidebar';
 import { useMinimumLoadingTime } from '../../hooks/common/useMinimumLoadingTime';
 import { isAdmin, isRoot, showError } from '../../helpers';
+import { parseChatPresets } from '../../helpers/chat';
 import SkeletonWrapper from './components/SkeletonWrapper';
 
 import { Nav, Divider, Button } from '@douyinfe/semi-ui';
@@ -73,7 +74,7 @@ const SiderBar = ({ onNavigate = () => {} }) => {
       {
         text: t('数据看板'),
         itemKey: 'detail',
-        to: '/detail',
+        to: '/console',
         className:
           localStorage.getItem('enable_data_export') === 'true'
             ? ''
@@ -228,8 +229,8 @@ const SiderBar = ({ onNavigate = () => {} }) => {
     const newRouterMap = { ...routerMap };
 
     if (Array.isArray(chats) && chats.length > 0) {
-      for (let i = 0; i < chats.length; i++) {
-        newRouterMap['chat' + i] = '/console/chat/' + i;
+      for (const chat of chats) {
+        newRouterMap['chat' + chat.id] = '/console/chat/' + chat.id;
       }
     }
 
@@ -242,27 +243,23 @@ const SiderBar = ({ onNavigate = () => {} }) => {
     let chats = localStorage.getItem('chats');
     if (chats) {
       try {
-        chats = JSON.parse(chats);
+        chats = parseChatPresets(chats);
         if (Array.isArray(chats)) {
           let chatItems = [];
-          for (let i = 0; i < chats.length; i++) {
+          for (const preset of chats) {
             let shouldSkip = false;
             let chat = {};
-            for (let key in chats[i]) {
-              let link = chats[i][key];
-              if (typeof link !== 'string') continue; // 确保链接是字符串
-              if (
-                link.startsWith('fluent') ||
-                link.startsWith('ccswitch') ||
-                link.startsWith('deepchat')
-              ) {
-                shouldSkip = true;
-                break;
-              }
-              chat.text = key;
-              chat.itemKey = 'chat' + i;
-              chat.to = '/console/chat/' + i;
+            const link = preset.url;
+            if (
+              link.startsWith('fluent') ||
+              link.startsWith('ccswitch') ||
+              link.startsWith('deepchat')
+            ) {
+              shouldSkip = true;
             }
+            chat.text = preset.name;
+            chat.itemKey = 'chat' + preset.id;
+            chat.to = '/console/chat/' + preset.id;
             if (shouldSkip || !chat.text) continue; // 避免推入空项
             chatItems.push(chat);
           }
@@ -518,7 +515,7 @@ const SiderBar = ({ onNavigate = () => {} }) => {
               />
             }
             onClick={toggleCollapsed}
-            icononly={collapsed}
+            iconOnly={collapsed}
             style={
               collapsed
                 ? { width: 36, height: 24, padding: 0 }

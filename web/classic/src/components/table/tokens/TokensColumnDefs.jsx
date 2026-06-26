@@ -40,10 +40,12 @@ import {
   getModelCategories,
   showError,
 } from '../../../helpers';
+import { parseChatPresets } from '../../../helpers/chat';
 import {
   IconCopy,
   IconEyeOpened,
   IconEyeClosed,
+  IconChevronDown,
 } from '@douyinfe/semi-icons';
 
 // progress color helper
@@ -361,18 +363,15 @@ const renderOperations = (
   let chatsArray = [];
   try {
     const raw = localStorage.getItem('chats');
-    const parsed = JSON.parse(raw);
+    const parsed = parseChatPresets(raw);
     if (Array.isArray(parsed)) {
-      for (let i = 0; i < parsed.length; i++) {
-        const item = parsed[i];
-        const name = Object.keys(item)[0];
-        if (!name) continue;
+      for (const item of parsed) {
         chatsArray.push({
           node: 'item',
-          key: i,
-          name,
-          value: item[name],
-          onClick: () => onOpenLink(name, item[name], record),
+          key: item.id,
+          name: item.name,
+          value: item.url,
+          onClick: () => onOpenLink(item.name, item.url, record),
         });
       }
     }
@@ -404,11 +403,25 @@ const renderOperations = (
           <Button
             type='tertiary'
             size='small'
+            icon={<IconChevronDown />}
+            aria-label={t('Chat menu')}
           >
-            {t('??')}
           </Button>
         </Dropdown>
       </SplitButtonGroup>
+
+      <Button
+        size='small'
+        type='tertiary'
+        style={{ width: 128 }}
+        disabled={record.default_chat || record.status !== 1}
+        onClick={async () => {
+          await manageToken(record.id, 'default_chat', record);
+          await refresh();
+        }}
+      >
+        {record.default_chat ? t('Default chat') : t('Set as default chat')}
+      </Button>
 
       {record.status === 1 ? (
         <Button
@@ -485,6 +498,16 @@ export const getTokensColumns = ({
     {
       title: t('名称'),
       dataIndex: 'name',
+      render: (text, record) => (
+        <Space>
+          <span>{text}</span>
+          {record.default_chat && (
+            <Tag color='blue' shape='circle' size='small'>
+              {t('Default chat')}
+            </Tag>
+          )}
+        </Space>
+      ),
     },
     {
       title: t('状态'),

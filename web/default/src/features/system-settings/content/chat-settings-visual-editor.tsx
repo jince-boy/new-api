@@ -21,8 +21,13 @@ import { Plus, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { StaticDataTable } from '@/components/data-table/static/static-data-table'
 import { StaticRowActions } from '@/components/data-table/static/static-row-actions'
+import {
+  parseChatPresetValue,
+  serializeChatPresetValue,
+} from '@/features/chat/lib/chat-links'
 import { safeJsonParseWithValidation } from '../utils/json-parser'
 import { isArray } from '../utils/json-validators'
 import { ChatDialog, type ChatEntryData } from './chat-dialog'
@@ -33,6 +38,35 @@ type ChatSettingsVisualEditorProps = {
 }
 
 type ChatEntry = ChatEntryData
+
+function parseChatEntry(item: unknown): ChatEntry | null {
+  if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+    return null
+  }
+
+  const entries = Object.entries(item)
+  if (entries.length !== 1) {
+    return null
+  }
+
+  const [name, value] = entries[0]
+  const parsed = parseChatPresetValue(value)
+  if (!parsed) {
+    return null
+  }
+
+  return {
+    name,
+    url: parsed.url,
+    enabled: parsed.enabled,
+  }
+}
+
+function serializeChatEntry(chat: ChatEntry) {
+  return {
+    [chat.name]: serializeChatPresetValue(chat.url, chat.enabled),
+  }
+}
 
 export function ChatSettingsVisualEditor({
   value,
@@ -52,16 +86,7 @@ export function ChatSettingsVisualEditor({
     })
 
     return parsed
-      .map((item) => {
-        if (typeof item === 'object' && item !== null && !Array.isArray(item)) {
-          const entries = Object.entries(item)
-          if (entries.length === 1) {
-            const [name, url] = entries[0]
-            return { name, url: String(url) }
-          }
-        }
-        return null
-      })
+      .map((item) => parseChatEntry(item))
       .filter((item): item is ChatEntry => item !== null)
   }, [value])
 
@@ -93,7 +118,23 @@ export function ChatSettingsVisualEditor({
       })
     }
 
-    updatedArray.push({ [data.name]: data.url })
+    updatedArray.push(serializeChatEntry(data))
+
+    onChange(JSON.stringify(updatedArray, null, 2))
+  }
+
+  const handleToggleEnabled = (chat: ChatEntry, enabled: boolean) => {
+    const chatsArray = safeJsonParseWithValidation<unknown[]>(value, {
+      fallback: [],
+      validator: isArray,
+      silent: true,
+    })
+
+    const updatedArray = chatsArray.map((item) => {
+      const parsed = parseChatEntry(item)
+      if (!parsed || parsed.name !== chat.name) return item
+      return serializeChatEntry({ ...parsed, enabled })
+    })
 
     onChange(JSON.stringify(updatedArray, null, 2))
   }
@@ -165,6 +206,26 @@ export function ChatSettingsVisualEditor({
             header: t('URL'),
             cellClassName: 'max-w-md truncate font-mono text-sm',
             cell: (chat) => chat.url,
+          },
+          {
+            id: 'enabled',
+            header: t('Status'),
+            cellClassName: 'w-[120px]',
+            cell: (chat) => (
+              <div className='flex items-center gap-2'>
+                <Switch
+                  size='sm'
+                  checked={chat.enabled}
+                  onCheckedChange={(enabled) =>
+                    handleToggleEnabled(chat, enabled)
+                  }
+                  aria-label={t('Show this chat preset to users.')}
+                />
+                <span className='text-muted-foreground text-xs'>
+                  {chat.enabled ? t('Enabled') : t('Disabled')}
+                </span>
+              </div>
+            ),
           },
           {
             id: 'actions',

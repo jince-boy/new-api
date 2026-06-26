@@ -21,6 +21,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
+import { useTheme } from '@/context/theme-provider'
 import { useActiveChatKey } from '@/features/chat/hooks/use-active-chat-key'
 import { useChatPresets } from '@/features/chat/hooks/use-chat-presets'
 import { resolveChatUrl } from '@/features/chat/lib/chat-links'
@@ -32,6 +33,7 @@ export const Route = createFileRoute('/_authenticated/chat2link')({
 function Chat2LinkPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const { resolvedTheme } = useTheme()
   const { chatPresets, serverAddress } = useChatPresets()
 
   const firstWebPreset = useMemo(
@@ -67,6 +69,7 @@ function Chat2LinkPage() {
       template: firstWebPreset.url,
       apiKey: activeKey,
       serverAddress,
+      theme: resolvedTheme,
     })
 
     if (url) {
@@ -77,6 +80,7 @@ function Chat2LinkPage() {
     activeKey,
     keyError,
     serverAddress,
+    resolvedTheme,
     chatPresets.length,
     navigate,
     t,

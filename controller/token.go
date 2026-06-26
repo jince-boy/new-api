@@ -94,6 +94,35 @@ func GetTokenKey(c *gin.Context) {
 	})
 }
 
+func SetDefaultChatToken(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	userId := c.GetInt("id")
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	token, err := model.SetDefaultChatToken(userId, id)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, buildMaskedTokenResponse(token))
+}
+
+func GetDefaultChatTokenKey(c *gin.Context) {
+	userId := c.GetInt("id")
+	token, err := model.GetDefaultChatToken(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, gin.H{
+		"id":           token.Id,
+		"default_chat": token.DefaultChat,
+		"key":          token.GetFullKey(),
+	})
+}
+
 func GetTokenStatus(c *gin.Context) {
 	tokenId := c.GetInt("token_id")
 	userId := c.GetInt("id")
@@ -288,6 +317,9 @@ func UpdateToken(c *gin.Context) {
 	}
 	if statusOnly != "" {
 		cleanToken.Status = token.Status
+		if token.Status != common.TokenStatusEnabled {
+			cleanToken.DefaultChat = false
+		}
 	} else {
 		// If you add more fields, please also update token.Update()
 		cleanToken.Name = token.Name

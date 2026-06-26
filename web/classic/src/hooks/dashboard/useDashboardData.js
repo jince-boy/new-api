@@ -21,9 +21,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { API, isAdmin, showError } from '../../helpers';
-import {
-  buildQuickRangePayload,
-} from '../../helpers/dashboard';
+import { buildQuickRangePayload } from '../../helpers/dashboard';
 import {
   TIME_OPTIONS,
   QUICK_RANGE_PRESETS,
@@ -41,13 +39,11 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
     buildQuickRangePayload(DEFAULT_QUICK_RANGE_PRESET),
   );
 
-  // ========== 基础状态 ==========
   const [loading, setLoading] = useState(false);
   const [greetingVisible, setGreetingVisible] = useState(false);
   const [searchModalVisible, setSearchModalVisible] = useState(false);
   const showLoading = useMinimumLoadingTime(loading);
 
-  // ========== 输入状态 ==========
   const [inputs, setInputs] = useState({
     username: '',
     token_name: '',
@@ -64,7 +60,6 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
     initialQuickRangeRef.current.presetKey,
   );
 
-  // ========== 数据状态 ==========
   const [quotaData, setQuotaData] = useState([]);
   const [consumeQuota, setConsumeQuota] = useState(0);
   const [consumeTokens, setConsumeTokens] = useState(0);
@@ -73,10 +68,8 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
   const [lineData, setLineData] = useState([]);
   const [modelColors, setModelColors] = useState({});
 
-  // ========== 图表状态 ==========
   const [activeChartTab, setActiveChartTab] = useState('1');
 
-  // ========== 趋势数据 ==========
   const [trendData, setTrendData] = useState({
     balance: [],
     usedQuota: [],
@@ -88,16 +81,12 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
     tpm: [],
   });
 
-  // ========== Uptime 数据 ==========
   const [uptimeData, setUptimeData] = useState([]);
   const [uptimeLoading, setUptimeLoading] = useState(false);
   const [activeUptimeTab, setActiveUptimeTab] = useState('');
 
-  // ========== 常量 ==========
-  const now = new Date();
   const isAdminUser = isAdmin();
 
-  // ========== Panel enable flags ==========
   const apiInfoEnabled = statusState?.status?.api_info_enabled ?? true;
   const announcementsEnabled =
     statusState?.status?.announcements_enabled ?? true;
@@ -107,7 +96,6 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
   const hasApiInfoPanel = apiInfoEnabled;
   const hasInfoPanels = announcementsEnabled || faqEnabled || uptimeEnabled;
 
-  // ========== Memoized Values ==========
   const timeOptions = useMemo(
     () =>
       TIME_OPTIONS.map((option) => ({
@@ -116,6 +104,7 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
       })),
     [t],
   );
+
   const quickRangePresets = useMemo(
     () =>
       QUICK_RANGE_PRESETS.map((preset) => ({
@@ -137,27 +126,26 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
       : (consumeTokens / timeDiff).toFixed(3);
 
     return { avgRPM, avgTPM, timeDiff };
-  }, [times, consumeTokens, inputs.start_timestamp, inputs.end_timestamp]);
+  }, [times, consumeTokens, inputs]);
 
   const getGreeting = useMemo(() => {
     const hours = new Date().getHours();
     let greeting = '';
 
     if (hours >= 5 && hours < 12) {
-      greeting = t('早上好');
+      greeting = t('\u65e9\u4e0a\u597d');
     } else if (hours >= 12 && hours < 14) {
-      greeting = t('中午好');
+      greeting = t('\u4e2d\u5348\u597d');
     } else if (hours >= 14 && hours < 18) {
-      greeting = t('下午好');
+      greeting = t('\u4e0b\u5348\u597d');
     } else {
-      greeting = t('晚上好');
+      greeting = t('\u665a\u4e0a\u597d');
     }
 
     const username = userState?.user?.username || '';
-    return `👋${greeting}，${username}`;
+    return `\uD83D\uDC4B${greeting}\uff0c${username}`;
   }, [t, userState?.user?.username]);
 
-  // ========== 回调函数 ==========
   const handleInputChange = useCallback((value, name) => {
     if (name === 'data_export_default_time') {
       setDataExportDefaultTime(value);
@@ -175,7 +163,6 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
     setSearchModalVisible(false);
   }, []);
 
-  // ========== API 调用函数 ==========
   const loadQuotaData = useCallback(async (override = {}) => {
     setLoading(true);
     try {
@@ -184,8 +171,8 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
       const effectiveDataExportDefaultTime =
         override.dataExportDefaultTime || dataExportDefaultTime;
       const { start_timestamp, end_timestamp, username } = effectiveInputs;
-      let localStartTimestamp = Date.parse(start_timestamp) / 1000;
-      let localEndTimestamp = Date.parse(end_timestamp) / 1000;
+      const localStartTimestamp = Date.parse(start_timestamp) / 1000;
+      const localEndTimestamp = Date.parse(end_timestamp) / 1000;
 
       if (isAdminUser) {
         url = `/api/data/?username=${username}&start_timestamp=${localStartTimestamp}&end_timestamp=${localEndTimestamp}&default_time=${effectiveDataExportDefaultTime}`;
@@ -196,25 +183,35 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
       const res = await API.get(url);
       const { success, message, data } = res.data;
       if (success) {
-        setQuotaData(data);
-        if (data.length === 0) {
-          data.push({
+        const nextData = Array.isArray(data)
+          ? data.map((item) => ({
+              ...item,
+              count: Number(item?.count) || 0,
+              quota: Number(item?.quota) || 0,
+              token_used: Number(item?.token_used) || 0,
+              created_at: Number(item?.created_at) || Date.now() / 1000,
+              model_name: item?.model_name || '\u65e0\u6570\u636e',
+            }))
+          : [];
+        if (nextData.length === 0) {
+          nextData.push({
             count: 0,
-            model_name: '无数据',
+            model_name: '\u65e0\u6570\u636e',
             quota: 0,
-            created_at: now.getTime() / 1000,
+            created_at: Date.now() / 1000,
           });
         }
-        data.sort((a, b) => a.created_at - b.created_at);
-        return data;
-      } else {
-        showError(message);
-        return [];
+        nextData.sort((a, b) => a.created_at - b.created_at);
+        setQuotaData(nextData);
+        return nextData;
       }
+
+      showError(message);
+      return [];
     } finally {
       setLoading(false);
     }
-  }, [inputs, dataExportDefaultTime, isAdminUser, now]);
+  }, [inputs, dataExportDefaultTime, isAdminUser]);
 
   const loadUptimeData = useCallback(async () => {
     setUptimeLoading(true);
@@ -222,9 +219,10 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
       const res = await API.get('/api/uptime/status');
       const { success, message, data } = res.data;
       if (success) {
-        setUptimeData(data || []);
-        if (data && data.length > 0 && !activeUptimeTab) {
-          setActiveUptimeTab(data[0].categoryName);
+        const nextData = Array.isArray(data) ? data : [];
+        setUptimeData(nextData);
+        if (nextData.length > 0 && !activeUptimeTab) {
+          setActiveUptimeTab(nextData[0]?.categoryName || '');
         }
       } else {
         showError(message);
@@ -247,11 +245,11 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
       const res = await API.get(url);
       const { success, message, data } = res.data;
       if (success) {
-        return data || [];
-      } else {
-        showError(message);
-        return [];
+        return Array.isArray(data) ? data : [];
       }
+
+      showError(message);
+      return [];
     } catch (err) {
       console.error(err);
       return [];
@@ -275,10 +273,10 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
       const { success, message, data } = res.data;
       if (success) {
         return data || null;
-      } else {
-        showError(message);
-        return null;
       }
+
+      showError(message);
+      return null;
     } catch (err) {
       console.error(err);
       return null;
@@ -286,7 +284,7 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
   }, [inputs, isAdminUser]);
 
   const getUserData = useCallback(async () => {
-    let res = await API.get(`/api/user/self`);
+    const res = await API.get('/api/user/self');
     const { success, message, data } = res.data;
     if (success) {
       userDispatch({ type: 'login', payload: data });
@@ -347,7 +345,6 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
     [inputs, loadQuotaData],
   );
 
-  // ========== Effects ==========
   useEffect(() => {
     const timer = setTimeout(() => {
       setGreetingVisible(true);
@@ -363,18 +360,15 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
   }, [getUserData]);
 
   return {
-    // 基础状态
     loading: showLoading,
     greetingVisible,
     searchModalVisible,
 
-    // 输入状态
     inputs,
     dataExportDefaultTime,
     quickRangePresets,
     activeQuickRangePreset,
 
-    // 数据状态
     quotaData,
     consumeQuota,
     setConsumeQuota,
@@ -389,21 +383,17 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
     modelColors,
     setModelColors,
 
-    // 图表状态
     activeChartTab,
     setActiveChartTab,
 
-    // 趋势数据
     trendData,
     setTrendData,
 
-    // Uptime 数据
     uptimeData,
     uptimeLoading,
     activeUptimeTab,
     setActiveUptimeTab,
 
-    // 计算值
     timeOptions,
     performanceMetrics,
     getGreeting,
@@ -415,7 +405,6 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
     faqEnabled,
     uptimeEnabled,
 
-    // 函数
     handleInputChange,
     showSearchModal,
     handleCloseModal,
@@ -428,7 +417,6 @@ export const useDashboardData = (userState, userDispatch, statusState) => {
     handleSearchConfirm,
     applyQuickRangePreset,
 
-    // 导航和翻译
     navigate,
     t,
     isMobile,

@@ -28,6 +28,7 @@ type Token struct {
 	UsedQuota          int            `json:"used_quota" gorm:"default:0"` // used quota
 	Group              string         `json:"group" gorm:"default:''"`
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
+	DefaultChat        bool           `json:"default_chat"`
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 }
 
@@ -120,6 +121,57 @@ func sanitizeLikePattern(input string) (string, error) {
 
 	// 5. 无 % 时，精确全匹配
 	return input, nil
+}
+
+func SetDefaultChatToken(userId int, tokenId int) (*Token, error) {
+	var selectedToken Token
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("id = ? AND user_id = ?", tokenId, userId).First(&selectedToken).Error; err != nil {
+			return err
+		}
+		if selectedToken.Status != common.TokenStatusEnabled {
+			return errors.New("only enabled tokens can be used as the default chat key")
+		}
+		if err := tx.Model(&Token{}).
+			Where("user_id = ? AND default_chat = ?", userId, true).
+			Update("default_chat", false).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&Token{}).
+			Where("id = ? AND user_id = ?", tokenId, userId).
+			Update("default_chat", true).Error; err != nil {
+			return err
+		}
+		selectedToken.DefaultChat = true
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &selectedToken, nil
+}
+
+func GetDefaultChatToken(userId int) (*Token, error) {
+	var token Token
+	err := DB.Where("user_id = ? AND status = ? AND default_chat = ?", userId, common.TokenStatusEnabled, true).
+		Order("id desc").
+		First(&token).Error
+	if err == nil {
+		return &token, nil
+	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+	err = DB.Where("user_id = ? AND status = ?", userId, common.TokenStatusEnabled).
+		Order("id desc").
+		First(&token).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("No enabled API keys found. Create or enable one first.")
+		}
+		return nil, err
+	}
+	return &token, nil
 }
 
 const searchHardLimit = 100
@@ -295,7 +347,7 @@ func (token *Token) Update() (err error) {
 		}
 	}()
 	err = DB.Model(token).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
-		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry").Updates(token).Error
+		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "default_chat").Updates(token).Error
 	return err
 }
 

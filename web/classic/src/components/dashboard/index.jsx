@@ -166,15 +166,18 @@ const Dashboard = () => {
   };
 
   // ========== 数据准备 ==========
-  const apiInfoData = statusState?.status?.api_info || [];
-  const announcementData = (statusState?.status?.announcements || []).map(
-    (item) => {
-      const pubDate = item?.publishDate ? new Date(item.publishDate) : null;
+  const status = statusState?.status || {};
+  const apiInfoData = Array.isArray(status.api_info) ? status.api_info : [];
+  const announcementData = (
+    Array.isArray(status.announcements) ? status.announcements : []
+  ).map((item) => {
+      const publishDate = item?.publishDate || '';
+      const pubDate = publishDate ? new Date(publishDate) : null;
       const absoluteTime =
         pubDate && !isNaN(pubDate.getTime())
           ? `${pubDate.getFullYear()}-${String(pubDate.getMonth() + 1).padStart(2, '0')}-${String(pubDate.getDate()).padStart(2, '0')} ${String(pubDate.getHours()).padStart(2, '0')}:${String(pubDate.getMinutes()).padStart(2, '0')}`
-          : item?.publishDate || '';
-      const relativeTime = getRelativeTime(item.publishDate);
+          : publishDate;
+      const relativeTime = publishDate ? getRelativeTime(publishDate) : '';
       return {
         ...item,
         time: absoluteTime,
@@ -182,7 +185,7 @@ const Dashboard = () => {
       };
     },
   );
-  const faqData = statusState?.status?.faq || [];
+  const faqData = Array.isArray(status.faq) ? status.faq : [];
 
   const uptimeLegendData = Object.entries(UPTIME_STATUS_MAP).map(
     ([status, info]) => ({

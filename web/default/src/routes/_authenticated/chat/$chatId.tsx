@@ -22,6 +22,7 @@ import { Loader2, MessageCircleWarning } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
+import { useTheme } from '@/context/theme-provider'
 import { useActiveChatKey } from '@/features/chat/hooks/use-active-chat-key'
 import { useChatPresets } from '@/features/chat/hooks/use-chat-presets'
 import {
@@ -40,12 +41,11 @@ export const Route = createFileRoute('/_authenticated/chat/$chatId')({
 
 function ChatRouteComponent() {
   const { t } = useTranslation()
+  const { resolvedTheme } = useTheme()
   const { chatId } = Route.useParams()
   const { chatPresets, serverAddress } = useChatPresets()
   const preset = useMemo(() => {
-    const index = Number(chatId)
-    if (!Number.isInteger(index)) return undefined
-    return chatPresets[index]
+    return chatPresets.find((item) => item.id === chatId)
   }, [chatId, chatPresets])
 
   const isWebLink = preset?.type === 'web'
@@ -69,8 +69,16 @@ function ChatRouteComponent() {
       template: preset.url,
       apiKey: requiresActiveKey ? activeKey : undefined,
       serverAddress,
+      theme: resolvedTheme,
     })
-  }, [activeKey, isWebLink, preset, requiresActiveKey, serverAddress])
+  }, [
+    activeKey,
+    isWebLink,
+    preset,
+    requiresActiveKey,
+    serverAddress,
+    resolvedTheme,
+  ])
 
   if (!preset) {
     return (

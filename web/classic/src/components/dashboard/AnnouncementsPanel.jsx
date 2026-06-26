@@ -34,6 +34,13 @@ const AnnouncementsPanel = ({
   ILLUSTRATION_SIZE,
   t,
 }) => {
+  const safeAnnouncementData = Array.isArray(announcementData)
+    ? announcementData
+    : [];
+  const safeAnnouncementLegendData = Array.isArray(announcementLegendData)
+    ? announcementLegendData
+    : [];
+
   return (
     <Card
       {...CARD_PROPS}
@@ -49,7 +56,7 @@ const AnnouncementsPanel = ({
           </div>
           {/* 图例 */}
           <div className='flex flex-wrap gap-3 text-xs'>
-            {announcementLegendData.map((legend, index) => (
+            {safeAnnouncementLegendData.map((legend, index) => (
               <div key={index} className='flex items-center gap-1'>
                 <div
                   className='w-2 h-2 rounded-full'
@@ -77,17 +84,19 @@ const AnnouncementsPanel = ({
       bodyStyle={{ padding: 0 }}
     >
       <ScrollableContainer maxHeight='24rem'>
-        {announcementData.length > 0 ? (
+        {safeAnnouncementData.length > 0 ? (
           <Timeline mode='left'>
-            {announcementData.map((item, idx) => {
-              const htmlExtra = item.extra ? marked.parse(item.extra) : '';
+            {safeAnnouncementData.map((item, idx) => {
+              const htmlExtra = item?.extra
+                ? marked.parse(String(item.extra))
+                : '';
               return (
                 <Timeline.Item
                   key={idx}
-                  type={item.type || 'default'}
-                  time={`${item.relative ? item.relative + ' ' : ''}${item.time}`}
+                  type={item?.type || 'default'}
+                  time={`${item?.relative ? item.relative + ' ' : ''}${item?.time || ''}`}
                   extra={
-                    item.extra ? (
+                    item?.extra ? (
                       <div
                         className='text-xs text-gray-500'
                         dangerouslySetInnerHTML={{ __html: htmlExtra }}
@@ -98,7 +107,7 @@ const AnnouncementsPanel = ({
                   <div>
                     <div
                       dangerouslySetInnerHTML={{
-                        __html: marked.parse(item.content || ''),
+                        __html: marked.parse(String(item?.content || '')),
                       }}
                     />
                   </div>

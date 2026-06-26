@@ -98,6 +98,24 @@ export async function updateApiKeyStatus(
   return res.data
 }
 
+// Set a token as the default API key used by chat links
+export async function setDefaultChatApiKey(
+  id: number
+): Promise<ApiResponse<ApiKey>> {
+  const res = await api.put(`/api/token/${id}/default_chat`)
+  return res.data
+}
+
+// Fetch the real key selected for chat links: default chat key first, then fallback
+export async function fetchDefaultChatApiKey(): Promise<{
+  success: boolean
+  message?: string
+  data?: { id: number; key: string; default_chat: boolean }
+}> {
+  const res = await api.get('/api/token/default_chat_key')
+  return res.data
+}
+
 // Fetch the real (unmasked) key for a token by ID
 export async function fetchTokenKey(
   id: number

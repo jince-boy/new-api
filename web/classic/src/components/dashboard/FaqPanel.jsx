@@ -35,6 +35,8 @@ const FaqPanel = ({
   ILLUSTRATION_SIZE,
   t,
 }) => {
+  const safeFaqData = Array.isArray(faqData) ? faqData : [];
+
   return (
     <Card
       {...CARD_PROPS}
@@ -48,21 +50,21 @@ const FaqPanel = ({
       bodyStyle={{ padding: 0 }}
     >
       <ScrollableContainer maxHeight='24rem'>
-        {faqData.length > 0 ? (
+        {safeFaqData.length > 0 ? (
           <Collapse
             accordion
             expandIcon={<IconPlus />}
             collapseIcon={<IconMinus />}
           >
-            {faqData.map((item, index) => (
+            {safeFaqData.map((item, index) => (
               <Collapse.Panel
                 key={index}
-                header={item.question}
+                header={String(item?.question || '')}
                 itemKey={index.toString()}
               >
                 <div
                   dangerouslySetInnerHTML={{
-                    __html: marked.parse(item.answer || ''),
+                    __html: marked.parse(String(item?.answer || '')),
                   }}
                 />
               </Collapse.Panel>

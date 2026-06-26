@@ -19,9 +19,9 @@ For commercial licensing, please contact support@quantumnous.com
 
 import React from 'react';
 import { Card, Avatar, Skeleton, Tag } from '@douyinfe/semi-ui';
-import { VChart } from '@visactor/react-vchart';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import SafeVChart from './SafeVChart';
 
 const StatsCards = ({
   groupedStatsData,
@@ -39,7 +39,7 @@ const StatsCards = ({
           <Card
             key={idx}
             {...CARD_PROPS}
-            className={`${group.color} border-0 !rounded-2xl w-full`}
+            className={`dashboard-stat-card ${group.color} !rounded-2xl w-full`}
             title={group.title}
           >
             <div className='space-y-4'>
@@ -58,7 +58,9 @@ const StatsCards = ({
                       {item.icon}
                     </Avatar>
                     <div>
-                      <div className='text-xs text-gray-500'>{item.title}</div>
+                      <div className='text-xs text-semi-color-text-2'>
+                        {item.title}
+                      </div>
                       <div className='text-lg font-semibold'>
                         <Skeleton
                           loading={loading}
@@ -96,7 +98,7 @@ const StatsCards = ({
                     (loading ||
                       (item.trendData && item.trendData.length > 0)) && (
                       <div className='w-24 h-10'>
-                        <VChart
+                        <SafeVChart
                           spec={getTrendSpec(item.trendData, item.trendColor)}
                           option={CHART_CONFIG}
                         />
