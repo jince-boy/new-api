@@ -10,7 +10,12 @@ const semiUiDir = path.resolve(
   path.dirname(require.resolve('@douyinfe/semi-ui')),
   '../..',
 )
-const semiDateFnsDir = path.resolve(semiUiDir, 'node_modules/date-fns')
+const semiFoundationRequire = createRequire(
+  require.resolve('@douyinfe/semi-foundation'),
+)
+const dateFnsDir = path.dirname(
+  semiFoundationRequire.resolve('date-fns/package.json'),
+)
 const vchartDir = path.dirname(require.resolve('@visactor/vchart/package.json'))
 const visactorRuntimeDir = path.resolve(vchartDir, 'node_modules/@visactor')
 
@@ -46,7 +51,7 @@ export default defineConfig(({ envMode }) => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
-        'date-fns': semiDateFnsDir,
+        'date-fns': dateFnsDir,
         '@douyinfe/semi-ui/dist/css/semi.css': path.resolve(
           semiUiDir,
           'dist/css/semi.css',
