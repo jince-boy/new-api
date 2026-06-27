@@ -40,6 +40,40 @@ export function getAvailableGroups(
 }
 
 /**
+ * Get the group ratio used for summary prices.
+ *
+ * When a concrete group is selected, summary cards and tables should show that
+ * group's price. Without a selected group, keep the previous behavior of
+ * showing the cheapest enabled group.
+ */
+export function getDisplayGroupRatio(
+  model: PricingModel,
+  selectedGroup?: string
+): number {
+  const enableGroups = Array.isArray(model.enable_groups)
+    ? model.enable_groups
+    : []
+  const groupRatio = model.group_ratio || {}
+
+  if (selectedGroup && enableGroups.includes(selectedGroup)) {
+    return groupRatio[selectedGroup] ?? 1
+  }
+
+  if (enableGroups.length === 0) return 1
+
+  let minRatio = Number.POSITIVE_INFINITY
+
+  for (const group of enableGroups) {
+    const ratio = groupRatio[group]
+    if (ratio !== undefined && ratio < minRatio) {
+      minRatio = ratio
+    }
+  }
+
+  return minRatio === Number.POSITIVE_INFINITY ? 1 : minRatio
+}
+
+/**
  * Replace model placeholder in endpoint path
  */
 export function replaceModelInPath(path: string, modelName: string): string {

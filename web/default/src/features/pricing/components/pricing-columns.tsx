@@ -32,7 +32,7 @@ import {
   getDynamicPricingSummary,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { isTokenBasedModel } from '../lib/model-helpers'
+import { getDisplayGroupRatio, isTokenBasedModel } from '../lib/model-helpers'
 import {
   formatPrice,
   formatRequestPrice,
@@ -49,6 +49,7 @@ export interface PricingColumnsOptions {
   priceRate?: number
   usdExchangeRate?: number
   showRechargePrice?: boolean
+  selectedGroup?: string
 }
 
 export function usePricingColumns(
@@ -60,6 +61,7 @@ export function usePricingColumns(
     priceRate = 1,
     usdExchangeRate = 1,
     showRechargePrice = false,
+    selectedGroup,
   } = options
 
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
@@ -122,7 +124,9 @@ export function usePricingColumns(
           showRechargePrice,
           priceRate,
           usdExchangeRate,
-          groupRatioMultiplier: getDynamicDisplayGroupRatio(model),
+          groupRatioMultiplier: selectedGroup
+            ? getDisplayGroupRatio(model, selectedGroup)
+            : getDynamicDisplayGroupRatio(model),
         })
 
         if (dynamicSummary) {
@@ -184,7 +188,8 @@ export function usePricingColumns(
               tokenUnit,
               showRechargePrice,
               priceRate,
-              usdExchangeRate
+              usdExchangeRate,
+              selectedGroup
             )
           )
           const outputPrice = stripTrailingZeros(
@@ -194,7 +199,8 @@ export function usePricingColumns(
               tokenUnit,
               showRechargePrice,
               priceRate,
-              usdExchangeRate
+              usdExchangeRate,
+              selectedGroup
             )
           )
 
@@ -217,7 +223,8 @@ export function usePricingColumns(
             model,
             showRechargePrice,
             priceRate,
-            usdExchangeRate
+            usdExchangeRate,
+            selectedGroup
           )
         )
 
@@ -245,7 +252,9 @@ export function usePricingColumns(
           showRechargePrice,
           priceRate,
           usdExchangeRate,
-          groupRatioMultiplier: getDynamicDisplayGroupRatio(model),
+          groupRatioMultiplier: selectedGroup
+            ? getDisplayGroupRatio(model, selectedGroup)
+            : getDynamicDisplayGroupRatio(model),
         })
 
         if (dynamicSummary) {
@@ -289,7 +298,8 @@ export function usePricingColumns(
             tokenUnit,
             showRechargePrice,
             priceRate,
-            usdExchangeRate
+            usdExchangeRate,
+            selectedGroup
           )
         )
 

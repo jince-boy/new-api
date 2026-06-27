@@ -65,7 +65,11 @@ import {
   isDynamicPricingModel,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { getAvailableGroups, isTokenBasedModel } from '../lib/model-helpers'
+import {
+  getAvailableGroups,
+  getDisplayGroupRatio,
+  isTokenBasedModel,
+} from '../lib/model-helpers'
 import { formatFixedPrice, formatGroupPrice } from '../lib/price'
 import type {
   ModelCapability,
@@ -590,18 +594,28 @@ function PriceSection(props: {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice: boolean
+  selectedGroup?: string
 }) {
   const { t } = useTranslation()
   const isTokenBased = isTokenBasedModel(props.model)
   const tokenUnitLabel = props.tokenUnit === 'K' ? '1K' : '1M'
   const baseGroupKey = '_base'
-  const baseGroupRatioMap = { [baseGroupKey]: 1 }
+  const displayGroupKey = props.selectedGroup || baseGroupKey
+  const displayGroupRatio = props.selectedGroup
+    ? getDisplayGroupRatio(props.model, props.selectedGroup)
+    : 1
+  const displayGroupRatioMap: Record<string, number> = {
+    [displayGroupKey]: displayGroupRatio,
+  }
+  const priceSectionTitle = props.selectedGroup
+    ? `${props.selectedGroup} ${t('Price')}`
+    : t('Base Price')
   const dynamicSummary = getDynamicPricingSummary(props.model, {
     tokenUnit: props.tokenUnit,
     showRechargePrice: props.showRechargePrice,
     priceRate: props.priceRate,
     usdExchangeRate: props.usdExchangeRate,
-    groupRatioMultiplier: 1,
+    groupRatioMultiplier: displayGroupRatio,
   })
 
   const primaryPriceTypes: { label: string; type: PriceType }[] = [
@@ -646,7 +660,7 @@ function PriceSection(props: {
     if (dynamicSummary.isSpecialExpression) {
       return (
         <section>
-          <SectionTitle>{t('Base Price')}</SectionTitle>
+          <SectionTitle>{priceSectionTitle}</SectionTitle>
           <div className='rounded-lg border border-amber-200/70 bg-amber-50/70 p-3 dark:border-amber-500/20 dark:bg-amber-500/10'>
             <div className='text-sm font-medium text-amber-800 dark:text-amber-200'>
               {t('Special billing expression')}
@@ -669,7 +683,7 @@ function PriceSection(props: {
 
     return (
       <section>
-        <SectionTitle>{t('Base Price')}</SectionTitle>
+        <SectionTitle>{priceSectionTitle}</SectionTitle>
         {dynamicSummary.primaryEntries.length > 0 ? (
           <div className='grid grid-cols-2 gap-2'>
             {dynamicSummary.primaryEntries.map((entry) => (
@@ -723,7 +737,7 @@ function PriceSection(props: {
   if (!isTokenBased) {
     return (
       <section>
-        <SectionTitle>{t('Base Price')}</SectionTitle>
+        <SectionTitle>{priceSectionTitle}</SectionTitle>
         <div className='flex items-baseline justify-between'>
           <span className='text-muted-foreground text-sm'>
             {t('Per request')}
@@ -731,11 +745,11 @@ function PriceSection(props: {
           <span className='text-foreground font-mono text-sm font-semibold tabular-nums'>
             {formatFixedPrice(
               props.model,
-              baseGroupKey,
+              displayGroupKey,
               props.showRechargePrice,
               props.priceRate,
               props.usdExchangeRate,
-              baseGroupRatioMap
+              displayGroupRatioMap
             )}
           </span>
         </div>
@@ -748,13 +762,13 @@ function PriceSection(props: {
     <>
       {formatGroupPrice(
         props.model,
-        baseGroupKey,
+        displayGroupKey,
         type,
         props.tokenUnit,
         props.showRechargePrice,
         props.priceRate,
         props.usdExchangeRate,
-        baseGroupRatioMap
+        displayGroupRatioMap
       )}
       <span className='text-muted-foreground/40 ml-1 text-xs font-normal'>
         / {tokenUnitLabel}
@@ -764,7 +778,7 @@ function PriceSection(props: {
 
   return (
     <section>
-      <SectionTitle>{t('Base Price')}</SectionTitle>
+      <SectionTitle>{priceSectionTitle}</SectionTitle>
       <div className='grid grid-cols-2 gap-2'>
         {primaryPriceTypes.map((item) => (
           <div key={item.type} className='bg-muted/20 rounded-lg border p-3'>
@@ -1148,6 +1162,7 @@ export interface ModelDetailsContentProps {
   usdExchangeRate: number
   tokenUnit: TokenUnit
   showRechargePrice?: boolean
+  selectedGroup?: string
 }
 
 export function ModelDetailsContent(props: ModelDetailsContentProps) {
@@ -1190,6 +1205,7 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
               usdExchangeRate={props.usdExchangeRate}
               tokenUnit={props.tokenUnit}
               showRechargePrice={showRechargePrice}
+              selectedGroup={props.selectedGroup}
             />
             {isDynamic && (
               <DynamicPricingBreakdown billingExpr={props.model.billing_expr} />
