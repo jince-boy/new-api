@@ -1430,6 +1430,7 @@
     "已切换为Assistant角色": "Switched to Assistant role",
     "已切换为System角色": "Switched to System role",
     "已切换到新版前端，正在刷新页面": "Switched to the new frontend, refreshing page",
+    "已切换到新版前端，正在跳转首页": "Switched to the new frontend, redirecting to home",
     "已切换至最优倍率视图，每个模型使用其最低倍率分组": "Switched to the optimal ratio view, each model uses its lowest ratio group",
     "已初始化": "Initialized",
     "已删除": "Deleted",
