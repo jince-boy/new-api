@@ -38,6 +38,18 @@ import {
 
 const { Text } = Typography;
 
+const KNOWN_ENDPOINT_TYPES = new Set([
+  'openai',
+  'openai-response',
+  'openai-response-compact',
+  'anthropic',
+  'gemini',
+  'jina-rerank',
+  'image-generation',
+  'embeddings',
+  'openai-video',
+]);
+
 // Render timestamp
 function renderTimestamp(timestamp) {
   return <>{timestamp2string(timestamp)}</>;
@@ -101,7 +113,20 @@ const renderEndpoints = (value) => {
   try {
     const parsed = typeof value === 'string' ? JSON.parse(value) : value;
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      const keys = Object.keys(parsed || {});
+      const keys = [
+        ...new Set(
+          Object.entries(parsed || {})
+            .map(([key, val]) => {
+              const normalizedValue =
+                typeof val === 'string' ? val.trim() : '';
+              return /^\d+$/.test(key) &&
+                KNOWN_ENDPOINT_TYPES.has(normalizedValue)
+                ? normalizedValue
+                : key;
+            })
+            .filter(Boolean),
+        ),
+      ];
       if (keys.length === 0) return '-';
       return renderLimitedItems({
         items: keys,

@@ -20,7 +20,7 @@ import { type QueryClient } from '@tanstack/react-query'
 import i18next from 'i18next'
 import { toast } from 'sonner'
 import { updateModelStatus, deleteModel as deleteModelAPI } from '../api'
-import { modelsQueryKeys } from './query-keys'
+import { modelsQueryKeys, pricingQueryKeys } from './query-keys'
 
 // ============================================================================
 // Model Status Actions
@@ -39,6 +39,7 @@ export async function handleEnableModel(
     if (response.success) {
       toast.success(i18next.t('Model enabled successfully'))
       queryClient?.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+      queryClient?.invalidateQueries({ queryKey: pricingQueryKeys.all })
       onSuccess?.()
     } else {
       toast.error(response.message || i18next.t('Failed to enable model'))
@@ -63,6 +64,7 @@ export async function handleDisableModel(
     if (response.success) {
       toast.success(i18next.t('Model disabled successfully'))
       queryClient?.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+      queryClient?.invalidateQueries({ queryKey: pricingQueryKeys.all })
       onSuccess?.()
     } else {
       toast.error(response.message || i18next.t('Failed to disable model'))
@@ -107,6 +109,7 @@ export async function handleDeleteModel(
     if (response.success) {
       toast.success(i18next.t('Model deleted successfully'))
       queryClient?.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+      queryClient?.invalidateQueries({ queryKey: pricingQueryKeys.all })
       onSuccess?.()
     } else {
       toast.error(response.message || i18next.t('Failed to delete model'))
@@ -155,6 +158,7 @@ export async function handleBatchDeleteModels(
         })
       )
       queryClient?.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+      queryClient?.invalidateQueries({ queryKey: pricingQueryKeys.all })
       onSuccess?.(successCount)
     }
 
@@ -207,6 +211,7 @@ export async function handleBatchEnableModels(
         })
       )
       queryClient?.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+      queryClient?.invalidateQueries({ queryKey: pricingQueryKeys.all })
       onSuccess?.()
     }
 
@@ -255,6 +260,7 @@ export async function handleBatchDisableModels(
         })
       )
       queryClient?.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+      queryClient?.invalidateQueries({ queryKey: pricingQueryKeys.all })
       onSuccess?.()
     }
 

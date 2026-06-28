@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -105,6 +104,79 @@ func GetModelSupportEndpointTypes(model string) []constant.EndpointType {
 		return endpoints
 	}
 	return make([]constant.EndpointType, 0)
+}
+
+func parseModelEndpointConfig(endpointsConfig string) ([]string, map[string]common.EndpointInfo) {
+	if strings.TrimSpace(endpointsConfig) == "" {
+		return nil, nil
+	}
+
+	var raw interface{}
+	if err := common.Unmarshal([]byte(endpointsConfig), &raw); err != nil {
+		return nil, nil
+	}
+
+	endpoints := make([]string, 0)
+	endpointInfo := make(map[string]common.EndpointInfo)
+	if rawArray, ok := raw.([]interface{}); ok {
+		for _, item := range rawArray {
+			endpointName, ok := item.(string)
+			endpointName = strings.TrimSpace(endpointName)
+			if ok && endpointName != "" && !common.StringsContains(endpoints, endpointName) {
+				endpoints = append(endpoints, endpointName)
+			}
+		}
+		return endpoints, endpointInfo
+	}
+
+	rawMap, ok := raw.(map[string]interface{})
+	if !ok {
+		return nil, nil
+	}
+
+	for k, v := range rawMap {
+		endpointName := strings.TrimSpace(k)
+		if endpointName == "" {
+			continue
+		}
+
+		switch val := v.(type) {
+		case string:
+			value := strings.TrimSpace(val)
+			isNumericKey := strings.Trim(endpointName, "0123456789") == ""
+			if isNumericKey {
+				if _, ok := common.GetDefaultEndpointInfo(constant.EndpointType(value)); ok {
+					if !common.StringsContains(endpoints, value) {
+						endpoints = append(endpoints, value)
+					}
+					continue
+				}
+			}
+
+			if !common.StringsContains(endpoints, endpointName) {
+				endpoints = append(endpoints, endpointName)
+			}
+			if value != "" {
+				endpointInfo[endpointName] = common.EndpointInfo{Path: value, Method: "POST"}
+			}
+		case map[string]interface{}:
+			if !common.StringsContains(endpoints, endpointName) {
+				endpoints = append(endpoints, endpointName)
+			}
+			ep := common.EndpointInfo{Method: "POST"}
+			if p, ok := val["path"].(string); ok {
+				ep.Path = p
+			}
+			if m, ok := val["method"].(string); ok {
+				ep.Method = strings.ToUpper(m)
+			}
+			if ep.Path != "" {
+				endpointInfo[endpointName] = ep
+			}
+		}
+	}
+
+	return endpoints, endpointInfo
 }
 
 func updatePricing() {
@@ -216,23 +288,9 @@ func updatePricing() {
 
 	// 再补充模型自定义端点：若配置有效则替换默认端点，不做合并
 	for modelName, meta := range metaMap {
-		if strings.TrimSpace(meta.Endpoints) == "" {
-			continue
-		}
-		var raw map[string]interface{}
-		if err := json.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
-			endpoints := make([]string, 0, len(raw))
-			for k, v := range raw {
-				switch v.(type) {
-				case string, map[string]interface{}:
-					if !common.StringsContains(endpoints, k) {
-						endpoints = append(endpoints, k)
-					}
-				}
-			}
-			if len(endpoints) > 0 {
-				modelSupportEndpointsStr[modelName] = endpoints
-			}
+		endpoints, _ := parseModelEndpointConfig(meta.Endpoints)
+		if len(endpoints) > 0 {
+			modelSupportEndpointsStr[modelName] = endpoints
 		}
 	}
 
@@ -260,28 +318,9 @@ func updatePricing() {
 	}
 	// 2. 自定义端点（models 表）覆盖默认
 	for _, meta := range metaMap {
-		if strings.TrimSpace(meta.Endpoints) == "" {
-			continue
-		}
-		var raw map[string]interface{}
-		if err := json.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
-			for k, v := range raw {
-				switch val := v.(type) {
-				case string:
-					supportedEndpointMap[k] = common.EndpointInfo{Path: val, Method: "POST"}
-				case map[string]interface{}:
-					ep := common.EndpointInfo{Method: "POST"}
-					if p, ok := val["path"].(string); ok {
-						ep.Path = p
-					}
-					if m, ok := val["method"].(string); ok {
-						ep.Method = strings.ToUpper(m)
-					}
-					supportedEndpointMap[k] = ep
-				default:
-					// ignore unsupported types
-				}
-			}
+		_, endpointInfo := parseModelEndpointConfig(meta.Endpoints)
+		for endpointName, info := range endpointInfo {
+			supportedEndpointMap[endpointName] = info
 		}
 	}
 

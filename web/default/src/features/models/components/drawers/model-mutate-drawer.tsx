@@ -81,7 +81,12 @@ import type { ModelSettings } from '@/features/system-settings/types'
 import { safeJsonParse } from '@/features/system-settings/utils/json-parser'
 import { createModel, updateModel, getModel, getVendors } from '../../api'
 import { getNameRuleOptions, ENDPOINT_TEMPLATES } from '../../constants'
-import { modelsQueryKeys, vendorsQueryKeys, parseModelTags } from '../../lib'
+import {
+  modelsQueryKeys,
+  vendorsQueryKeys,
+  pricingQueryKeys,
+  parseModelTags,
+} from '../../lib'
 import type { Model } from '../../types'
 
 // Extended schema for ratio configuration (internal form state only)
@@ -621,6 +626,7 @@ export function ModelMutateDrawer({
           )
           queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
           queryClient.invalidateQueries({ queryKey: ['system-options'] })
+          queryClient.invalidateQueries({ queryKey: pricingQueryKeys.all })
           onOpenChange(false)
         } else {
           toast.error(response.message || 'Operation failed')
@@ -891,6 +897,7 @@ export function ModelMutateDrawer({
                         keyLabel='Endpoint Type'
                         valueLabel='Configuration'
                         valueType='any'
+                        arrayAsKeys
                         emptyMessage={t(
                           'No endpoints configured. Switch to JSON mode or add rows to define endpoints.'
                         )}

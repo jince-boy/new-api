@@ -61,13 +61,31 @@ const JSONEditor = ({
   rules = [],
   formApi = null,
   renderStringValueSuffix,
+  arrayAsKeys = false,
   ...props
 }) => {
   const { t } = useTranslation();
 
+  /*
   // 将对象转换为键值对数组（包含唯一ID）
   const objectToKeyValueArray = useCallback((obj, prevPairs = []) => {
+  */
+  // Convert objects to key/value rows with stable ids.
+  const objectToKeyValueArray = useCallback((obj, prevPairs = []) => {
     if (!obj || typeof obj !== 'object') return [];
+
+    if (Array.isArray(obj)) {
+      return obj.map((value, index) => {
+        const key = arrayAsKeys ? String(value) : String(index);
+        const prev = prevPairs[index];
+        const shouldReuseId = prev && prev.key === key;
+        return {
+          id: shouldReuseId ? prev.id : generateUniqueId(),
+          key,
+          value: arrayAsKeys ? '' : value,
+        };
+      });
+    }
 
     const entries = Object.entries(obj);
     return entries.map(([key, value], index) => {
@@ -80,7 +98,7 @@ const JSONEditor = ({
         value,
       };
     });
-  }, []);
+  }, [arrayAsKeys]);
 
   // 将键值对数组转换为对象（重复键时后面的会覆盖前面的）
   const keyValueArrayToObject = useCallback((arr) => {

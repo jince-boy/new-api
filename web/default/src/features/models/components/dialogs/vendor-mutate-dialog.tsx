@@ -34,10 +34,11 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog } from '@/components/dialog'
 import { createVendor, updateVendor } from '../../api'
-import { vendorsQueryKeys, modelsQueryKeys } from '../../lib'
+import { vendorsQueryKeys, modelsQueryKeys, pricingQueryKeys } from '../../lib'
 import { vendorFormSchema, type Vendor } from '../../types'
 
 type VendorMutateDialogProps = {
@@ -76,7 +77,7 @@ export function VendorMutateDialog({
         name: currentVendor.name,
         description: currentVendor.description || '',
         icon: currentVendor.icon || '',
-        status: currentVendor.status || 1,
+        status: currentVendor.status ?? 1,
       })
     } else if (open && !isEdit) {
       form.reset({
@@ -97,16 +98,17 @@ export function VendorMutateDialog({
 
       if (response.success) {
         toast.success(
-          isEdit ? 'Vendor updated successfully' : 'Vendor created successfully'
+          isEdit ? t('Updated a vendor') : t('Created a vendor')
         )
         queryClient.invalidateQueries({ queryKey: vendorsQueryKeys.lists() })
         queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+        queryClient.invalidateQueries({ queryKey: pricingQueryKeys.all })
         onOpenChange(false)
       } else {
-        toast.error(response.message || 'Operation failed')
+        toast.error(response.message || t('Operation failed'))
       }
     } catch (error: unknown) {
-      toast.error((error as Error)?.message || 'Operation failed')
+      toast.error((error as Error)?.message || t('Operation failed'))
     } finally {
       setIsSaving(false)
     }
@@ -209,6 +211,29 @@ export function VendorMutateDialog({
                   {t('@lobehub/icons key name')}
                 </FormDescription>
                 <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='status'
+            render={({ field }) => (
+              <FormItem className='flex items-center justify-between gap-4 rounded-lg border p-3'>
+                <div className='space-y-0.5'>
+                  <FormLabel>{t('Status')}</FormLabel>
+                  <FormDescription>
+                    {field.value === 1 ? t('Enabled') : t('Disabled')}
+                  </FormDescription>
+                </div>
+                <FormControl>
+                  <Switch
+                    checked={field.value === 1}
+                    onCheckedChange={(checked) =>
+                      field.onChange(checked ? 1 : 0)
+                    }
+                  />
+                </FormControl>
               </FormItem>
             )}
           />

@@ -35,6 +35,7 @@ type JsonEditorProps = {
   emptyMessage?: string
   template?: Record<string, unknown>
   valueType?: 'string' | 'number' | 'any'
+  arrayAsKeys?: boolean
 }
 
 type EditorRow = {
@@ -43,11 +44,26 @@ type EditorRow = {
   value: string
 }
 
-function createEditorRowsFromJson(json: string): EditorRow[] | null {
+function createEditorRowsFromJson(
+  json: string,
+  arrayAsKeys = false
+): EditorRow[] | null {
   try {
     if (!json.trim()) return []
 
     const parsed = JSON.parse(json)
+    if (Array.isArray(parsed)) {
+      return parsed.map((val, index) => ({
+        id: `${Date.now()}-${index}`,
+        key: arrayAsKeys ? String(val) : String(index),
+        value: arrayAsKeys
+          ? ''
+          : typeof val === 'object'
+            ? JSON.stringify(val)
+            : String(val),
+      }))
+    }
+
     return Object.entries(parsed).map(([key, val], index) => ({
       id: `${Date.now()}-${index}`,
       key,
@@ -69,6 +85,7 @@ export function JsonEditor({
   emptyMessage,
   template,
   valueType = 'string',
+  arrayAsKeys = false,
 }: JsonEditorProps) {
   const { t } = useTranslation()
   const resolvedEmptyMessage =
@@ -79,12 +96,12 @@ export function JsonEditor({
   const resolvedValueLabel = valueLabel ?? t('Value')
   const [mode, setMode] = useState<'visual' | 'json'>('visual')
   const [rows, setRows] = useState<EditorRow[]>(() =>
-    createEditorRowsFromJson(value) ?? []
+    createEditorRowsFromJson(value, arrayAsKeys) ?? []
   )
   const [jsonValue, setJsonValue] = useState(value)
 
   const parseJsonToRows = (json: string) => {
-    const parsedRows = createEditorRowsFromJson(json)
+    const parsedRows = createEditorRowsFromJson(json, arrayAsKeys)
     if (parsedRows !== null) {
       setRows(parsedRows)
     }

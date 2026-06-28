@@ -21,6 +21,18 @@ import { formatTimestampToDate } from '@/lib/format'
 import { getNameRuleConfig, getQuotaTypeConfig } from '../constants'
 import type { NameRule, Model } from '../types'
 
+const KNOWN_ENDPOINT_TYPES = new Set([
+  'openai',
+  'openai-response',
+  'openai-response-compact',
+  'anthropic',
+  'gemini',
+  'jina-rerank',
+  'image-generation',
+  'embeddings',
+  'openai-video',
+])
+
 // ============================================================================
 // Time Formatting
 // ============================================================================
@@ -105,7 +117,17 @@ export function formatEndpointsDisplay(
   if (!parsed) return []
 
   if (typeof parsed === 'object' && !Array.isArray(parsed)) {
-    return Object.keys(parsed)
+    const endpoints = Object.entries(parsed)
+      .map(([key, value]) => {
+        const normalizedValue =
+          typeof value === 'string' ? value.trim() : ''
+        return /^\d+$/.test(key) && KNOWN_ENDPOINT_TYPES.has(normalizedValue)
+          ? normalizedValue
+          : key
+      })
+      .filter(Boolean)
+
+    return [...new Set(endpoints)]
   }
 
   if (Array.isArray(parsed)) {

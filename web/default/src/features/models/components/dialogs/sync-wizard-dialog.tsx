@@ -30,7 +30,7 @@ import { Dialog } from '@/components/dialog'
 import { StatusBadge } from '@/components/status-badge'
 import { syncUpstream, previewUpstreamDiff } from '../../api'
 import { getSyncLocaleOptions, getSyncSourceOptions } from '../../constants'
-import { modelsQueryKeys, vendorsQueryKeys } from '../../lib'
+import { modelsQueryKeys, vendorsQueryKeys, pricingQueryKeys } from '../../lib'
 import type { SyncLocale, SyncSource } from '../../types'
 import { useModels } from '../models-provider'
 
@@ -106,6 +106,7 @@ export function SyncWizardDialog({
         )
         queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
         queryClient.invalidateQueries({ queryKey: vendorsQueryKeys.lists() })
+        queryClient.invalidateQueries({ queryKey: pricingQueryKeys.all })
         onOpenChange(false)
       } else {
         toast.error(response.message || 'Sync failed')

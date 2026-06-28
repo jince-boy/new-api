@@ -49,7 +49,7 @@ import { DataTableView, useDataTable } from '@/components/data-table'
 import { Dialog } from '@/components/dialog'
 import { StatusBadge } from '@/components/status-badge'
 import { applyUpstreamOverwrite } from '../../api'
-import { modelsQueryKeys, vendorsQueryKeys } from '../../lib'
+import { modelsQueryKeys, vendorsQueryKeys, pricingQueryKeys } from '../../lib'
 import type { SyncOverwritePayload } from '../../types'
 import { useModels } from '../models-provider'
 
@@ -415,6 +415,7 @@ export function UpstreamConflictDialog({
         toast.success(t('Selected conflicts were overwritten successfully.'))
         queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
         queryClient.invalidateQueries({ queryKey: vendorsQueryKeys.lists() })
+        queryClient.invalidateQueries({ queryKey: pricingQueryKeys.all })
         setUpstreamConflicts([])
         onOpenChange(false)
       } else {

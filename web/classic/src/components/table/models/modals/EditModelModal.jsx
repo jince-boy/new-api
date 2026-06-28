@@ -473,6 +473,7 @@ const EditModelModal = (props) => {
                       }
                       formApi={formApiRef.current}
                       editorType='object'
+                      arrayAsKeys
                       template={ENDPOINT_TEMPLATE}
                       templateLabel={t('填入模板')}
                       extraText={t('留空则使用默认端点；支持 {path, method}')}

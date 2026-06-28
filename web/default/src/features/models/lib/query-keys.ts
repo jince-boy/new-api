@@ -42,6 +42,13 @@ export const vendorsQueryKeys = {
 }
 
 /**
+ * React Query cache keys for model pricing / marketplace
+ */
+export const pricingQueryKeys = {
+  all: ['pricing'] as const,
+}
+
+/**
  * React Query cache keys for prefill groups
  */
 export const prefillGroupsQueryKeys = {

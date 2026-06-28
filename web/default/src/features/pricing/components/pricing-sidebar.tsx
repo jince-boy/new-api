@@ -240,7 +240,8 @@ export function PricingSidebar(props: PricingSidebarProps) {
           props.models,
           (model) => model.supported_endpoint_types?.includes(value) ?? false
         ),
-      })),
+      }))
+      .filter((endpoint) => endpoint.count > 0),
   ]
 
   return (
