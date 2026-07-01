@@ -83,7 +83,7 @@ const FAQ_FORM_ID = 'faq-form'
 
 export function FAQSection({ enabled, data }: FAQSectionProps) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
+  const updateOption = useUpdateOption({ silent: true })
   const [faqList, setFaqList] = useState<FAQ[]>([])
   const [isEnabled, setIsEnabled] = useState(enabled)
   const [hasChanges, setHasChanges] = useState(false)
@@ -123,10 +123,11 @@ export function FAQSection({ enabled, data }: FAQSectionProps) {
 
   const handleToggleEnabled = async (checked: boolean) => {
     try {
-      await updateOption.mutateAsync({
+      const result = await updateOption.mutateAsync({
         key: 'console_setting.faq_enabled',
         value: checked,
       })
+      if (!result.success) return
       setIsEnabled(checked)
       toast.success(t('Setting saved'))
     } catch {
@@ -207,10 +208,11 @@ export function FAQSection({ enabled, data }: FAQSectionProps) {
 
   const handleSaveAll = async () => {
     try {
-      await updateOption.mutateAsync({
+      const result = await updateOption.mutateAsync({
         key: 'console_setting.faq',
         value: JSON.stringify(faqList),
       })
+      if (!result.success) return
       setHasChanges(false)
       toast.success(t('FAQ saved successfully'))
     } catch {

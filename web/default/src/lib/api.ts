@@ -57,6 +57,13 @@ export const api = axios.create({
 const inFlightGet = new Map<string, Promise<unknown>>()
 const originalGet = api.get.bind(api)
 
+function markToastHandled(error: unknown) {
+  if (error && typeof error === 'object') {
+    const handledError = error as { toastHandled?: boolean }
+    handledError.toastHandled = true
+  }
+}
+
 api.get = ((url: string, config: ApiRequestConfig = {}) => {
   const disableDuplicate = config.disableDuplicate
   if (disableDuplicate) return originalGet(url, config)
@@ -110,12 +117,14 @@ api.interceptors.response.use(
 
       if (!skip) {
         toast.error(t('Session expired!'))
+        markToastHandled(error)
       }
     } else if (!skip) {
       // Other errors: show error message from response or default
       const msg =
         error?.response?.data?.message || error?.message || t('Request failed')
       toast.error(msg)
+      markToastHandled(error)
     }
     return Promise.reject(error)
   }

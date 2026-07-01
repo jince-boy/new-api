@@ -216,7 +216,10 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
   const { mutate: syncMutate, isPending: isSyncPending } = useMutation({
     mutationFn: async (updates: Array<{ key: string; value: string }>) => {
       for (const update of updates) {
-        await updateSystemOption(update)
+        const result = await updateSystemOption(update)
+        if (!result.success) {
+          throw new Error(result.message || t('Failed to sync prices'))
+        }
       }
     },
     onSuccess: () => {

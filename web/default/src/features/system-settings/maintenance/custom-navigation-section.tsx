@@ -123,7 +123,7 @@ export function CustomNavigationSection({
   data,
 }: CustomNavigationSectionProps) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
+  const updateOption = useUpdateOption({ silent: true })
   const queryClient = useQueryClient()
   const customNavSchema = createCustomNavSchema(t)
   const [links, setLinks] = useState<CustomNavLink[]>([])
@@ -208,10 +208,11 @@ export function CustomNavigationSection({
   const handleSaveAll = async () => {
     try {
       const serialized = serializeCustomNavLinks(links)
-      await updateOption.mutateAsync({
+      const result = await updateOption.mutateAsync({
         key: 'CustomNavLinks',
         value: serialized,
       })
+      if (!result.success) return
       queryClient.setQueryData<Record<string, unknown> | null>(
         ['status'],
         (current) => {

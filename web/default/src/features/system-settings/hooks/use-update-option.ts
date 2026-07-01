@@ -18,6 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import i18next from 'i18next'
+import { useCallback, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 
 import { updateSystemOption } from '../api'
@@ -41,27 +42,129 @@ const STATUS_RELATED_KEYS = [
   'general_setting.custom_currency_exchange_rate',
 ]
 
-export function useUpdateOption() {
+const SUCCESS_FLUSH_DELAY_MS = 120
+
+type UpdateOptionMutationMeta = {
+  silent?: boolean
+  invalidate?: boolean
+  successMessage?: string
+}
+
+type UpdateOptionMutationRequest = UpdateOptionRequest & {
+  meta?: UpdateOptionMutationMeta
+}
+
+type UseUpdateOptionOptions = {
+  silent?: boolean
+  invalidate?: boolean
+  successMessage?: string
+}
+
+export function useUpdateOption(options: UseUpdateOptionOptions = {}) {
   const queryClient = useQueryClient()
+  const timerRef = useRef<number | null>(null)
+  const pendingKeysRef = useRef<Set<string>>(new Set())
+  const shouldInvalidateRef = useRef(false)
+  const shouldRefreshStatusRef = useRef(false)
+  const shouldToastRef = useRef(false)
+  const successMessageRef = useRef<string | undefined>(undefined)
+
+  const flushPendingSuccess = useCallback(() => {
+    if (timerRef.current) {
+      window.clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+
+    if (pendingKeysRef.current.size === 0) {
+      return
+    }
+
+    const shouldInvalidate = shouldInvalidateRef.current
+    const shouldRefreshStatus = shouldRefreshStatusRef.current
+    const shouldToast = shouldToastRef.current
+    const successMessage =
+      successMessageRef.current ?? 'Setting updated successfully'
+
+    pendingKeysRef.current.clear()
+    shouldInvalidateRef.current = false
+    shouldRefreshStatusRef.current = false
+    shouldToastRef.current = false
+    successMessageRef.current = undefined
+
+    if (shouldInvalidate) {
+      void queryClient.invalidateQueries({ queryKey: ['system-options'] })
+    }
+
+    if (shouldRefreshStatus) {
+      void queryClient.invalidateQueries({ queryKey: ['status'] })
+      try {
+        window.localStorage.removeItem('status')
+      } catch {
+        /* empty */
+      }
+    }
+
+    if (shouldToast) {
+      toast.success(i18next.t(successMessage))
+    }
+  }, [queryClient])
+
+  const queueSuccessfulUpdate = useCallback(
+    (variables: UpdateOptionMutationRequest) => {
+      const shouldInvalidate = variables.meta?.invalidate ?? options.invalidate
+      const shouldToast = !(variables.meta?.silent ?? options.silent ?? false)
+
+      pendingKeysRef.current.add(variables.key)
+
+      if (shouldInvalidate !== false) {
+        shouldInvalidateRef.current = true
+
+        if (STATUS_RELATED_KEYS.includes(variables.key)) {
+          shouldRefreshStatusRef.current = true
+        }
+      }
+
+      if (shouldToast) {
+        shouldToastRef.current = true
+        successMessageRef.current =
+          variables.meta?.successMessage ??
+          options.successMessage ??
+          successMessageRef.current
+      }
+
+      if (shouldInvalidate === false && !shouldToast) {
+        return
+      }
+
+      if (timerRef.current) {
+        window.clearTimeout(timerRef.current)
+      }
+
+      timerRef.current = window.setTimeout(
+        flushPendingSuccess,
+        SUCCESS_FLUSH_DELAY_MS
+      )
+    },
+    [
+      flushPendingSuccess,
+      options.invalidate,
+      options.silent,
+      options.successMessage,
+    ]
+  )
+
+  useEffect(() => {
+    return () => flushPendingSuccess()
+  }, [flushPendingSuccess])
 
   return useMutation({
-    mutationFn: (request: UpdateOptionRequest) => updateSystemOption(request),
+    mutationFn: (request: UpdateOptionMutationRequest) => {
+      const { meta: _meta, ...payload } = request
+      return updateSystemOption(payload)
+    },
     onSuccess: (data, variables) => {
       if (data.success) {
-        // Always refresh system-options
-        queryClient.invalidateQueries({ queryKey: ['system-options'] })
-
-        // If updating frontend-display-related config, also refresh status
-        if (STATUS_RELATED_KEYS.includes(variables.key)) {
-          queryClient.invalidateQueries({ queryKey: ['status'] })
-          try {
-            window.localStorage.removeItem('status')
-          } catch {
-            /* empty */
-          }
-        }
-
-        toast.success(i18next.t('Setting updated successfully'))
+        queueSuccessfulUpdate(variables)
       } else {
         toast.error(data.message || i18next.t('Failed to update setting'))
       }

@@ -124,7 +124,7 @@ interface Props {
 
 export function ChannelAffinitySection(props: Props) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
+  const updateOption = useUpdateOption({ silent: true })
 
   const [enabled, setEnabled] = useState(
     props.defaultValues['channel_affinity_setting.enabled']
@@ -320,7 +320,8 @@ export function ChannelAffinitySection(props: Props) {
       }
 
       for (const u of updates) {
-        await updateOption.mutateAsync(u)
+        const result = await updateOption.mutateAsync(u)
+        if (!result.success) return
       }
       toast.success(t('Saved successfully'))
     } catch {

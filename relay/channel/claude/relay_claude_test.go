@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/dto"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -320,6 +321,93 @@ func TestBuildOpenAIStyleUsageFromClaudeUsageDefaultsAggregateCacheCreationTo5m(
 
 	require.Equal(t, 50, openAIUsage.ClaudeCacheCreation5mTokens)
 	require.Equal(t, 0, openAIUsage.ClaudeCacheCreation1hTokens)
+}
+
+func TestRequestOpenAI2ClaudeMessage_ClaudeSonnet5OmitsDeprecatedSamplingParameters(t *testing.T) {
+	request := dto.GeneralOpenAIRequest{
+		Model:       "claude-sonnet-5",
+		Temperature: commonPointer(0.7),
+		TopP:        commonPointer(0.9),
+		TopK:        commonPointer(40),
+		Messages: []dto.Message{
+			{
+				Role:    "user",
+				Content: "hello",
+			},
+		},
+	}
+
+	claudeRequest, err := RequestOpenAI2ClaudeMessage(nil, request)
+	require.NoError(t, err)
+	require.Equal(t, "claude-sonnet-5", claudeRequest.Model)
+	require.Nil(t, claudeRequest.Temperature)
+	require.Nil(t, claudeRequest.TopP)
+	require.Nil(t, claudeRequest.TopK)
+}
+
+func TestRequestOpenAI2ClaudeMessage_Claude45UsesOnlyOneSamplingParameter(t *testing.T) {
+	request := dto.GeneralOpenAIRequest{
+		Model:       "claude-sonnet-4-5-20250929",
+		Temperature: commonPointer(0.7),
+		TopP:        commonPointer(0.9),
+		TopK:        commonPointer(40),
+		Messages: []dto.Message{
+			{
+				Role:    "user",
+				Content: "hello",
+			},
+		},
+	}
+
+	claudeRequest, err := RequestOpenAI2ClaudeMessage(nil, request)
+	require.NoError(t, err)
+	require.NotNil(t, claudeRequest.Temperature)
+	require.Equal(t, 0.7, *claudeRequest.Temperature)
+	require.Nil(t, claudeRequest.TopP)
+	require.NotNil(t, claudeRequest.TopK)
+	require.Equal(t, 40, *claudeRequest.TopK)
+}
+
+func TestConvertOpenAIRequest_UsesMappedUpstreamClaudeModelForSamplingCompatibility(t *testing.T) {
+	request := &dto.GeneralOpenAIRequest{
+		Model:       "display-model",
+		Temperature: commonPointer(0.7),
+		TopP:        commonPointer(1.0),
+		Messages: []dto.Message{
+			{
+				Role:    "user",
+				Content: "hello",
+			},
+		},
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{
+			UpstreamModelName: "anthropic/claude-sonnet-4-5-20250929",
+		},
+	}
+
+	converted, err := (&Adaptor{}).ConvertOpenAIRequest(nil, info, request)
+	require.NoError(t, err)
+	claudeRequest, ok := converted.(*dto.ClaudeRequest)
+	require.True(t, ok)
+	require.NotNil(t, claudeRequest.Temperature)
+	require.Equal(t, 0.7, *claudeRequest.Temperature)
+	require.Nil(t, claudeRequest.TopP)
+}
+
+func TestApplySamplingParameterCompatibilityNativeClaudeRequest(t *testing.T) {
+	request := &dto.ClaudeRequest{
+		Model:       "claude-opus-4-8",
+		Temperature: commonPointer(0.7),
+		TopP:        commonPointer(0.9),
+		TopK:        commonPointer(40),
+	}
+
+	ApplySamplingParameterCompatibility(request)
+
+	require.Nil(t, request.Temperature)
+	require.Nil(t, request.TopP)
+	require.Nil(t, request.TopK)
 }
 
 func TestRequestOpenAI2ClaudeMessage_ClaudeOpus48HighUsesAdaptiveThinking(t *testing.T) {

@@ -31,6 +31,65 @@ const (
 	WebSearchMaxUsesHigh   = 10
 )
 
+// ApplySamplingParameterCompatibility keeps Claude requests inside model-specific
+// Anthropic sampling parameter rules before they are sent upstream.
+func ApplySamplingParameterCompatibility(request *dto.ClaudeRequest) {
+	ApplySamplingParameterCompatibilityForModel(request, request.Model)
+}
+
+func ApplySamplingParameterCompatibilityForModel(request *dto.ClaudeRequest, modelName string) {
+	if request == nil {
+		return
+	}
+
+	model := baseSamplingModelName(modelName)
+	if model == "" {
+		model = baseSamplingModelName(request.Model)
+	}
+	if shouldOmitClaudeSamplingParameters(model) {
+		request.Temperature = nil
+		request.TopP = nil
+		request.TopK = nil
+		return
+	}
+
+	if request.Thinking != nil {
+		request.TopP = nil
+		request.TopK = nil
+		request.Temperature = common.GetPointer[float64](1.0)
+		return
+	}
+
+	if shouldUseSingleClaudeSamplingParameter(model) &&
+		request.Temperature != nil &&
+		request.TopP != nil {
+		request.TopP = nil
+	}
+}
+
+func baseSamplingModelName(model string) string {
+	if baseModel, _, ok := reasoning.TrimEffortSuffix(model); ok && baseModel != "" {
+		model = baseModel
+	}
+	model = strings.TrimSuffix(model, "-thinking")
+	if idx := strings.Index(model, "claude-"); idx > 0 {
+		model = model[idx:]
+	}
+	return model
+}
+
+func shouldOmitClaudeSamplingParameters(model string) bool {
+	return strings.HasPrefix(model, "claude-opus-4-7") ||
+		strings.HasPrefix(model, "claude-opus-4-8") ||
+		strings.HasPrefix(model, "claude-sonnet-5") ||
+		strings.HasPrefix(model, "claude-opus-5") ||
+		strings.HasPrefix(model, "claude-haiku-5")
+}
+
+func shouldUseSingleClaudeSamplingParameter(model string) bool {
+	return strings.HasPrefix(model, "claude-")
+}
+
 func stopReasonClaude2OpenAI(reason string) string {
 	return reasonmap.ClaudeStopReasonToOpenAIFinishReason(reason)
 }
@@ -436,6 +495,7 @@ func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRe
 
 	claudeRequest.Prompt = ""
 	claudeRequest.Messages = claudeMessages
+	ApplySamplingParameterCompatibility(&claudeRequest)
 	return &claudeRequest, nil
 }
 

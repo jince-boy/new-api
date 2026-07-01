@@ -20,9 +20,23 @@ import { AxiosError } from 'axios'
 import i18next from 'i18next'
 import { toast } from 'sonner'
 
+type ErrorResponseData = {
+  message?: string
+  title?: string
+  error?: string
+}
+
 export function handleServerError(error: unknown) {
   // eslint-disable-next-line no-console
   console.log(error)
+
+  if (
+    error &&
+    typeof error === 'object' &&
+    (error as { toastHandled?: boolean }).toastHandled
+  ) {
+    return
+  }
 
   let errMsg = i18next.t('Something went wrong!')
 
@@ -36,7 +50,24 @@ export function handleServerError(error: unknown) {
   }
 
   if (error instanceof AxiosError) {
-    errMsg = error.response?.data.title
+    if (error.config?.skipErrorHandler) {
+      return
+    }
+
+    const data = error.response?.data
+    if (typeof data === 'string') {
+      errMsg = data
+    } else if (data && typeof data === 'object') {
+      const responseData = data as ErrorResponseData
+      errMsg =
+        responseData.message ||
+        responseData.title ||
+        responseData.error ||
+        error.message ||
+        errMsg
+    } else {
+      errMsg = error.message || errMsg
+    }
   }
 
   toast.error(errMsg)

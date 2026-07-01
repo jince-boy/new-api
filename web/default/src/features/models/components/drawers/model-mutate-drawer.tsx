@@ -164,7 +164,7 @@ export function ModelMutateDrawer({
   // Fetch system options for ratio configuration
   const { data: systemOptionsData } = useSystemOptions()
 
-  const updateOption = useUpdateOption()
+  const updateOption = useUpdateOption({ silent: true, invalidate: false })
 
   // Get model settings from system options
   const modelSettings = useMemo(() => {
@@ -630,12 +630,14 @@ export function ModelMutateDrawer({
 
           toast.success(
             isEditing
-              ? 'Model updated successfully'
-              : 'Model created successfully'
+              ? t('Model updated successfully')
+              : t('Model created successfully')
           )
-          queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
-          queryClient.invalidateQueries({ queryKey: ['system-options'] })
-          queryClient.invalidateQueries({ queryKey: pricingQueryKeys.all })
+          await Promise.all([
+            queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() }),
+            queryClient.invalidateQueries({ queryKey: ['system-options'] }),
+            queryClient.invalidateQueries({ queryKey: pricingQueryKeys.all }),
+          ])
           onOpenChange(false)
         } else {
           toast.error(response.message || 'Operation failed')
@@ -655,6 +657,7 @@ export function ModelMutateDrawer({
       oldModelName,
       modelSettings,
       updateOption,
+      t,
     ]
   )
 

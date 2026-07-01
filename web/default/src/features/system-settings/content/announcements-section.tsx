@@ -134,7 +134,7 @@ export function AnnouncementsSection({
   data,
 }: AnnouncementsSectionProps) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
+  const updateOption = useUpdateOption({ silent: true })
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [isEnabled, setIsEnabled] = useState(enabled)
   const [hasChanges, setHasChanges] = useState(false)
@@ -177,10 +177,11 @@ export function AnnouncementsSection({
 
   const handleToggleEnabled = async (checked: boolean) => {
     try {
-      await updateOption.mutateAsync({
+      const result = await updateOption.mutateAsync({
         key: 'console_setting.announcements_enabled',
         value: checked,
       })
+      if (!result.success) return
       setIsEnabled(checked)
       toast.success(t('Setting saved'))
     } catch {
@@ -267,10 +268,11 @@ export function AnnouncementsSection({
 
   const handleSaveAll = async () => {
     try {
-      await updateOption.mutateAsync({
+      const result = await updateOption.mutateAsync({
         key: 'console_setting.announcements',
         value: JSON.stringify(announcements),
       })
+      if (!result.success) return
       setHasChanges(false)
       toast.success(t('Announcements saved successfully'))
     } catch {

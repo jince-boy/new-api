@@ -90,7 +90,7 @@ const UPTIME_KUMA_FORM_ID = 'uptime-kuma-form'
 
 export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
+  const updateOption = useUpdateOption({ silent: true })
   const uptimeKumaSchema = createUptimeKumaSchema(t)
   const [groups, setGroups] = useState<UptimeKumaGroup[]>([])
   const [isEnabled, setIsEnabled] = useState(enabled)
@@ -132,10 +132,11 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
 
   const handleToggleEnabled = async (checked: boolean) => {
     try {
-      await updateOption.mutateAsync({
+      const result = await updateOption.mutateAsync({
         key: 'console_setting.uptime_kuma_enabled',
         value: checked,
       })
+      if (!result.success) return
       setIsEnabled(checked)
       toast.success(t('Setting saved'))
     } catch {
@@ -216,10 +217,11 @@ export function UptimeKumaSection({ enabled, data }: UptimeKumaSectionProps) {
 
   const handleSaveAll = async () => {
     try {
-      await updateOption.mutateAsync({
+      const result = await updateOption.mutateAsync({
         key: 'console_setting.uptime_kuma_groups',
         value: JSON.stringify(groups),
       })
+      if (!result.success) return
       setHasChanges(false)
       toast.success(t('Uptime Kuma groups saved successfully'))
     } catch {

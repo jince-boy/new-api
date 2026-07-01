@@ -18,12 +18,13 @@ For commercial licensing, please contact support@quantumnous.com
 */
 'use client'
 
-import { memo, useMemo } from 'react'
+import { memo, type ReactNode, useMemo } from 'react'
 import { getMarkdown, parseMarkdownToStructure } from 'stream-markdown-parser'
 
 import { cn } from '@/lib/utils'
 
 import { getMarkdownContent, parseResponseContent } from './response-content'
+import { renderDataImageMarkdown } from './response-data-image'
 import { renderChildren, renderFootnotes } from './response-renderer'
 import type { ResponseProps } from './response-types'
 
@@ -44,10 +45,20 @@ export const Response = memo((props: ResponseProps) => {
     })
   }, [content, props.final, shouldParseMarkdown])
   const parsedContent = useMemo(() => parseResponseContent(nodes), [nodes])
-  const renderedContent =
-    parsedContent.bodyNodes.length > 0
-      ? renderChildren(parsedContent.bodyNodes)
-      : content
+  const renderedDataImages = useMemo(() => {
+    if (shouldParseMarkdown) {
+      return null
+    }
+
+    return renderDataImageMarkdown(content, markdown, {
+      final: props.final ?? true,
+      validateLink: markdown.options.validateLink,
+    })
+  }, [content, props.final, shouldParseMarkdown])
+  let renderedContent: ReactNode = renderedDataImages ?? content
+  if (parsedContent.bodyNodes.length > 0) {
+    renderedContent = renderChildren(parsedContent.bodyNodes)
+  }
   const footnotes = renderFootnotes(parsedContent.footnotes)
 
   return (

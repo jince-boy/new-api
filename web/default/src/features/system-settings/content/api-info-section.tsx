@@ -123,7 +123,7 @@ function parseApiInfoList(data: string): ApiInfo[] {
 
 export function ApiInfoSection({ enabled, data }: ApiInfoSectionProps) {
   const { t } = useTranslation()
-  const updateOption = useUpdateOption()
+  const updateOption = useUpdateOption({ silent: true })
   const apiInfoSchema = createApiInfoSchema(t)
   const parsedApiInfoList = useMemo(() => parseApiInfoList(data), [data])
   const [draftApiInfoList, setDraftApiInfoList] = useState<ApiInfo[] | null>(
@@ -151,10 +151,11 @@ export function ApiInfoSection({ enabled, data }: ApiInfoSectionProps) {
 
   const handleToggleEnabled = async (checked: boolean) => {
     try {
-      await updateOption.mutateAsync({
+      const result = await updateOption.mutateAsync({
         key: 'console_setting.api_info_enabled',
         value: checked,
       })
+      if (!result.success) return
       setIsEnabledDraft(checked)
       toast.success(t('Setting saved'))
     } catch {
@@ -244,6 +245,7 @@ export function ApiInfoSection({ enabled, data }: ApiInfoSectionProps) {
       })
       if (result.success) {
         setDraftApiInfoList(null)
+        toast.success(t('API info saved successfully'))
       }
     } catch {
       toast.error(t('Failed to save API info'))
