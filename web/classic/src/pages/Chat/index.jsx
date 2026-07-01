@@ -29,7 +29,8 @@ import { useActualTheme } from '../../context/Theme';
 const ChatPage = () => {
   const { t } = useTranslation();
   const { id } = useParams();
-  const { keys, serverAddress, isLoading } = useTokenKeys(id);
+  const { keys, activeKeys, purposeDefinitions, serverAddress, isLoading } =
+    useTokenKeys(id);
   const actualTheme = useActualTheme();
 
   const comLink = (key) => {
@@ -45,6 +46,8 @@ const ChatPage = () => {
           link = resolveChatUrl({
             template: preset.url,
             apiKey: key,
+            apiKeys: activeKeys,
+            purposeDefinitions,
             serverAddress,
             encodeToBase64,
             theme: actualTheme,

@@ -18,11 +18,16 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 
-import { fetchDefaultChatApiKey } from '@/features/keys/api'
+import {
+  fetchDefaultApiKey,
+  type DefaultApiKeyPurpose,
+} from '@/features/keys/api'
 import { useAuthStore } from '@/stores/auth-store'
 
-export async function fetchActiveChatKey() {
-  const result = await fetchDefaultChatApiKey()
+export async function fetchActiveApiKey(
+  purpose: DefaultApiKeyPurpose = 'chat'
+) {
+  const result = await fetchDefaultApiKey(purpose)
   if (!result.success) {
     throw new Error(result.message || 'Failed to load API key')
   }
@@ -34,9 +39,28 @@ export async function fetchActiveChatKey() {
   return `sk-${result.data.key}`
 }
 
+export async function fetchActiveChatKey() {
+  return fetchActiveApiKey('chat')
+}
+
 /**
  * Get the currently active API key for chat links
  */
+export function useActiveApiKey(
+  purpose: DefaultApiKeyPurpose,
+  enabled: boolean
+) {
+  const userId = useAuthStore((state) => state.auth.user?.id)
+
+  return useQuery({
+    queryKey: ['active-api-key', purpose, userId],
+    queryFn: () => fetchActiveApiKey(purpose),
+    enabled: enabled && Boolean(userId),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
+}
+
 export function useActiveChatKey(enabled: boolean) {
   const userId = useAuthStore((state) => state.auth.user?.id)
 

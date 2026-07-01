@@ -132,6 +132,8 @@ function getCurrentTheme(theme) {
 export function resolveChatUrl({
   template,
   apiKey,
+  apiKeys,
+  purposeDefinitions = [],
   serverAddress,
   encodeToBase64,
   theme,
@@ -143,7 +145,18 @@ export function resolveChatUrl({
       ? apiKey
       : `sk-${apiKey}`
     : '';
+  const normalizeApiKey = (key) =>
+    key ? (key.startsWith('sk-') ? key : `sk-${key}`) : '';
   const currentTheme = getCurrentTheme(theme);
+  const safeApiKeys = {};
+  for (const definition of purposeDefinitions) {
+    if (!definition?.purpose) continue;
+    safeApiKeys[definition.purpose] = normalizeApiKey(
+      apiKeys?.[definition.purpose] || '',
+    );
+  }
+  safeApiKeys.chat = normalizeApiKey(apiKeys?.chat || safeApiKey);
+  const safeChatApiKey = safeApiKeys.chat;
 
   const encodeConfig = (payload) => {
     const json = JSON.stringify(payload);
@@ -161,7 +174,7 @@ export function resolveChatUrl({
       encodeConfig({
         id: 'new-api',
         baseUrl: safeServerAddress,
-        apiKey: safeApiKey,
+        apiKey: safeChatApiKey,
       }),
     );
   }
@@ -173,7 +186,7 @@ export function resolveChatUrl({
       encodeConfig({
         platform: 'new-api',
         baseUrl: safeServerAddress,
-        apiKey: safeApiKey,
+        apiKey: safeChatApiKey,
       }),
     );
   }
@@ -185,7 +198,7 @@ export function resolveChatUrl({
       encodeConfig({
         id: 'new-api',
         baseUrl: safeServerAddress,
-        apiKey: safeApiKey,
+        apiKey: safeChatApiKey,
       }),
     );
   }
@@ -198,9 +211,43 @@ export function resolveChatUrl({
     );
   }
 
-  if (safeApiKey) {
-    url = replaceTemplateVariable(url, 'key', safeApiKey);
+  if (safeChatApiKey) {
+    url = replaceTemplateVariable(url, 'key', safeChatApiKey);
+  }
+
+  for (const definition of purposeDefinitions) {
+    const token = definition?.token;
+    const purpose = definition?.purpose;
+    if (!token || !purpose) continue;
+    const key = safeApiKeys[purpose];
+    if (key) {
+      url = replaceTemplateVariable(url, token, key);
+    }
   }
 
   return replaceTemplateVariable(url, 'theme', currentTheme);
+}
+
+export function chatLinkRequiredApiKeyPurposes(url, purposeDefinitions = []) {
+  const purposes = new Set();
+  if (
+    url.includes('{key}') ||
+    url.includes('{{key}}') ||
+    url.includes('{cherryConfig}') ||
+    url.includes('{{cherryConfig}}') ||
+    url.includes('{aionuiConfig}') ||
+    url.includes('{{aionuiConfig}}') ||
+    url.includes('{deepchatConfig}') ||
+    url.includes('{{deepchatConfig}}')
+  ) {
+    purposes.add('chat');
+  }
+  for (const definition of purposeDefinitions) {
+    const token = definition?.token;
+    if (!token) continue;
+    if (url.includes(`{${token}}`) || url.includes(`{{${token}}}`)) {
+      purposes.add(definition.purpose);
+    }
+  }
+  return Array.from(purposes);
 }

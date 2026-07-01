@@ -29,6 +29,7 @@ type Token struct {
 	Group              string         `json:"group" gorm:"default:''"`
 	CrossGroupRetry    bool           `json:"cross_group_retry"` // 跨分组重试，仅auto分组有效
 	DefaultChat        bool           `json:"default_chat"`
+	DefaultPurposes    []string       `json:"default_purposes" gorm:"-"`
 	DeletedAt          gorm.DeletedAt `gorm:"index"`
 }
 
@@ -128,57 +129,6 @@ func validateLikePattern(input string) error {
 	}
 
 	return nil
-}
-
-func SetDefaultChatToken(userId int, tokenId int) (*Token, error) {
-	var selectedToken Token
-	err := DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("id = ? AND user_id = ?", tokenId, userId).First(&selectedToken).Error; err != nil {
-			return err
-		}
-		if selectedToken.Status != common.TokenStatusEnabled {
-			return errors.New("only enabled tokens can be used as the default chat key")
-		}
-		if err := tx.Model(&Token{}).
-			Where("user_id = ? AND default_chat = ?", userId, true).
-			Update("default_chat", false).Error; err != nil {
-			return err
-		}
-		if err := tx.Model(&Token{}).
-			Where("id = ? AND user_id = ?", tokenId, userId).
-			Update("default_chat", true).Error; err != nil {
-			return err
-		}
-		selectedToken.DefaultChat = true
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return &selectedToken, nil
-}
-
-func GetDefaultChatToken(userId int) (*Token, error) {
-	var token Token
-	err := DB.Where("user_id = ? AND status = ? AND default_chat = ?", userId, common.TokenStatusEnabled, true).
-		Order("id desc").
-		First(&token).Error
-	if err == nil {
-		return &token, nil
-	}
-	if !errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, err
-	}
-	err = DB.Where("user_id = ? AND status = ?", userId, common.TokenStatusEnabled).
-		Order("id desc").
-		First(&token).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("No enabled API keys found. Create or enable one first.")
-		}
-		return nil, err
-	}
-	return &token, nil
 }
 
 const searchHardLimit = 100
@@ -384,7 +334,14 @@ func (token *Token) Delete() (err error) {
 			})
 		}
 	}()
-	err = DB.Delete(token).Error
+	err = DB.Transaction(func(tx *gorm.DB) error {
+		if tokenDefaultTableExists() {
+			if err := tx.Where("token_id = ?", token.Id).Delete(&TokenDefault{}).Error; err != nil {
+				return err
+			}
+		}
+		return tx.Delete(token).Error
+	})
 	return err
 }
 
@@ -510,6 +467,17 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Find(&tokens).Error; err != nil {
 		tx.Rollback()
 		return 0, err
+	}
+
+	tokenIDs := make([]int, 0, len(tokens))
+	for _, t := range tokens {
+		tokenIDs = append(tokenIDs, t.Id)
+	}
+	if len(tokenIDs) > 0 && tokenDefaultTableExists() {
+		if err := tx.Where("token_id IN (?)", tokenIDs).Delete(&TokenDefault{}).Error; err != nil {
+			tx.Rollback()
+			return 0, err
+		}
 	}
 
 	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Delete(&Token{}).Error; err != nil {

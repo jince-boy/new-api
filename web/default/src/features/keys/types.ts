@@ -35,6 +35,10 @@ export const apiKeySchema = z.object({
   accessed_time: z.number(),
   group: z.string().nullish().default(''),
   default_chat: z.boolean().optional().default(false),
+  default_purposes: z
+    .array(z.string())
+    .nullish()
+    .transform((value) => value ?? []),
   cross_group_retry: z
     .preprocess((v) => {
       if (v === 1) return true

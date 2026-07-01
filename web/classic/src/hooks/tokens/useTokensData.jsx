@@ -32,10 +32,12 @@ import { useTableCompactMode } from '../common/useTableCompactMode';
 import {
   fetchTokenKey as fetchTokenKeyById,
   fetchTokenKeysBatch,
+  fetchDefaultKeyPurposes,
+  FALLBACK_DEFAULT_KEY_PURPOSES,
   getServerAddress,
   encodeChannelConnectionString,
 } from '../../helpers/token';
-import { resolveChatUrl } from '../../helpers/chat';
+import { chatLinkRequiredApiKeyPurposes, resolveChatUrl } from '../../helpers/chat';
 import { useActualTheme } from '../../context/Theme';
 
 export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
@@ -46,6 +48,9 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
   const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(true);
   const [groupRatios, setGroupRatios] = useState({});
+  const [defaultKeyPurposes, setDefaultKeyPurposes] = useState(
+    FALLBACK_DEFAULT_KEY_PURPOSES,
+  );
   const [activePage, setActivePage] = useState(1);
   const [tokenCount, setTokenCount] = useState(0);
   const [pageSize, setPageSize] = useState(ITEMS_PER_PAGE);
@@ -237,6 +242,12 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     url = resolveChatUrl({
       template: url,
       apiKey: fullKey,
+      apiKeys: Object.fromEntries(
+        chatLinkRequiredApiKeyPurposes(url, defaultKeyPurposes).map(
+          (purpose) => [purpose, fullKey],
+        ),
+      ),
+      purposeDefinitions: defaultKeyPurposes,
       serverAddress,
       encodeToBase64,
       theme: actualTheme,
@@ -265,16 +276,24 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
       case 'default_chat':
         res = await API.put(`/api/token/${id}/default_chat`);
         break;
+      case 'default':
+        res = await API.put(`/api/token/${id}/default/${record.purpose}`);
+        break;
     }
     const { success, message } = res.data;
     if (success) {
       showSuccess(t('操作成功完成！'));
       let token = res.data.data;
       let newTokens = [...tokens];
-      if (action === 'default_chat') {
+      if (action === 'default_chat' || action === 'default') {
+        const purpose = action === 'default' ? record.purpose : 'chat';
         newTokens = newTokens.map((item) => ({
           ...item,
-          default_chat: item.id === id,
+          default_chat: purpose === 'chat' ? item.id === id : item.default_chat,
+          default_purposes:
+            item.id === id
+              ? Array.from(new Set([...(item.default_purposes || []), purpose]))
+              : (item.default_purposes || []).filter((itemPurpose) => itemPurpose !== purpose),
         }));
       } else if (action !== 'delete') {
         record.status = token.status;
@@ -442,6 +461,9 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
         }
       })
       .catch(() => {});
+    fetchDefaultKeyPurposes()
+      .then((purposes) => setDefaultKeyPurposes(purposes))
+      .catch(() => {});
   }, [pageSize]);
 
   return {
@@ -453,6 +475,7 @@ export const useTokensData = (openFluentNotification, openCCSwitchModal) => {
     pageSize,
     searching,
     groupRatios,
+    defaultKeyPurposes,
 
     // Selection state
     selectedKeys,

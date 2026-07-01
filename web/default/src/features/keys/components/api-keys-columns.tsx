@@ -37,6 +37,10 @@ import { cn } from '@/lib/utils'
 import { API_KEY_STATUSES } from '../constants'
 import { type ApiKey } from '../types'
 import {
+  FALLBACK_DEFAULT_API_KEY_PURPOSES,
+  fetchDefaultApiKeyPurposes,
+} from '../api'
+import {
   ApiKeyCell,
   ModelLimitsCell,
   IpRestrictionsCell,
@@ -72,6 +76,18 @@ function useGroupRatios(): Record<string, number> {
 export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
   const { t } = useTranslation()
   const groupRatios = useGroupRatios()
+  const { data: purposeResponse } = useQuery({
+    queryKey: ['default-api-key-purposes'],
+    queryFn: fetchDefaultApiKeyPurposes,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
+  const defaultPurposeLabels = Object.fromEntries(
+    (purposeResponse?.success
+      ? purposeResponse.data || FALLBACK_DEFAULT_API_KEY_PURPOSES
+      : FALLBACK_DEFAULT_API_KEY_PURPOSES
+    ).map((purpose) => [purpose.purpose, purpose.label])
+  )
   return [
     {
       id: 'select',
@@ -101,19 +117,31 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
       header: t('Name'),
       cell: ({ row }) => {
         const apiKey = row.original
+        const apiKeyDefaultPurposes = apiKey.default_purposes ?? []
+        const defaultPurposes = apiKeyDefaultPurposes.length
+          ? apiKeyDefaultPurposes
+          : apiKey.default_chat
+            ? ['chat']
+            : []
         return (
           <div className='flex min-w-0 items-center gap-2'>
             <span className='truncate font-medium'>
               {row.getValue('name')}
             </span>
-            {apiKey.default_chat && (
-              <StatusBadge
-                label={t('Default chat')}
-                variant='info'
-                copyable={false}
-                className='shrink-0'
-              />
-            )}
+            <div className='flex shrink-0 items-center gap-1'>
+              {defaultPurposes.map((purpose) => (
+                <StatusBadge
+                  key={purpose}
+                  label={
+                    purpose === 'chat'
+                      ? t('Default chat')
+                      : `${t('Default')} ${t(defaultPurposeLabels[purpose] ?? purpose)}`
+                  }
+                  variant='info'
+                  copyable={false}
+                />
+              ))}
+            </div>
           </div>
         )
       },

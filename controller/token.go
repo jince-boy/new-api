@@ -20,6 +20,9 @@ func buildMaskedTokenResponse(token *model.Token) *model.Token {
 	}
 	maskedToken := *token
 	maskedToken.Key = token.GetMaskedKey()
+	if maskedToken.DefaultPurposes == nil {
+		maskedToken.DefaultPurposes = []string{}
+	}
 	return &maskedToken
 }
 
@@ -36,6 +39,10 @@ func GetAllTokens(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	tokens, err := model.GetAllUserTokens(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.AttachDefaultPurposes(userId, tokens); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -57,6 +64,10 @@ func SearchTokens(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := model.AttachDefaultPurposes(userId, tokens); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(buildMaskedTokenResponses(tokens))
 	common.ApiSuccess(c, pageInfo)
@@ -71,6 +82,10 @@ func GetToken(c *gin.Context) {
 	}
 	token, err := model.GetTokenByIds(id, userId)
 	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.AttachDefaultPurposes(userId, []*model.Token{token}); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -95,14 +110,26 @@ func GetTokenKey(c *gin.Context) {
 }
 
 func SetDefaultChatToken(c *gin.Context) {
+	setDefaultToken(c, model.TokenDefaultPurposeChat)
+}
+
+func SetDefaultToken(c *gin.Context) {
+	setDefaultToken(c, c.Param("purpose"))
+}
+
+func setDefaultToken(c *gin.Context, purpose string) {
 	id, err := strconv.Atoi(c.Param("id"))
 	userId := c.GetInt("id")
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	token, err := model.SetDefaultChatToken(userId, id)
+	token, err := model.SetDefaultToken(userId, id, purpose)
 	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.AttachDefaultPurposes(userId, []*model.Token{token}); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -110,16 +137,35 @@ func SetDefaultChatToken(c *gin.Context) {
 }
 
 func GetDefaultChatTokenKey(c *gin.Context) {
+	getDefaultTokenKey(c, model.TokenDefaultPurposeChat)
+}
+
+func GetDefaultTokenKey(c *gin.Context) {
+	getDefaultTokenKey(c, c.Param("purpose"))
+}
+
+func GetDefaultTokenKeyPurposes(c *gin.Context) {
+	common.ApiSuccess(c, model.GetTokenDefaultPurposeDefinitions())
+}
+
+func getDefaultTokenKey(c *gin.Context, purpose string) {
 	userId := c.GetInt("id")
-	token, err := model.GetDefaultChatToken(userId)
+	purpose, err := model.NormalizeTokenDefaultPurpose(purpose)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	token, err := model.GetDefaultToken(userId, purpose)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	common.ApiSuccess(c, gin.H{
-		"id":           token.Id,
-		"default_chat": token.DefaultChat,
-		"key":          token.GetFullKey(),
+		"id":               token.Id,
+		"purpose":          purpose,
+		"default_chat":     token.DefaultChat || purpose == model.TokenDefaultPurposeChat,
+		"default_purposes": token.DefaultPurposes,
+		"key":              token.GetFullKey(),
 	})
 }
 
@@ -315,10 +361,12 @@ func UpdateToken(c *gin.Context) {
 			return
 		}
 	}
+	shouldClearDefaultPurposes := false
 	if statusOnly != "" {
 		cleanToken.Status = token.Status
 		if token.Status != common.TokenStatusEnabled {
 			cleanToken.DefaultChat = false
+			shouldClearDefaultPurposes = true
 		}
 	} else {
 		// If you add more fields, please also update token.Update()
@@ -336,6 +384,12 @@ func UpdateToken(c *gin.Context) {
 	if err != nil {
 		common.ApiError(c, err)
 		return
+	}
+	if shouldClearDefaultPurposes {
+		if err := model.DeleteTokenDefaultsForToken(cleanToken.Id); err != nil {
+			common.ApiError(c, err)
+			return
+		}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

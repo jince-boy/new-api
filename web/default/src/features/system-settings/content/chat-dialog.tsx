@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import { useQuery } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -35,6 +36,10 @@ import {
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import {
+  FALLBACK_DEFAULT_API_KEY_PURPOSES,
+  fetchDefaultApiKeyPurposes,
+} from '@/features/keys/api'
 
 const createChatDialogSchema = (t: (key: string) => string) =>
   z.object({
@@ -69,6 +74,17 @@ export function ChatDialog({
   const { t } = useTranslation()
   const isEditMode = !!editData
   const chatDialogSchema = createChatDialogSchema(t)
+  const { data: purposeResponse } = useQuery({
+    queryKey: ['default-api-key-purposes'],
+    queryFn: fetchDefaultApiKeyPurposes,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
+  const variableTokens = (
+    purposeResponse?.success
+      ? purposeResponse.data || FALLBACK_DEFAULT_API_KEY_PURPOSES
+      : FALLBACK_DEFAULT_API_KEY_PURPOSES
+  ).map((purpose) => purpose.token)
 
   const form = useForm<ChatDialogFormValues>({
     resolver: zodResolver(chatDialogSchema),
@@ -161,6 +177,11 @@ export function ChatDialog({
                   <span className='mt-1 block'>
                     {t('Available variables:')}{' '}
                     <code>{'{address}'}</code>, <code>{'{key}'}</code>,{' '}
+                    {variableTokens.map((token) => (
+                      <span key={token}>
+                        <code>{`{${token}}`}</code>,{' '}
+                      </span>
+                    ))}
                     <code>{'{theme}'}</code>.{' '}
                     {t('Double-brace syntax is also supported.')}{' '}
                     <code>{'{{theme}}'}</code>

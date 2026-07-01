@@ -17,15 +17,25 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { useTheme } from '@/context/theme-provider'
-import { useActiveChatKey } from '@/features/chat/hooks/use-active-chat-key'
+import { fetchActiveApiKey } from '@/features/chat/hooks/use-active-chat-key'
 import { useChatPresets } from '@/features/chat/hooks/use-chat-presets'
-import { resolveChatUrl } from '@/features/chat/lib/chat-links'
+import {
+  chatLinkRequiredApiKeyPurposes,
+  resolveChatUrl,
+} from '@/features/chat/lib/chat-links'
+import {
+  FALLBACK_DEFAULT_API_KEY_PURPOSES,
+  fetchDefaultApiKeyPurposes,
+  type DefaultApiKeyPurpose,
+} from '@/features/keys/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/_authenticated/chat2link')({
   component: Chat2LinkPage,
@@ -35,16 +45,61 @@ function Chat2LinkPage() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { resolvedTheme } = useTheme()
+  const userId = useAuthStore((state) => state.auth.user?.id)
   const { chatPresets, serverAddress } = useChatPresets()
 
   const firstWebPreset = useMemo(
     () => chatPresets.find((p) => p.type === 'web'),
     [chatPresets]
   )
+  const { data: purposeResponse } = useQuery({
+    queryKey: ['default-api-key-purposes'],
+    queryFn: fetchDefaultApiKeyPurposes,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
+  const defaultApiKeyPurposes = purposeResponse?.success
+    ? purposeResponse.data || FALLBACK_DEFAULT_API_KEY_PURPOSES
+    : FALLBACK_DEFAULT_API_KEY_PURPOSES
 
-  const { data: activeKey, error: keyError } = useActiveChatKey(
-    Boolean(firstWebPreset)
-  )
+  const requiredPurposes = useMemo(() => {
+    if (!firstWebPreset) return []
+    return chatLinkRequiredApiKeyPurposes(
+      firstWebPreset.url,
+      defaultApiKeyPurposes
+    )
+  }, [defaultApiKeyPurposes, firstWebPreset])
+
+  const {
+    data: activeKeys,
+    error: keyError,
+    isPending,
+  } = useQuery({
+    queryKey: [
+      'chat2link-active-api-keys',
+      firstWebPreset?.id,
+      requiredPurposes,
+      userId,
+    ],
+    queryFn: async () => {
+      const purposes: DefaultApiKeyPurpose[] =
+        requiredPurposes.length > 0 ? requiredPurposes : ['chat']
+      const entries = await Promise.all(
+        purposes.map(
+          async (purpose): Promise<[DefaultApiKeyPurpose, string]> => [
+            purpose,
+            await fetchActiveApiKey(purpose),
+          ]
+        )
+      )
+      return Object.fromEntries(entries) as Partial<
+        Record<DefaultApiKeyPurpose, string>
+      >
+    },
+    enabled: Boolean(firstWebPreset && userId),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
 
   useEffect(() => {
     if (!firstWebPreset) {
@@ -54,9 +109,9 @@ function Chat2LinkPage() {
       return
     }
 
-    if (activeKey === undefined && !keyError) return
+    if (isPending && !keyError) return
 
-    if (keyError || !activeKey) {
+    if (keyError || !activeKeys) {
       const message =
         keyError instanceof Error
           ? keyError.message
@@ -68,7 +123,8 @@ function Chat2LinkPage() {
 
     const url = resolveChatUrl({
       template: firstWebPreset.url,
-      apiKey: activeKey,
+      apiKeys: activeKeys,
+      purposeDefinitions: defaultApiKeyPurposes,
       serverAddress,
       theme: resolvedTheme,
     })
@@ -78,7 +134,9 @@ function Chat2LinkPage() {
     }
   }, [
     firstWebPreset,
-    activeKey,
+    defaultApiKeyPurposes,
+    activeKeys,
+    isPending,
     keyError,
     serverAddress,
     resolvedTheme,

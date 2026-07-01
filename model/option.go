@@ -124,6 +124,7 @@ func InitOptionMap() {
 	common.OptionMap["Chats"] = setting.Chats2JsonString()
 	common.OptionMap["AutoGroups"] = setting.AutoGroups2JsonString()
 	common.OptionMap["DefaultUseAutoGroup"] = strconv.FormatBool(setting.DefaultUseAutoGroup)
+	common.OptionMap[TokenDefaultKeyPurposesOptionKey] = TokenDefaultPurposeDefinitions2JSONString()
 	common.OptionMap["PayMethods"] = operation_setting.PayMethods2JsonString()
 	common.OptionMap["GitHubClientId"] = ""
 	common.OptionMap["GitHubClientSecret"] = ""
@@ -211,20 +212,34 @@ func SyncOptions(frequency int) {
 	}
 }
 
+func normalizeOptionValueForStorage(key string, value string) (string, error) {
+	switch key {
+	case TokenDefaultKeyPurposesOptionKey:
+		return NormalizeTokenDefaultPurposeDefinitionsJSONString(value)
+	default:
+		return value, nil
+	}
+}
+
 func UpdateOption(key string, value string) error {
+	normalizedValue, err := normalizeOptionValueForStorage(key, value)
+	if err != nil {
+		return err
+	}
+
 	// Save to database first
 	option := Option{
 		Key: key,
 	}
 	// https://gorm.io/docs/update.html#Save-All-Fields
 	DB.FirstOrCreate(&option, Option{Key: key})
-	option.Value = value
+	option.Value = normalizedValue
 	// Save is a combination function.
 	// If save value does not contain primary key, it will execute Create,
 	// otherwise it will execute Update (with all fields).
 	DB.Save(&option)
 	// Update OptionMap
-	return updateOptionMap(key, value)
+	return updateOptionMap(key, normalizedValue)
 }
 
 // UpdateOptionsBulk persists multiple key/value pairs in a single database
@@ -236,8 +251,16 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if len(values) == 0 {
 		return nil
 	}
+	normalizedValues := make(map[string]string, len(values))
+	for k, v := range values {
+		normalizedValue, err := normalizeOptionValueForStorage(k, v)
+		if err != nil {
+			return err
+		}
+		normalizedValues[k] = normalizedValue
+	}
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		for k, v := range values {
+		for k, v := range normalizedValues {
 			option := Option{Key: k}
 			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
 				return err
@@ -252,7 +275,7 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if err != nil {
 		return err
 	}
-	for k, v := range values {
+	for k, v := range normalizedValues {
 		if err := updateOptionMap(k, v); err != nil {
 			return err
 		}
@@ -261,6 +284,11 @@ func UpdateOptionsBulk(values map[string]string) error {
 }
 
 func updateOptionMap(key string, value string) (err error) {
+	value, err = normalizeOptionValueForStorage(key, value)
+	if err != nil {
+		return err
+	}
+
 	common.OptionMapRWMutex.Lock()
 	defer common.OptionMapRWMutex.Unlock()
 	common.OptionMap[key] = value
@@ -399,6 +427,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateChatsByJsonString(value)
 	case "AutoGroups":
 		err = setting.UpdateAutoGroupsByJsonString(value)
+	case TokenDefaultKeyPurposesOptionKey:
+		_, err = NormalizeTokenDefaultPurposeDefinitions(value)
 	case "CustomCallbackAddress":
 		operation_setting.CustomCallbackAddress = value
 	case "EpayId":

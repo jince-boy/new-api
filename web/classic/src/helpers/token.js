@@ -19,6 +19,16 @@ For commercial licensing, please contact support@quantumnous.com
 
 import { API } from './api';
 
+// Defensive UI fallback only. The source of truth is the backend
+// TokenDefaultKeyPurposes option exposed by /api/token/default_key_purposes.
+export const FALLBACK_DEFAULT_KEY_PURPOSES = [
+  { purpose: 'chat', label: 'Chat', token: 'chatKey' },
+  { purpose: 'image', label: 'Image', token: 'imageKey' },
+  { purpose: 'video', label: 'Video', token: 'videoKey' },
+  { purpose: 'audio', label: 'Audio', token: 'audioKey' },
+  { purpose: 'embedding', label: 'Embeddings', token: 'embeddingKey' },
+];
+
 /**
  * 按需获取单个令牌的真实 key
  * @param {number|string} tokenId
@@ -62,6 +72,27 @@ export async function fetchTokenKeys() {
     console.error('Error fetching token keys:', error);
     return [];
   }
+}
+
+export async function fetchDefaultKeyPurposes() {
+  try {
+    const response = await API.get('/api/token/default_key_purposes');
+    const { success, data } = response.data || {};
+    if (!success || !Array.isArray(data)) return FALLBACK_DEFAULT_KEY_PURPOSES;
+    return data.length > 0 ? data : FALLBACK_DEFAULT_KEY_PURPOSES;
+  } catch (error) {
+    console.error('Error fetching default key purposes:', error);
+    return FALLBACK_DEFAULT_KEY_PURPOSES;
+  }
+}
+
+export async function fetchDefaultTokenKey(purpose = 'chat') {
+  const response = await API.get(`/api/token/default_key/${purpose}`);
+  const { success, data, message } = response.data || {};
+  if (!success || !data?.key) {
+    throw new Error(message || 'Failed to fetch token key');
+  }
+  return data.key;
 }
 
 /**

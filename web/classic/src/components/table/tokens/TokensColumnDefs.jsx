@@ -359,6 +359,7 @@ const renderOperations = (
   manageToken,
   refresh,
   t,
+  defaultKeyPurposes,
 ) => {
   let chatsArray = [];
   try {
@@ -410,18 +411,31 @@ const renderOperations = (
         </Dropdown>
       </SplitButtonGroup>
 
-      <Button
-        size='small'
-        type='tertiary'
-        style={{ width: 128 }}
-        disabled={record.default_chat || record.status !== 1}
-        onClick={async () => {
-          await manageToken(record.id, 'default_chat', record);
-          await refresh();
-        }}
+      <Dropdown
+        trigger='click'
+        position='bottomRight'
+        menu={defaultKeyPurposes.map((purpose) => {
+          const isDefault =
+            (record.default_purposes || []).includes(purpose.purpose) ||
+            (purpose.purpose === 'chat' && record.default_chat);
+          return {
+            node: 'item',
+            name: t(purpose.label),
+            disabled: isDefault || record.status !== 1,
+            onClick: async () => {
+              await manageToken(record.id, 'default', {
+                ...record,
+                purpose: purpose.purpose,
+              });
+              await refresh();
+            },
+          };
+        })}
       >
-        {record.default_chat ? t('Default chat') : t('Set as default chat')}
-      </Button>
+        <Button size='small' type='tertiary' disabled={record.status !== 1}>
+          {t('默认')} {t('API Key')}
+        </Button>
+      </Dropdown>
 
       {record.status === 1 ? (
         <Button
@@ -493,6 +507,7 @@ export const getTokensColumns = ({
   setShowEdit,
   refresh,
   groupRatios = {},
+  defaultKeyPurposes = [],
 }) => {
   return [
     {
@@ -506,6 +521,18 @@ export const getTokensColumns = ({
               {t('Default chat')}
             </Tag>
           )}
+          {(record.default_purposes || [])
+            .filter((purpose) => purpose !== 'chat')
+            .map((purpose) => {
+              const definition = defaultKeyPurposes.find(
+                (item) => item.purpose === purpose,
+              );
+              return (
+                <Tag key={purpose} color='blue' shape='circle' size='small'>
+                  {t('默认')} {t(definition?.label || purpose)}
+                </Tag>
+              );
+            })}
         </Space>
       ),
     },
@@ -591,6 +618,7 @@ export const getTokensColumns = ({
           manageToken,
           refresh,
           t,
+          defaultKeyPurposes,
         ),
     },
   ];

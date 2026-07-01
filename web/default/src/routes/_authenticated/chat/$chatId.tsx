@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link, createFileRoute, redirect } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { Loader2, MessageCircleWarning } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -24,12 +25,18 @@ import { useTranslation } from 'react-i18next'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { useTheme } from '@/context/theme-provider'
-import { useActiveChatKey } from '@/features/chat/hooks/use-active-chat-key'
+import { fetchActiveApiKey } from '@/features/chat/hooks/use-active-chat-key'
 import { useChatPresets } from '@/features/chat/hooks/use-chat-presets'
 import {
-  chatLinkRequiresApiKey,
+  chatLinkRequiredApiKeyPurposes,
   resolveChatUrl,
 } from '@/features/chat/lib/chat-links'
+import {
+  FALLBACK_DEFAULT_API_KEY_PURPOSES,
+  fetchDefaultApiKeyPurposes,
+  type DefaultApiKeyPurpose,
+} from '@/features/keys/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/_authenticated/chat/$chatId')({
   loader: async ({ params }) => {
@@ -44,38 +51,72 @@ function ChatRouteComponent() {
   const { t } = useTranslation()
   const { resolvedTheme } = useTheme()
   const { chatId } = Route.useParams()
+  const userId = useAuthStore((state) => state.auth.user?.id)
   const { chatPresets, serverAddress } = useChatPresets()
   const preset = useMemo(() => {
     return chatPresets.find((item) => item.id === chatId)
   }, [chatId, chatPresets])
+  const { data: purposeResponse } = useQuery({
+    queryKey: ['default-api-key-purposes'],
+    queryFn: fetchDefaultApiKeyPurposes,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
+  const defaultApiKeyPurposes = purposeResponse?.success
+    ? purposeResponse.data || FALLBACK_DEFAULT_API_KEY_PURPOSES
+    : FALLBACK_DEFAULT_API_KEY_PURPOSES
 
   const isWebLink = preset?.type === 'web'
 
-  const requiresActiveKey = useMemo(() => {
-    if (!preset || !isWebLink) return false
-    return chatLinkRequiresApiKey(preset.url ?? '')
-  }, [isWebLink, preset])
+  const requiredPurposes = useMemo(() => {
+    if (!preset || !isWebLink) return []
+    return chatLinkRequiredApiKeyPurposes(
+      preset.url ?? '',
+      defaultApiKeyPurposes
+    )
+  }, [defaultApiKeyPurposes, isWebLink, preset])
+  const requiresActiveKey = requiredPurposes.length > 0
 
   const {
-    data: activeKey,
+    data: activeKeys,
     isPending,
     isError,
     error,
-  } = useActiveChatKey(Boolean(preset && requiresActiveKey))
+  } = useQuery({
+    queryKey: ['chat-preset-active-api-keys', chatId, requiredPurposes, userId],
+    queryFn: async () => {
+      const entries = await Promise.all(
+        requiredPurposes.map(
+          async (purpose): Promise<[DefaultApiKeyPurpose, string]> => [
+            purpose,
+            await fetchActiveApiKey(purpose),
+          ]
+        )
+      )
+      return Object.fromEntries(entries) as Partial<
+        Record<DefaultApiKeyPurpose, string>
+      >
+    },
+    enabled: Boolean(preset && requiresActiveKey && userId),
+    staleTime: 5 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+  })
 
   const iframeSrc = useMemo(() => {
     if (!preset || !isWebLink) return ''
-    if (requiresActiveKey && !activeKey) return ''
+    if (requiresActiveKey && !activeKeys) return ''
     return resolveChatUrl({
       template: preset.url,
-      apiKey: requiresActiveKey ? activeKey : undefined,
+      apiKeys: requiresActiveKey ? activeKeys : undefined,
+      purposeDefinitions: defaultApiKeyPurposes,
       serverAddress,
       theme: resolvedTheme,
     })
   }, [
-    activeKey,
+    activeKeys,
     isWebLink,
     preset,
+    defaultApiKeyPurposes,
     requiresActiveKey,
     serverAddress,
     resolvedTheme,
@@ -131,7 +172,7 @@ function ChatRouteComponent() {
     )
   }
 
-  if (requiresActiveKey && (isError || !activeKey || !iframeSrc)) {
+  if (requiresActiveKey && (isError || !activeKeys || !iframeSrc)) {
     const message =
       error instanceof Error
         ? error.message

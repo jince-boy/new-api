@@ -30,6 +30,7 @@ import {
   Table,
   Modal,
   Input,
+  TextArea,
   Divider,
   Switch,
   Tag,
@@ -53,11 +54,14 @@ import {
 import { parseChatPresets, serializeChatPresets } from '../../../helpers/chat';
 import { useTranslation } from 'react-i18next';
 
+const CHAT_SETTING_FIELDS = ['Chats', 'TokenDefaultKeyPurposes'];
+
 export default function SettingsChats(props) {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [inputs, setInputs] = useState({
     Chats: '[]',
+    TokenDefaultKeyPurposes: '[]',
   });
   const refForm = useRef();
   const [inputsRow, setInputsRow] = useState(inputs);
@@ -151,6 +155,35 @@ export default function SettingsChats(props) {
         return;
       }
 
+      let parsedKeyPurposes = [];
+      try {
+        parsedKeyPurposes = JSON.parse(inputs.TokenDefaultKeyPurposes || '[]');
+      } catch {
+        showError(t('请检查输入'));
+        return;
+      }
+      if (
+        !Array.isArray(parsedKeyPurposes) ||
+        !parsedKeyPurposes.some(
+          (item) =>
+            item &&
+            typeof item === 'object' &&
+            String(item.purpose || '').trim().toLowerCase() === 'chat',
+        ) ||
+        parsedKeyPurposes.some(
+          (item) =>
+            !item ||
+            typeof item !== 'object' ||
+            Array.isArray(item) ||
+            !String(item.purpose || '').trim() ||
+            !String(item.label || '').trim() ||
+            !String(item.token || '').trim(),
+        )
+      ) {
+        showError(t('请检查输入'));
+        return;
+      }
+
       const normalizedConfigs = jsonToConfigs(parsedChats);
       if (normalizedConfigs.length !== parsedChats.length) {
         showError(t('请检查输入'));
@@ -160,6 +193,7 @@ export default function SettingsChats(props) {
       const submitInputs = {
         ...inputs,
         Chats: configsToJson(normalizedConfigs),
+        TokenDefaultKeyPurposes: JSON.stringify(parsedKeyPurposes, null, 2),
       };
       if (editMode === 'json' && refForm.current) {
         refForm.current.setValues(submitInputs);
@@ -204,10 +238,20 @@ export default function SettingsChats(props) {
   }
 
   useEffect(() => {
-    const currentInputs = {};
+    if (!props.options || Object.keys(props.options).length === 0) {
+      return;
+    }
+
+    const currentInputs = {
+      Chats: '[]',
+      TokenDefaultKeyPurposes: '[]',
+    };
     for (let key in props.options) {
-      if (Object.keys(inputs).includes(key)) {
+      if (CHAT_SETTING_FIELDS.includes(key)) {
         if (key === 'Chats') {
+          const obj = JSON.parse(props.options[key]);
+          currentInputs[key] = JSON.stringify(obj, null, 2);
+        } else if (key === 'TokenDefaultKeyPurposes') {
           const obj = JSON.parse(props.options[key]);
           currentInputs[key] = JSON.stringify(obj, null, 2);
         } else {
@@ -535,6 +579,32 @@ export default function SettingsChats(props) {
                     }),
                 }}
               />
+              <div style={{ marginTop: 16 }}>
+                <div style={{ marginBottom: 4, fontWeight: 600 }}>
+                  {t('默认')} {t('API Key')}
+                </div>
+                <div
+                  style={{
+                    marginBottom: 8,
+                    color: 'var(--semi-color-text-2)',
+                    fontSize: 12,
+                  }}
+                >
+                  {t('直接编辑 JSON 文本，保存时会校验格式。')} purpose /
+                  label / token; chat -&gt; {'{key}'}
+                </div>
+                <TextArea
+                  value={inputs.TokenDefaultKeyPurposes}
+                  placeholder='[{"purpose":"chat","label":"Chat","token":"chatKey"},{"purpose":"image","label":"Image","token":"imageKey"}]'
+                  autosize={{ minRows: 5, maxRows: 10 }}
+                  onChange={(value) =>
+                    setInputs({
+                      ...inputs,
+                      TokenDefaultKeyPurposes: value,
+                    })
+                  }
+                />
+              </div>
             </div>
           ) : (
             <Form
@@ -561,6 +631,27 @@ export default function SettingsChats(props) {
                   setInputs({
                     ...inputs,
                     Chats: value,
+                  })
+                }
+              />
+              <Form.TextArea
+                label={`${t('默认')} ${t('API Key')}`}
+                extraText={`${t('直接编辑 JSON 文本，保存时会校验格式。')} purpose / label / token; chat -> {key}`}
+                placeholder='[{"purpose":"chat","label":"Chat","token":"chatKey"},{"purpose":"image","label":"Image","token":"imageKey"}]'
+                field={'TokenDefaultKeyPurposes'}
+                autosize={{ minRows: 5, maxRows: 10 }}
+                trigger='blur'
+                stopValidateWithError
+                rules={[
+                  {
+                    validator: (rule, value) => verifyJSON(value),
+                    message: t('不是合法的 JSON 字符串'),
+                  },
+                ]}
+                onChange={(value) =>
+                  setInputs({
+                    ...inputs,
+                    TokenDefaultKeyPurposes: value,
                   })
                 }
               />

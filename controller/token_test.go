@@ -34,15 +34,22 @@ type tokenPageResponse struct {
 }
 
 type tokenResponseItem struct {
-	ID          int    `json:"id"`
-	Name        string `json:"name"`
-	Key         string `json:"key"`
-	Status      int    `json:"status"`
-	DefaultChat bool   `json:"default_chat"`
+	ID              int      `json:"id"`
+	Name            string   `json:"name"`
+	Key             string   `json:"key"`
+	Status          int      `json:"status"`
+	DefaultChat     bool     `json:"default_chat"`
+	DefaultPurposes []string `json:"default_purposes"`
 }
 
 type tokenKeyResponse struct {
 	Key string `json:"key"`
+}
+
+type tokenDefaultPurposeResponseItem struct {
+	Purpose string `json:"purpose"`
+	Label   string `json:"label"`
+	Token   string `json:"token"`
 }
 
 type sqliteColumnInfo struct {
@@ -102,7 +109,7 @@ func openTokenControllerTestDB(t *testing.T) *gorm.DB {
 func migrateTokenControllerTestDB(t *testing.T, db *gorm.DB) {
 	t.Helper()
 
-	if err := db.AutoMigrate(&model.Token{}); err != nil {
+	if err := db.AutoMigrate(&model.Token{}, &model.TokenDefault{}); err != nil {
 		t.Fatalf("failed to migrate token table: %v", err)
 	}
 }
@@ -113,6 +120,26 @@ func setupTokenControllerTestDB(t *testing.T) *gorm.DB {
 	db := openTokenControllerTestDB(t)
 	migrateTokenControllerTestDB(t, db)
 	return db
+}
+
+func withTokenDefaultPurposeOption(t *testing.T, value string) {
+	t.Helper()
+
+	common.OptionMapRWMutex.Lock()
+	originalOptionMap := common.OptionMap
+	nextOptionMap := make(map[string]string, len(originalOptionMap)+1)
+	for key, optionValue := range originalOptionMap {
+		nextOptionMap[key] = optionValue
+	}
+	nextOptionMap[model.TokenDefaultKeyPurposesOptionKey] = value
+	common.OptionMap = nextOptionMap
+	common.OptionMapRWMutex.Unlock()
+
+	t.Cleanup(func() {
+		common.OptionMapRWMutex.Lock()
+		common.OptionMap = originalOptionMap
+		common.OptionMapRWMutex.Unlock()
+	})
 }
 
 func openTokenControllerExternalDB(t *testing.T, dialect string, dsn string) (*gorm.DB, *bool) {
@@ -420,6 +447,24 @@ func TestGetAllTokensMasksKeyInResponse(t *testing.T) {
 	}
 }
 
+func TestGetAllTokensWorksBeforeTokenDefaultMigration(t *testing.T) {
+	db := openTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Token{}))
+	token := seedToken(t, db, 1, "list-token", "missingdefaults1234")
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/?p=1&size=10", nil, 1)
+	GetAllTokens(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+
+	var page tokenPageResponse
+	require.NoError(t, common.Unmarshal(response.Data, &page))
+	require.Len(t, page.Items, 1)
+	assert.Equal(t, token.GetMaskedKey(), page.Items[0].Key)
+	assert.NotContains(t, recorder.Body.String(), `"default_purposes":null`)
+}
+
 func TestSearchTokensMasksKeyInResponse(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	token := seedToken(t, db, 1, "searchable-token", "ijkl1234mnop5678")
@@ -599,4 +644,142 @@ func TestSetDefaultChatTokenRejectsDisabledToken(t *testing.T) {
 	var persisted model.Token
 	require.NoError(t, db.First(&persisted, token.Id).Error)
 	assert.False(t, persisted.DefaultChat)
+}
+
+func TestSetDefaultTokenSupportsSeparatePurposes(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	chatToken := seedToken(t, db, 1, "chat-token", "chat1234token5678")
+	imageToken := seedToken(t, db, 1, "image-token", "image1234token5678")
+
+	chatCtx, chatRecorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/"+strconv.Itoa(chatToken.Id)+"/default/chat", nil, 1)
+	chatCtx.Params = gin.Params{
+		{Key: "id", Value: strconv.Itoa(chatToken.Id)},
+		{Key: "purpose", Value: "chat"},
+	}
+	SetDefaultToken(chatCtx)
+
+	require.Equal(t, http.StatusOK, chatRecorder.Code)
+	chatResponse := decodeAPIResponse(t, chatRecorder)
+	require.True(t, chatResponse.Success)
+
+	imageCtx, imageRecorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/"+strconv.Itoa(imageToken.Id)+"/default/image", nil, 1)
+	imageCtx.Params = gin.Params{
+		{Key: "id", Value: strconv.Itoa(imageToken.Id)},
+		{Key: "purpose", Value: "image"},
+	}
+	SetDefaultToken(imageCtx)
+
+	require.Equal(t, http.StatusOK, imageRecorder.Code)
+	imageResponse := decodeAPIResponse(t, imageRecorder)
+	require.True(t, imageResponse.Success)
+
+	defaultChat, err := model.GetDefaultToken(1, model.TokenDefaultPurposeChat)
+	require.NoError(t, err)
+	assert.Equal(t, chatToken.Id, defaultChat.Id)
+
+	defaultImage, err := model.GetDefaultToken(1, model.TokenDefaultPurposeImage)
+	require.NoError(t, err)
+	assert.Equal(t, imageToken.Id, defaultImage.Id)
+
+	defaultChatCtx, defaultChatRecorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/default_key/chat", nil, 1)
+	defaultChatCtx.Params = gin.Params{{Key: "purpose", Value: "chat"}}
+	GetDefaultTokenKey(defaultChatCtx)
+
+	require.Equal(t, http.StatusOK, defaultChatRecorder.Code)
+	defaultChatResponse := decodeAPIResponse(t, defaultChatRecorder)
+	require.True(t, defaultChatResponse.Success)
+	var defaultChatKey tokenKeyResponse
+	require.NoError(t, common.Unmarshal(defaultChatResponse.Data, &defaultChatKey))
+	assert.Equal(t, chatToken.Key, defaultChatKey.Key)
+
+	defaultImageCtx, defaultImageRecorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/default_key/image", nil, 1)
+	defaultImageCtx.Params = gin.Params{{Key: "purpose", Value: "image"}}
+	GetDefaultTokenKey(defaultImageCtx)
+
+	require.Equal(t, http.StatusOK, defaultImageRecorder.Code)
+	defaultImageResponse := decodeAPIResponse(t, defaultImageRecorder)
+	require.True(t, defaultImageResponse.Success)
+	var defaultImageKey tokenKeyResponse
+	require.NoError(t, common.Unmarshal(defaultImageResponse.Data, &defaultImageKey))
+	assert.Equal(t, imageToken.Key, defaultImageKey.Key)
+
+	var chatPersisted model.Token
+	require.NoError(t, db.First(&chatPersisted, chatToken.Id).Error)
+	assert.True(t, chatPersisted.DefaultChat)
+
+	var imagePersisted model.Token
+	require.NoError(t, db.First(&imagePersisted, imageToken.Id).Error)
+	assert.False(t, imagePersisted.DefaultChat)
+}
+
+func TestSetDefaultTokenSupportsConfiguredPurposes(t *testing.T) {
+	withTokenDefaultPurposeOption(t, `[{"purpose":"chat","label":"Chat","token":"chatKey"},{"purpose":"rerank","label":"Rerank","token":"rerankKey"}]`)
+	db := setupTokenControllerTestDB(t)
+	rerankToken := seedToken(t, db, 1, "rerank-token", "rerank1234token5678")
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodPut, "/api/token/"+strconv.Itoa(rerankToken.Id)+"/default/rerank", nil, 1)
+	ctx.Params = gin.Params{
+		{Key: "id", Value: strconv.Itoa(rerankToken.Id)},
+		{Key: "purpose", Value: "rerank"},
+	}
+	SetDefaultToken(ctx)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	response := decodeAPIResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+
+	defaultRerankCtx, defaultRerankRecorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/default_key/rerank", nil, 1)
+	defaultRerankCtx.Params = gin.Params{{Key: "purpose", Value: "rerank"}}
+	GetDefaultTokenKey(defaultRerankCtx)
+
+	require.Equal(t, http.StatusOK, defaultRerankRecorder.Code)
+	defaultRerankResponse := decodeAPIResponse(t, defaultRerankRecorder)
+	require.True(t, defaultRerankResponse.Success, defaultRerankResponse.Message)
+	var defaultRerankKey tokenKeyResponse
+	require.NoError(t, common.Unmarshal(defaultRerankResponse.Data, &defaultRerankKey))
+	assert.Equal(t, rerankToken.Key, defaultRerankKey.Key)
+}
+
+func TestGetDefaultTokenKeyPurposesUsesConfiguredPurposes(t *testing.T) {
+	withTokenDefaultPurposeOption(t, `[{"purpose":"chat","label":"Chat","token":"chatKey"},{"purpose":"rerank","label":"Rerank","token":"rerankKey"}]`)
+	openTokenControllerTestDB(t)
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodGet, "/api/token/default_key_purposes", nil, 1)
+	GetDefaultTokenKeyPurposes(ctx)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	response := decodeAPIResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+	var purposes []tokenDefaultPurposeResponseItem
+	require.NoError(t, common.Unmarshal(response.Data, &purposes))
+	require.Len(t, purposes, 2)
+	assert.Equal(t, tokenDefaultPurposeResponseItem{Purpose: "rerank", Label: "Rerank", Token: "rerankKey"}, purposes[1])
+}
+
+func TestUpdateTokenDefaultKeyPurposesValidatesBeforePersisting(t *testing.T) {
+	validPurposes := `[{"purpose":"chat","label":"Chat","token":"chatKey"}]`
+	withTokenDefaultPurposeOption(t, validPurposes)
+	db := openTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.Option{}))
+
+	err := model.UpdateOption(model.TokenDefaultKeyPurposesOptionKey, `[{"purpose":"image","label":"Image","token":"imageKey"}]`)
+	require.Error(t, err)
+
+	var persisted model.Option
+	err = db.Where("key = ?", model.TokenDefaultKeyPurposesOptionKey).First(&persisted).Error
+	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
+
+	common.OptionMapRWMutex.RLock()
+	optionValue := common.OptionMap[model.TokenDefaultKeyPurposesOptionKey]
+	common.OptionMapRWMutex.RUnlock()
+	assert.Equal(t, validPurposes, optionValue)
+
+	err = model.UpdateOption(
+		model.TokenDefaultKeyPurposesOptionKey,
+		`[{"purpose":" Chat ","label":"","token":""},{"purpose":"Rerank","label":" Rerank ","token":"rerankKey"}]`,
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, db.Where("key = ?", model.TokenDefaultKeyPurposesOptionKey).First(&persisted).Error)
+	assert.JSONEq(t, `[{"purpose":"chat","label":"chat","token":"chatKey"},{"purpose":"rerank","label":"Rerank","token":"rerankKey"}]`, persisted.Value)
 }
