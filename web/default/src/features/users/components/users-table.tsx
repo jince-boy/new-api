@@ -18,20 +18,22 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import { useMediaQuery } from '@/hooks'
-import { useTranslation } from 'react-i18next'
 import { RefreshCw } from 'lucide-react'
+import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { useTableUrlState } from '@/hooks/use-table-url-state'
-import { cn } from '@/lib/utils'
-import { formatQuota } from '@/lib/format'
-import { Button } from '@/components/ui/button'
+
 import {
   DISABLED_ROW_DESKTOP,
   DISABLED_ROW_MOBILE,
   DataTablePage,
   useDataTable,
 } from '@/components/data-table'
+import { Button } from '@/components/ui/button'
+import { useMediaQuery } from '@/hooks'
+import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { formatQuota } from '@/lib/format'
+import { cn } from '@/lib/utils'
+
 import { getUsers, searchUsers } from '../api'
 import {
   USER_STATUS,
@@ -220,13 +222,10 @@ export function UsersTable() {
             },
           ],
         }}
-        getRowClassName={(row, { isMobile }) =>
-          isDisabledUserRow(row.original)
-            ? isMobile
-              ? DISABLED_ROW_MOBILE
-              : DISABLED_ROW_DESKTOP
-            : undefined
-        }
+        getRowClassName={(row, { isMobile }) => {
+          if (!isDisabledUserRow(row.original)) return undefined
+          return isMobile ? DISABLED_ROW_MOBILE : DISABLED_ROW_DESKTOP
+        }}
         bulkActions={<DataTableBulkActions table={table} />}
       />
     </div>

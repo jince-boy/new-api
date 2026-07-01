@@ -16,16 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { VChart } from '@visactor/react-vchart'
 import { Users, Loader2, RefreshCw } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
-import { VCHART_OPTION } from '@/lib/vchart'
-import { useThemeCustomization } from '@/context/theme-customization-provider'
-import { useTheme } from '@/context/theme-provider'
-import { cn } from '@/lib/utils'
+
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -34,6 +30,8 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from '@/components/ui/toggle-group'
+import { useThemeCustomization } from '@/context/theme-customization-provider'
+import { useTheme } from '@/context/theme-provider'
 import { getUserQuotaDataByUsers } from '@/features/dashboard/api'
 import {
   DASHBOARD_QUICK_RANGE_PRESETS,
@@ -49,6 +47,9 @@ import type {
   ProcessedUserChartData,
   UserChartsFilters,
 } from '@/features/dashboard/types'
+import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
+import { cn } from '@/lib/utils'
+import { VCHART_OPTION } from '@/lib/vchart'
 
 let themeManagerPromise: Promise<
   (typeof import('@visactor/vchart'))['ThemeManager']
@@ -141,7 +142,7 @@ function UserRankList({ spec }: { spec: unknown }) {
 
           return (
             <div
-              key={`${index}-${name}`}
+              key={name}
               className='grid min-h-8 items-center gap-2 rounded-md border border-transparent px-2 py-1 transition-[background-color,border-color] hover:border-border hover:bg-muted/35'
               style={{
                 gridTemplateColumns:
@@ -399,6 +400,12 @@ export function UserCharts(props: UserChartsProps) {
                 option={VCHART_OPTION}
               />
             )
+          let chartContent = chartElement || null
+          if (isLoading) {
+            chartContent = <Skeleton className='h-full w-full' />
+          } else if (isRankChart) {
+            chartContent = <UserRankList spec={spec} />
+          }
 
           return (
             <div
@@ -417,13 +424,7 @@ export function UserCharts(props: UserChartsProps) {
                     : 'h-[300px] p-1.5 sm:h-96 sm:p-2'
                 }
               >
-                {isLoading ? (
-                  <Skeleton className='h-full w-full' />
-                ) : isRankChart ? (
-                  <UserRankList spec={spec} />
-                ) : (
-                  chartElement
-                )}
+                {chartContent}
               </div>
             </div>
           )

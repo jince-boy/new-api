@@ -16,19 +16,21 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useEffect, useCallback } from 'react'
 import { Bell, Loader2, Mail, Server, Webhook } from 'lucide-react'
+import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { ROLE } from '@/lib/roles'
-import { formatQuotaWithCurrency } from '@/lib/currency'
+
+import { PasswordInput } from '@/components/password-input'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
-import { PasswordInput } from '@/components/password-input'
+import { formatQuotaWithCurrency } from '@/lib/currency'
+import { ROLE } from '@/lib/roles'
+
 import { updateUserSettings } from '../../api'
 import {
   DEFAULT_QUOTA_WARNING_THRESHOLD,
@@ -125,7 +127,7 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
       } else {
         toast.error(response.message || t('Failed to update settings'))
       }
-    } catch (_error) {
+    } catch {
       toast.error(t('Failed to update settings'))
     } finally {
       setLoading(false)
@@ -148,8 +150,9 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
           value={[notifyType]}
           onValueChange={(value) => {
             const nextValue = value.find((item) => item !== notifyType)
-            if (nextValue)
+            if (nextValue) {
               updateField('notify_type', normalizeNotifyType(nextValue))
+            }
           }}
           aria-label={t('Notification Method')}
           variant='outline'
@@ -193,7 +196,7 @@ export function NotificationTab({ profile, onUpdate }: NotificationTabProps) {
           className='h-9 font-mono tabular-nums'
           value={settings.quota_warning_threshold}
           onChange={(e) => {
-            const rawValue = e.target.value.replace(/\D/g, '')
+            const rawValue = e.target.value.replaceAll(/\D/g, '')
             updateField(
               'quota_warning_threshold',
               rawValue === '' ? 0 : Number(rawValue)

@@ -18,13 +18,15 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { List, Share2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
-import { formatQuota } from '@/lib/format'
+
+import { CopyButton } from '@/components/copy-button'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CopyButton } from '@/components/copy-button'
+import { formatQuota } from '@/lib/format'
+
 import type { UserWalletData } from '../types'
 
 interface AffiliateRewardsCardProps {
@@ -73,18 +75,24 @@ export function AffiliateRewardsCard({
     !hasRewards ||
     (effectiveMinTransferQuota > 0 &&
       (user?.aff_quota ?? 0) < effectiveMinTransferQuota)
-  const rewardDescription =
-    rewardType === 'percentage' && rewardValue > 0
-      ? t('Friends top up and you receive {{value}}% as a rebate', {
-          value: rewardValue,
-        })
-      : rewardType === 'fixed' && rewardValue > 0
-        ? t('Friends top up and you receive {{quota}} as a fixed rebate', {
-            quota: formatQuota(rewardValue),
-          })
-        : t(
-            'Earn rewards when your referrals add funds. Transfer accumulated rewards to your balance anytime.'
-          )
+  let rewardDescription = t(
+    'Earn rewards when your referrals add funds. Transfer accumulated rewards to your balance anytime.'
+  )
+  if (rewardType === 'percentage' && rewardValue > 0) {
+    rewardDescription = t(
+      'Friends top up and you receive {{value}}% as a rebate',
+      {
+        value: rewardValue,
+      }
+    )
+  } else if (rewardType === 'fixed' && rewardValue > 0) {
+    rewardDescription = t(
+      'Friends top up and you receive {{quota}} as a fixed rebate',
+      {
+        quota: formatQuota(rewardValue),
+      }
+    )
+  }
   const transferHint =
     effectiveMinTransferQuota > 0
       ? t('Minimum transfer: {{quota}}', {

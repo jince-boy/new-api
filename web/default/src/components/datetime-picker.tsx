@@ -16,17 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import * as React from 'react'
 import {
   Calendar03Icon,
   Cancel01Icon,
   Clock01Icon,
 } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
+import * as React from 'react'
 import { enUS, fr, ja, ru, vi, zhCN, zhTW } from 'react-day-picker/locale'
 import { useTranslation } from 'react-i18next'
-import dayjs from '@/lib/dayjs'
-import { cn } from '@/lib/utils'
+
 import { Button } from '@/components/ui/button'
 import { Calendar } from '@/components/ui/calendar'
 import { Field, FieldLabel } from '@/components/ui/field'
@@ -36,6 +35,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover'
+import dayjs from '@/lib/dayjs'
+import { cn } from '@/lib/utils'
 
 const calendarLocales = {
   en: enUS,

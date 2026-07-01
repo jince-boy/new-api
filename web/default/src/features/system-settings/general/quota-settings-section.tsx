@@ -16,12 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ChangeEvent } from 'react'
-import * as z from 'zod'
-import type { Resolver } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import type { ChangeEvent } from 'react'
+import type { Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
-import { parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
+import * as z from 'zod'
+
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
   Form,
@@ -42,6 +42,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
+
 import { FormDirtyIndicator } from '../components/form-dirty-indicator'
 import { FormNavigationGuard } from '../components/form-navigation-guard'
 import {
@@ -55,6 +56,7 @@ import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useSettingsForm } from '../hooks/use-settings-form'
 import { useUpdateOption } from '../hooks/use-update-option'
+import { parseQuotaFromDollars, quotaUnitsToDollars } from '@/lib/format'
 
 const createQuotaSchema = (t: (key: string) => string) =>
   z

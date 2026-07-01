@@ -16,14 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useCallback, useMemo, lazy, Suspense } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { getRouteApi, useNavigate } from '@tanstack/react-router'
 import { Eye, EyeOff, RefreshCw } from 'lucide-react'
+import { lazy, Suspense, useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useAuthStore } from '@/stores/auth-store'
-import { ROLE } from '@/lib/roles'
-import { cn } from '@/lib/utils'
+
+import { SectionPageLayout } from '@/components/layout'
+import { FadeIn } from '@/components/page-transition'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -36,8 +36,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { SectionPageLayout } from '@/components/layout'
-import { FadeIn } from '@/components/page-transition'
+import { ROLE } from '@/lib/roles'
+import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
+
 import { ModelsChartPreferences } from './components/models/models-chart-preferences'
 import { ModelsFilter } from './components/models/models-filter-dialog'
 import { OverviewDashboard } from './components/overview/overview-dashboard'
@@ -54,18 +56,32 @@ import {
   saveChartPreferences,
 } from './lib'
 import {
-  type DashboardSectionId,
   DASHBOARD_DEFAULT_SECTION,
   DASHBOARD_SECTION_IDS,
 } from './section-registry'
-import {
-  type DashboardChartPreferences,
-  type DashboardFilters,
-  type QuotaDataItem,
-  type UserChartsFilters,
+import type {
+  DashboardChartPreferences,
+  DashboardFilters,
+  QuotaDataItem,
+  UserChartsFilters,
 } from './types'
 
+type DashboardSectionId = (typeof DASHBOARD_SECTION_IDS)[number]
+
 const route = getRouteApi('/_authenticated/dashboard/$section')
+const LOG_STAT_CARDS_FALLBACK_KEYS = [
+  'requests',
+  'quota',
+  'tokens',
+  'latency',
+  'errors',
+] as const
+const PERFORMANCE_OVERVIEW_FALLBACK_KEYS = [
+  'availability',
+  'latency',
+  'throughput',
+] as const
+const PERFORMANCE_OVERVIEW_BADGE_KEYS = ['success', 'errors'] as const
 
 const LazyLogStatCards = lazy(() =>
   import('./components/models/log-stat-cards').then((m) => ({
@@ -113,8 +129,8 @@ function LogStatCardsFallback() {
   return (
     <div className='overflow-hidden rounded-lg border'>
       <div className='divide-border/60 grid grid-cols-2 divide-x sm:grid-cols-3 lg:grid-cols-5'>
-        {Array.from({ length: 5 }).map((_, i) => (
-          <div key={i} className='px-4 py-3.5 sm:px-5 sm:py-4'>
+        {LOG_STAT_CARDS_FALLBACK_KEYS.map((key) => (
+          <div key={key} className='px-4 py-3.5 sm:px-5 sm:py-4'>
             <Skeleton className='h-3.5 w-16' />
             <Skeleton className='mt-2 h-7 w-20' />
             <Skeleton className='mt-1.5 h-3.5 w-28' />
@@ -163,15 +179,15 @@ function PerformanceOverviewFallback() {
         <div className='flex items-center gap-2'>
           <Skeleton className='h-4 w-24' />
         </div>
-        {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className='flex items-center gap-1.5'>
+        {PERFORMANCE_OVERVIEW_FALLBACK_KEYS.map((key) => (
+          <div key={key} className='flex items-center gap-1.5'>
             <Skeleton className='h-3 w-14' />
             <Skeleton className='h-4 w-16' />
           </div>
         ))}
         <div className='ml-auto flex items-center gap-2'>
-          {Array.from({ length: 2 }).map((_, i) => (
-            <Skeleton key={i} className='h-5 w-28 rounded-full' />
+          {PERFORMANCE_OVERVIEW_BADGE_KEYS.map((key) => (
+            <Skeleton key={key} className='h-5 w-28 rounded-full' />
           ))}
         </div>
       </div>

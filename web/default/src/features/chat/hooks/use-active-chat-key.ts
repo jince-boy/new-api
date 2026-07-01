@@ -17,8 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { useAuthStore } from '@/stores/auth-store'
+
 import { fetchDefaultChatApiKey } from '@/features/keys/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 export async function fetchActiveChatKey() {
   const result = await fetchDefaultChatApiKey()
