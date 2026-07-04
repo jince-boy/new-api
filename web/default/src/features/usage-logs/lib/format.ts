@@ -250,6 +250,52 @@ export function hasAnyCacheTokens(
   )
 }
 
+export function getCacheWriteTokens(
+  other: LogOtherData | null | undefined
+): number {
+  if (!other) return 0
+  const cacheWrite5m = other.cache_creation_tokens_5m || 0
+  const cacheWrite1h = other.cache_creation_tokens_1h || 0
+  const splitCacheWriteTokens = cacheWrite5m + cacheWrite1h
+  const aggregateCacheWriteTokens = other.cache_creation_tokens || 0
+
+  if (splitCacheWriteTokens > 0) {
+    return Math.max(aggregateCacheWriteTokens, splitCacheWriteTokens)
+  }
+
+  return aggregateCacheWriteTokens
+}
+
+export function getInputTokenTotal(
+  promptTokens: number,
+  other: LogOtherData | null | undefined
+): number {
+  const safePromptTokens = Math.max(0, promptTokens)
+  if (!other) return safePromptTokens
+
+  const cacheReadTokens = other.cache_tokens || 0
+  const cacheWriteTokens = getCacheWriteTokens(other)
+  const cacheTokens = cacheReadTokens + cacheWriteTokens
+
+  if (other.usage_semantic === 'anthropic' || other.claude === true) {
+    return safePromptTokens + cacheTokens
+  }
+
+  return Math.max(safePromptTokens, cacheTokens)
+}
+
+export function formatTokenPercent(
+  numerator: number,
+  denominator: number
+): string {
+  if (numerator <= 0 || denominator <= 0) return '0%'
+
+  const percent = (numerator / denominator) * 100
+  if (percent > 0 && percent < 0.1) return '<0.1%'
+  if (percent >= 99.95 && percent < 100) return '99.9%'
+  return `${Math.min(percent, 100).toFixed(1).replace(/\.0$/, '')}%`
+}
+
 export function getTieredBillingSummary(
   other: LogOtherData | null
 ): TieredBillingSummary | null {

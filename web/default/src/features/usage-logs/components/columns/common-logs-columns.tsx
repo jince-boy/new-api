@@ -47,7 +47,10 @@ import { LOG_TYPE_ALL_VALUE } from '../../constants'
 import type { UsageLog } from '../../data/schema'
 import {
   formatModelName,
+  formatTokenPercent,
+  getCacheWriteTokens,
   getFirstResponseTimeColor,
+  getInputTokenTotal,
   getResponseTimeColor,
   getTieredBillingSummary,
   hasAnyCacheTokens,
@@ -711,7 +714,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
     {
       accessorKey: 'prompt_tokens',
-      header: 'Tokens',
+      header: `${t('Input')} / ${t('Output')}`,
       cell: ({ row }) => {
         const log = row.original
         if (!isDisplayableLogType(log.type)) return null
@@ -725,29 +728,41 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         }
 
         const cacheReadTokens = other?.cache_tokens || 0
-        const cacheWrite5m = other?.cache_creation_tokens_5m || 0
-        const cacheWrite1h = other?.cache_creation_tokens_1h || 0
-        const hasSplitCache = cacheWrite5m > 0 || cacheWrite1h > 0
-        const cacheWriteTokens = hasSplitCache
-          ? cacheWrite5m + cacheWrite1h
-          : other?.cache_creation_tokens || 0
+        const cacheWriteTokens = getCacheWriteTokens(other)
+        const inputTokenTotal = getInputTokenTotal(promptTokens, other)
 
         return (
-          <div className='flex flex-col gap-0.5'>
-            <span className='font-mono text-xs font-medium tabular-nums'>
-              {promptTokens.toLocaleString()} /{' '}
-              {completionTokens.toLocaleString()}
-            </span>
+          <div className='flex flex-col gap-1'>
+            <div className='flex flex-wrap items-center gap-x-2 gap-y-0.5'>
+              <span className='font-mono text-xs font-medium tabular-nums'>
+                <span className='text-muted-foreground/70 [font-family:var(--font-body)] font-normal'>
+                  {t('Input')}{' '}
+                </span>
+                {promptTokens.toLocaleString()}
+              </span>
+              <span className='font-mono text-xs font-medium tabular-nums'>
+                <span className='text-muted-foreground/70 [font-family:var(--font-body)] font-normal'>
+                  {t('Output')}{' '}
+                </span>
+                {completionTokens.toLocaleString()}
+              </span>
+            </div>
             {(cacheReadTokens > 0 || cacheWriteTokens > 0) && (
-              <div className='flex items-center gap-1 text-[11px]'>
+              <div className='text-muted-foreground/65 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] leading-tight'>
                 {cacheReadTokens > 0 && (
-                  <span className='text-muted-foreground/60'>
-                    {t('Cache')}↓ {cacheReadTokens.toLocaleString()}
+                  <span>
+                    {`${t('Cached input')} ${cacheReadTokens.toLocaleString()} (${formatTokenPercent(
+                      cacheReadTokens,
+                      inputTokenTotal
+                    )})`}
                   </span>
                 )}
                 {cacheWriteTokens > 0 && (
-                  <span className='text-muted-foreground/60'>
-                    ↑ {cacheWriteTokens.toLocaleString()}
+                  <span>
+                    {`${t('Cache Write')} ${cacheWriteTokens.toLocaleString()} (${formatTokenPercent(
+                      cacheWriteTokens,
+                      inputTokenTotal
+                    )})`}
                   </span>
                 )}
               </div>

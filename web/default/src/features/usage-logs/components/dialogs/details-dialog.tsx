@@ -46,7 +46,10 @@ import { cn } from '@/lib/utils'
 import type { UsageLog } from '../../data/schema'
 import {
   parseLogOther,
+  formatTokenPercent,
+  getCacheWriteTokens,
   getParamOverrideActionLabel,
+  getInputTokenTotal,
   parseAuditLine,
   decodeBillingExprB64,
   getTieredBillingSummary,
@@ -340,13 +343,16 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
   const promptTokens = log.prompt_tokens || 0
   const completionTokens = log.completion_tokens || 0
   const cacheRead = other.cache_tokens || 0
-  const cacheWrite = other.cache_creation_tokens || 0
+  const cacheWrite = getCacheWriteTokens(other)
   const cacheWrite5m = other.cache_creation_tokens_5m || 0
   const cacheWrite1h = other.cache_creation_tokens_1h || 0
+  const splitCacheWrite = cacheWrite5m + cacheWrite1h
+  const cacheWriteRemainder = Math.max(0, cacheWrite - splitCacheWrite)
   const hasTokens = promptTokens > 0 || completionTokens > 0
 
   if (!hasTokens) return null
 
+  const inputTokenTotal = getInputTokenTotal(promptTokens, other)
   const rows: Array<{ label: string; value: string }> = []
 
   rows.push({ label: t('Input Tokens'), value: promptTokens.toLocaleString() })
@@ -357,29 +363,51 @@ function TokenBreakdown(props: { log: UsageLog; other: LogOtherData }) {
 
   if (cacheRead > 0) {
     rows.push({
-      label: t('Cache Read'),
-      value: cacheRead.toLocaleString(),
+      label: t('Cached input'),
+      value: `${cacheRead.toLocaleString()} (${formatTokenPercent(
+        cacheRead,
+        inputTokenTotal
+      )})`,
     })
   }
 
-  if (cacheWrite > 0 && cacheWrite5m === 0 && cacheWrite1h === 0) {
+  if (cacheWrite > 0 && splitCacheWrite === 0) {
     rows.push({
       label: t('Cache Write'),
-      value: cacheWrite.toLocaleString(),
+      value: `${cacheWrite.toLocaleString()} (${formatTokenPercent(
+        cacheWrite,
+        inputTokenTotal
+      )})`,
+    })
+  }
+
+  if (cacheWriteRemainder > 0 && splitCacheWrite > 0) {
+    rows.push({
+      label: t('Cache Write'),
+      value: `${cacheWriteRemainder.toLocaleString()} (${formatTokenPercent(
+        cacheWriteRemainder,
+        inputTokenTotal
+      )})`,
     })
   }
 
   if (cacheWrite5m > 0) {
     rows.push({
       label: t('Cache Write (5m)'),
-      value: cacheWrite5m.toLocaleString(),
+      value: `${cacheWrite5m.toLocaleString()} (${formatTokenPercent(
+        cacheWrite5m,
+        inputTokenTotal
+      )})`,
     })
   }
 
   if (cacheWrite1h > 0) {
     rows.push({
       label: t('Cache Write (1h)'),
-      value: cacheWrite1h.toLocaleString(),
+      value: `${cacheWrite1h.toLocaleString()} (${formatTokenPercent(
+        cacheWrite1h,
+        inputTokenTotal
+      )})`,
     })
   }
 

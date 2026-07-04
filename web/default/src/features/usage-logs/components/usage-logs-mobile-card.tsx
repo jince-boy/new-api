@@ -225,7 +225,7 @@ function CommonLogsCard<TData>({
           primaryOnly
         />
         <SummaryField
-          label={t('Tokens')}
+          label={`${t('Input')} / ${t('Output')}`}
           cell={cells.get('prompt_tokens')}
           primaryOnly
         />
