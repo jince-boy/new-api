@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { EXCLUDED_GROUPS, QUOTA_TYPE_VALUES } from '../constants'
+import { EXCLUDED_GROUPS, FILTER_ALL, QUOTA_TYPE_VALUES } from '../constants'
 import type { PricingModel } from '../types'
 
 // ----------------------------------------------------------------------------
@@ -40,32 +40,53 @@ export function getAvailableGroups(
 }
 
 /**
- * Get the group ratio used for summary prices.
+ * Read a configured group ratio while preserving valid zero ratios.
+ */
+export function getConfiguredGroupRatio(
+  groupRatio: Record<string, number>,
+  group: string
+): number {
+  const ratio = groupRatio[group]
+  return typeof ratio === 'number' && Number.isFinite(ratio) ? ratio : 1
+}
+
+/**
+ * Resolve the group ratio used by model square summary prices.
  *
- * When a concrete group is selected, summary cards and tables should show that
- * group's price. Without a selected group, keep the previous behavior of
- * showing the cheapest enabled group.
+ * When no specific group is selected, the model square shows the best price
+ * available to the viewer. When a group filter is active, it mirrors classic
+ * and shows that group's price.
  */
 export function getDisplayGroupRatio(
   model: PricingModel,
   selectedGroup?: string
 ): number {
-  const enableGroups = Array.isArray(model.enable_groups)
+  const modelEnableGroups = Array.isArray(model.enable_groups)
     ? model.enable_groups
     : []
   const groupRatio = model.group_ratio || {}
 
-  if (selectedGroup && enableGroups.includes(selectedGroup)) {
-    return groupRatio[selectedGroup] ?? 1
+  if (
+    selectedGroup &&
+    selectedGroup !== FILTER_ALL &&
+    modelEnableGroups.includes(selectedGroup)
+  ) {
+    return getConfiguredGroupRatio(groupRatio, selectedGroup)
   }
 
-  if (enableGroups.length === 0) return 1
+  if (modelEnableGroups.length === 0) {
+    return 1
+  }
 
   let minRatio = Number.POSITIVE_INFINITY
 
-  for (const group of enableGroups) {
+  for (const group of modelEnableGroups) {
     const ratio = groupRatio[group]
-    if (ratio !== undefined && ratio < minRatio) {
+    if (
+      typeof ratio === 'number' &&
+      Number.isFinite(ratio) &&
+      ratio < minRatio
+    ) {
       minRatio = ratio
     }
   }
@@ -77,7 +98,7 @@ export function getDisplayGroupRatio(
  * Replace model placeholder in endpoint path
  */
 export function replaceModelInPath(path: string, modelName: string): string {
-  return path.replace(/\{model\}/g, modelName)
+  return path.replaceAll('{model}', modelName)
 }
 
 /**

@@ -66,8 +66,11 @@ export function isDynamicPricingModel(model: PricingModel): boolean {
   return model.billing_mode === 'tiered_expr' && Boolean(model.billing_expr)
 }
 
-export function getDynamicDisplayGroupRatio(model: PricingModel): number {
-  return getDisplayGroupRatio(model)
+export function getDynamicDisplayGroupRatio(
+  model: PricingModel,
+  selectedGroup?: string
+): number {
+  return getDisplayGroupRatio(model, selectedGroup)
 }
 
 function applyRechargeRate(

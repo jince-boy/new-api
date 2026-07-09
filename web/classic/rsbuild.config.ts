@@ -25,9 +25,7 @@ export default defineConfig(({ envMode }) => {
     process.env.VITE_REACT_APP_SERVER_URL ||
     env.rawPublicVars.VITE_REACT_APP_SERVER_URL ||
     ''
-  const proxyServerUrl =
-    clientServerUrl ||
-    'http://localhost:3000'
+  const proxyServerUrl = clientServerUrl || 'http://localhost:3000'
   const isProd = envMode === 'production'
   const devProxy = Object.fromEntries(
     (['/api', '/mj', '/pg'] as const).map((key) => [

@@ -17,6 +17,22 @@ services:
       SQL_DSN: "root:xxxxx@tcp(mysql8.2:3306)/new-api?charset=utf8mb4&parseTime=True&loc=Local"
       REDIS_CONN_STRING: "redis://redis:6379"
       TZ: Asia/Shanghai
+      ERROR_LOG_ENABLED: "true"
+      BATCH_UPDATE_ENABLED: "true"
+      NODE_NAME: "new-api-node-1"
+#      LOG_SQL_DSN: "postgresql://root:123456@postgres:5432/new-api-log"
+#      LOG_SQL_DSN: "clickhouse://default:123456@clickhouse:9000/new_api_logs"
+#      LOG_SQL_CLICKHOUSE_TTL_DAYS: "0"
+#      STREAMING_TIMEOUT: "300"
+#      RELAY_IDLE_CONN_TIMEOUT: "90"
+#      SESSION_SECRET: "random_string"
+#      SESSION_COOKIE_SECURE: "true"
+#      SESSION_COOKIE_TRUSTED_URL: "https://example.com,https://admin.example.com"
+#      SYNC_FREQUENCY: "60"
+#      GOOGLE_ANALYTICS_ID: "G-XXXXXXXXXX"
+#      UMAMI_WEBSITE_ID: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+#      UMAMI_SCRIPT_URL: "https://analytics.umami.is/script.js"
+
     networks:
       - my_network
 

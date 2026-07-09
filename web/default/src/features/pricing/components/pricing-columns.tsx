@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -34,7 +34,7 @@ import {
   getDynamicPricingSummary,
 } from '../lib/dynamic-price'
 import { parseTags } from '../lib/filters'
-import { getDisplayGroupRatio, isTokenBasedModel } from '../lib/model-helpers'
+import { isTokenBasedModel } from '../lib/model-helpers'
 import {
   formatPrice,
   formatRequestPrice,
@@ -69,7 +69,6 @@ export function usePricingColumns(
   const tokenUnitLabel = tokenUnit === 'K' ? '1K' : '1M'
 
   return [
-    // Model column
     {
       accessorKey: 'model_name',
       meta: { label: t('Model') },
@@ -92,8 +91,6 @@ export function usePricingColumns(
       },
       minSize: 200,
     },
-
-    // Type column
     {
       accessorKey: 'quota_type',
       header: t('Type'),
@@ -111,8 +108,6 @@ export function usePricingColumns(
       size: 80,
       enableSorting: false,
     },
-
-    // Price column
     {
       accessorKey: 'price',
       meta: { label: t('Price') },
@@ -126,9 +121,10 @@ export function usePricingColumns(
           showRechargePrice,
           priceRate,
           usdExchangeRate,
-          groupRatioMultiplier: selectedGroup
-            ? getDisplayGroupRatio(model, selectedGroup)
-            : getDynamicDisplayGroupRatio(model),
+          groupRatioMultiplier: getDynamicDisplayGroupRatio(
+            model,
+            selectedGroup
+          ),
         })
 
         if (dynamicSummary) {
@@ -172,7 +168,7 @@ export function usePricingColumns(
               <div className='text-muted-foreground/50 text-[10px]'>
                 / {tokenUnitLabel} tokens
                 {dynamicSummary.tierCount > 1 &&
-                  ` · ${t('{{count}} tiers', {
+                  ` - ${t('{{count}} tiers', {
                     count: dynamicSummary.tierCount,
                   })}`}
               </div>
@@ -242,8 +238,6 @@ export function usePricingColumns(
       size: 180,
       enableSorting: false,
     },
-
-    // Cached price column (Vercel AI Gateway style)
     {
       id: 'cached_price',
       header: t('Cached'),
@@ -254,9 +248,10 @@ export function usePricingColumns(
           showRechargePrice,
           priceRate,
           usdExchangeRate,
-          groupRatioMultiplier: selectedGroup
-            ? getDisplayGroupRatio(model, selectedGroup)
-            : getDynamicDisplayGroupRatio(model),
+          groupRatioMultiplier: getDynamicDisplayGroupRatio(
+            model,
+            selectedGroup
+          ),
         })
 
         if (dynamicSummary) {
@@ -272,7 +267,7 @@ export function usePricingColumns(
             (entry) => entry.field === 'cacheReadPrice'
           )
           if (!cacheEntry) {
-            return <span className='text-muted-foreground/30 text-xs'>—</span>
+            return <span className='text-muted-foreground/30 text-xs'>-</span>
           }
 
           return (
@@ -290,7 +285,7 @@ export function usePricingColumns(
         const isTokenBased = isTokenBasedModel(model)
 
         if (!isTokenBased || model.cache_ratio == null) {
-          return <span className='text-muted-foreground/30 text-xs'>—</span>
+          return <span className='text-muted-foreground/30 text-xs'>-</span>
         }
 
         const cachedPrice = stripTrailingZeros(
@@ -319,15 +314,13 @@ export function usePricingColumns(
       size: 110,
       enableSorting: false,
     },
-
-    // Vendor column
     {
       accessorKey: 'vendor_name',
       header: t('Vendor'),
       cell: ({ row }) => {
         const model = row.original
         if (!model.vendor_name) {
-          return <span className='text-muted-foreground/50 text-xs'>—</span>
+          return <span className='text-muted-foreground/50 text-xs'>-</span>
         }
         const vendorIcon = model.vendor_icon
           ? getLobeIcon(model.vendor_icon, 12)
@@ -347,8 +340,6 @@ export function usePricingColumns(
       size: 130,
       enableSorting: false,
     },
-
-    // Tags column
     {
       accessorKey: 'tags',
       header: t('Tags'),
@@ -371,8 +362,6 @@ export function usePricingColumns(
       size: 140,
       enableSorting: false,
     },
-
-    // Endpoints column
     {
       accessorKey: 'supported_endpoint_types',
       header: t('Endpoints'),
@@ -395,8 +384,6 @@ export function usePricingColumns(
       size: 130,
       enableSorting: false,
     },
-
-    // Enable Groups column
     {
       accessorKey: 'enable_groups',
       header: t('Groups'),
