@@ -80,6 +80,7 @@ type SampleContext = {
   modelName: string
   endpointType: string
   endpointPath: string
+  endpointMethod: string
 }
 
 function buildChatSample(lang: Lang, ctx: SampleContext): string {
@@ -423,16 +424,97 @@ function buildImageSample(lang: Lang, ctx: SampleContext): string {
   ].join('\n')
 }
 
+function buildGetEndpointSample(lang: Lang, ctx: SampleContext): string {
+  const url = `${ctx.baseUrl}${ctx.endpointPath}`
+    .replace('{task_id}', '<TASK_ID>')
+    .replace('{video_id}', '<VIDEO_ID>')
+
+  if (lang === 'curl') {
+    return [
+      `curl ${url} \\`,
+      `  -H "Authorization: Bearer $${ctx.apiKeyEnv}"`,
+    ].join('\n')
+  }
+  if (lang === 'python') {
+    return [
+      'import requests',
+      '',
+      `response = requests.get(`,
+      `    "${url}",`,
+      `    headers={"Authorization": "Bearer <YOUR_API_KEY>"},`,
+      `)`,
+      '',
+      'print(response.json())',
+    ].join('\n')
+  }
+  if (lang === 'typescript') {
+    return [
+      `const response = await fetch('${url}', {`,
+      `  headers: { Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\` },`,
+      `})`,
+      '',
+      `console.log(await response.json())`,
+    ].join('\n')
+  }
+  return [
+    `const response = await fetch('${url}', {`,
+    `  headers: { Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\` },`,
+    `})`,
+    '',
+    `console.log(await response.json())`,
+  ].join('\n')
+}
+
+function buildVideoSample(lang: Lang, ctx: SampleContext): string {
+  if (ctx.endpointMethod === 'GET') {
+    return buildGetEndpointSample(lang, ctx)
+  }
+
+  const url = `${ctx.baseUrl}${ctx.endpointPath}`.replace(
+    '{video_id}',
+    '<VIDEO_ID>'
+  )
+  const prompt = 'A cinematic tracking shot of a neon city at night.'
+
+  if (lang === 'curl') {
+    const body = JSON.stringify({ model: ctx.modelName, prompt }, null, 2)
+    return [
+      `curl ${url} \\`,
+      `  -H "Authorization: Bearer $${ctx.apiKeyEnv}" \\`,
+      `  -H "Content-Type: application/json" \\`,
+      `  -d '${body.replace(/\n/g, '\n     ')}'`,
+    ].join('\n')
+  }
+
+  return [
+    `const response = await fetch('${url}', {`,
+    `  method: 'POST',`,
+    `  headers: {`,
+    `    Authorization: \`Bearer \${process.env.${ctx.apiKeyEnv}}\`,`,
+    `    'Content-Type': 'application/json',`,
+    `  },`,
+    `  body: JSON.stringify({`,
+    `    model: '${ctx.modelName}',`,
+    `    prompt: '${prompt}',`,
+    `  }),`,
+    `})`,
+    '',
+    `console.log(await response.json())`,
+  ].join('\n')
+}
+
 function buildSample(
   lang: Lang,
   endpointType: string,
   ctx: SampleContext
 ): string {
+  if (ctx.endpointMethod === 'GET') return buildGetEndpointSample(lang, ctx)
   if (endpointType === 'anthropic') return buildAnthropicSample(lang, ctx)
   if (endpointType === 'gemini') return buildGeminiSample(lang, ctx)
   if (endpointType === 'embeddings' || endpointType === 'jina-rerank')
     return buildEmbeddingSample(lang, ctx)
   if (endpointType === 'image-generation') return buildImageSample(lang, ctx)
+  if (endpointType.startsWith('openai-video')) return buildVideoSample(lang, ctx)
   return buildChatSample(lang, ctx)
 }
 
@@ -493,6 +575,7 @@ function CodeSamplesSection(props: {
     modelName: props.model.model_name || '',
     endpointType: activeEndpoint.type,
     endpointPath: activeEndpoint.path,
+    endpointMethod: activeEndpoint.method,
   })
 
   return (

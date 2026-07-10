@@ -156,18 +156,163 @@ export function getQuotaTypeConfig(
 // Endpoint Templates
 // ============================================================================
 
+export type EndpointOption = {
+  type: string
+  path: string
+  method: string
+  labelKey?: string
+  labelKeys?: string[]
+  label: string
+}
+
+export const ENDPOINT_OPTIONS = [
+  {
+    type: 'openai',
+    path: '/v1/chat/completions',
+    method: 'POST',
+    labelKey: 'OpenAI Chat Completions',
+    label: 'OpenAI Chat Completions',
+  },
+  {
+    type: 'openai-completions',
+    path: '/v1/completions',
+    method: 'POST',
+    labelKey: 'OpenAI Completions',
+    label: 'OpenAI Completions',
+  },
+  {
+    type: 'openai-response',
+    path: '/v1/responses',
+    method: 'POST',
+    labelKey: 'OpenAI Responses',
+    label: 'OpenAI Responses',
+  },
+  {
+    type: 'openai-response-compact',
+    path: '/v1/responses/compact',
+    method: 'POST',
+    labelKey: 'OpenAI Responses Compact',
+    label: 'OpenAI Responses Compact',
+  },
+  {
+    type: 'anthropic',
+    path: '/v1/messages',
+    method: 'POST',
+    labelKey: 'Anthropic',
+    label: 'Anthropic',
+  },
+  {
+    type: 'gemini',
+    path: '/v1beta/models/{model}:generateContent',
+    method: 'POST',
+    labelKey: 'Gemini Generate Content',
+    label: 'Gemini Generate Content',
+  },
+  {
+    type: 'jina-rerank',
+    path: '/v1/rerank',
+    method: 'POST',
+    labelKey: 'Rerank',
+    label: 'Rerank',
+  },
+  {
+    type: 'image-generation',
+    path: '/v1/images/generations',
+    method: 'POST',
+    labelKey: 'OpenAI Image Generations',
+    label: 'OpenAI Image Generations',
+  },
+  {
+    type: 'image-edits',
+    path: '/v1/images/edits',
+    method: 'POST',
+    labelKey: 'OpenAI Image Edits',
+    label: 'OpenAI Image Edits',
+  },
+  {
+    type: 'embeddings',
+    path: '/v1/embeddings',
+    method: 'POST',
+    labelKey: 'OpenAI Embeddings',
+    label: 'OpenAI Embeddings',
+  },
+  {
+    type: 'audio-speech',
+    path: '/v1/audio/speech',
+    method: 'POST',
+    labelKey: 'OpenAI Audio Speech',
+    label: 'OpenAI Audio Speech',
+  },
+  {
+    type: 'audio-transcriptions',
+    path: '/v1/audio/transcriptions',
+    method: 'POST',
+    labelKey: 'OpenAI Audio Transcriptions',
+    label: 'OpenAI Audio Transcriptions',
+  },
+  {
+    type: 'audio-translations',
+    path: '/v1/audio/translations',
+    method: 'POST',
+    labelKey: 'OpenAI Audio Translations',
+    label: 'OpenAI Audio Translations',
+  },
+  {
+    type: 'moderations',
+    path: '/v1/moderations',
+    method: 'POST',
+    label: 'OpenAI Moderations',
+  },
+  {
+    type: 'realtime',
+    path: '/v1/realtime',
+    method: 'GET',
+    labelKey: 'OpenAI Realtime',
+    label: 'OpenAI Realtime',
+  },
+  {
+    type: 'openai-video',
+    path: '/v1/videos',
+    method: 'POST',
+    labelKeys: ['Video', 'Task'],
+    label: 'Video Task',
+  },
+  {
+    type: 'openai-video-retrieve',
+    path: '/v1/videos/{task_id}',
+    method: 'GET',
+    labelKeys: ['Video', 'Task', 'Status'],
+    label: 'Video Task Status',
+  },
+  {
+    type: 'openai-video-content',
+    path: '/v1/videos/{task_id}/content',
+    method: 'GET',
+    labelKeys: ['Video', 'Content'],
+    label: 'Video Content',
+  },
+  {
+    type: 'openai-video-remix',
+    path: '/v1/videos/{video_id}/remix',
+    method: 'POST',
+    labelKey: 'Video Remix',
+    label: 'Video Remix',
+  },
+] as const
+
 export const ENDPOINT_TEMPLATES: Record<
   string,
   { path: string; method: string }
-> = {
-  openai: { path: '/v1/chat/completions', method: 'POST' },
-  'openai-response': { path: '/v1/responses', method: 'POST' },
-  anthropic: { path: '/v1/messages', method: 'POST' },
-  gemini: { path: '/v1beta/models/{model}:generateContent', method: 'POST' },
-  'jina-rerank': { path: '/rerank', method: 'POST' },
-  'image-generation': { path: '/v1/images/generations', method: 'POST' },
-  embeddings: { path: '/v1/embeddings', method: 'POST' },
-}
+> = ENDPOINT_OPTIONS.reduce(
+  (acc, endpoint) => {
+    acc[endpoint.type] = {
+      path: endpoint.path,
+      method: endpoint.method,
+    }
+    return acc
+  },
+  {} as Record<string, { path: string; method: string }>
+)
 
 // ============================================================================
 // Sync Locale Options

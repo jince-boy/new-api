@@ -429,6 +429,38 @@ export type DifferencesMap = Record<
   Partial<Record<RatioType, RatioDifference>>
 >
 
+export type UpstreamPricingTier = {
+  label: string
+  condition?: string
+  input_price?: number
+  output_price?: number
+  cache_read_price?: number
+  cache_write_price?: number
+}
+
+export type UpstreamPricingItem = {
+  key: string
+  source_name: string
+  model_name: string
+  model_id?: string
+  provider_name?: string
+  provider_id?: string
+  type?: string
+  input_price?: number
+  output_price?: number
+  cache_read_price?: number
+  cache_write_price?: number
+  context?: number
+  capabilities?: string[]
+  release_date?: string
+  last_updated?: string
+  description?: string
+  billing_mode?: string
+  billing_expr?: string
+  sync_values: Partial<Record<RatioType, number | string>>
+  tiers?: UpstreamPricingTier[]
+}
+
 export type UpstreamChannelsResponse = {
   success: boolean
   message: string
@@ -458,6 +490,7 @@ export type UpstreamRatiosResponse = {
   message: string
   data: {
     differences: DifferencesMap
+    items?: UpstreamPricingItem[]
     test_results: TestResult[]
   }
 }

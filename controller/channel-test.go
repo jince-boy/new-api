@@ -55,6 +55,29 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 	return normalized
 }
 
+func isVideoChannelTestModel(modelName, endpointType string) bool {
+	switch constant.EndpointType(endpointType) {
+	case constant.EndpointTypeOpenAIVideo,
+		constant.EndpointTypeOpenAIVideoRetrieve,
+		constant.EndpointTypeOpenAIVideoContent,
+		constant.EndpointTypeOpenAIVideoRemix:
+		return true
+	}
+	if common.IsVideoGenerationModel(modelName) {
+		return true
+	}
+	for _, endpoint := range model.GetModelSupportEndpointTypes(modelName) {
+		switch endpoint {
+		case constant.EndpointTypeOpenAIVideo,
+			constant.EndpointTypeOpenAIVideoRetrieve,
+			constant.EndpointTypeOpenAIVideoContent,
+			constant.EndpointTypeOpenAIVideoRemix:
+			return true
+		}
+	}
+	return false
+}
+
 func resolveChannelTestUserID(c *gin.Context) (int, error) {
 	if c != nil {
 		if userID := c.GetInt("id"); userID > 0 {
@@ -111,6 +134,11 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	}
 
 	endpointType = normalizeChannelTestEndpoint(channel, testModel, endpointType)
+	if isVideoChannelTestModel(testModel, endpointType) {
+		return testResult{
+			localErr: fmt.Errorf("video channel test is not supported because it creates an upstream task"),
+		}
+	}
 
 	requestPath := "/v1/chat/completions"
 

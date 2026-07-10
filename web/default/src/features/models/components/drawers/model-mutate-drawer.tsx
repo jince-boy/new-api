@@ -33,9 +33,10 @@ import {
   sideDrawerHeaderClassName,
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
-import { JsonEditor } from '@/components/json-editor'
 import { TagInput } from '@/components/tag-input'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Collapsible,
   CollapsibleContent,
@@ -82,7 +83,12 @@ import type { ModelSettings } from '@/features/system-settings/types'
 import { safeJsonParse } from '@/features/system-settings/utils/json-parser'
 
 import { createModel, updateModel, getModel, getVendors } from '../../api'
-import { getNameRuleOptions, ENDPOINT_TEMPLATES } from '../../constants'
+import {
+  ENDPOINT_OPTIONS,
+  ENDPOINT_TEMPLATES,
+  getNameRuleOptions,
+  type EndpointOption,
+} from '../../constants'
 import {
   modelsQueryKeys,
   vendorsQueryKeys,
@@ -121,6 +127,132 @@ type ModelMutateDrawerProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
   currentRow?: Model | null
+}
+
+type EndpointSelection = {
+  selectedTypes: string[]
+  customConfig: Record<string, unknown>
+}
+
+const endpointTypeSet = new Set(
+  ENDPOINT_OPTIONS.map((endpoint) => endpoint.type)
+)
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function pushUnique(values: string[], value: string) {
+  if (!values.includes(value)) values.push(value)
+}
+
+function isDefaultEndpointValue(endpointType: string, value: unknown) {
+  const template = ENDPOINT_TEMPLATES[endpointType]
+  if (!template) return false
+
+  if (typeof value === 'string') {
+    return value.trim() === template.path
+  }
+
+  if (!isPlainObject(value)) return false
+
+  const path = typeof value.path === 'string' ? value.path.trim() : ''
+  const method =
+    typeof value.method === 'string' ? value.method.toUpperCase() : 'POST'
+
+  return path === template.path && method === template.method
+}
+
+function parseEndpointSelection(
+  endpoints: string | undefined
+): EndpointSelection {
+  if (!endpoints?.trim()) {
+    return { selectedTypes: [], customConfig: {} }
+  }
+
+  try {
+    const parsed = JSON.parse(endpoints) as unknown
+    const selectedTypes: string[] = []
+    const customConfig: Record<string, unknown> = {}
+
+    if (Array.isArray(parsed)) {
+      for (const item of parsed) {
+        if (typeof item !== 'string') continue
+        const endpointType = item.trim()
+        if (endpointTypeSet.has(endpointType)) {
+          pushUnique(selectedTypes, endpointType)
+        }
+      }
+      return { selectedTypes, customConfig }
+    }
+
+    if (!isPlainObject(parsed)) {
+      return { selectedTypes: [], customConfig: {} }
+    }
+
+    for (const [key, value] of Object.entries(parsed)) {
+      const endpointName = key.trim()
+      if (!endpointName) continue
+
+      if (
+        /^\d+$/.test(endpointName) &&
+        typeof value === 'string' &&
+        endpointTypeSet.has(value.trim())
+      ) {
+        pushUnique(selectedTypes, value.trim())
+        continue
+      }
+
+      if (endpointTypeSet.has(endpointName)) {
+        pushUnique(selectedTypes, endpointName)
+        if (!isDefaultEndpointValue(endpointName, value)) {
+          customConfig[endpointName] = value
+        }
+        continue
+      }
+
+      customConfig[endpointName] = value
+    }
+
+    return { selectedTypes, customConfig }
+  } catch {
+    return { selectedTypes: [], customConfig: {} }
+  }
+}
+
+function formatEndpointSelection(
+  selectedTypes: string[],
+  customConfig: Record<string, unknown>
+) {
+  const selected = selectedTypes.filter((type) => endpointTypeSet.has(type))
+  const customEntries = Object.entries(customConfig).filter(
+    ([key]) => !endpointTypeSet.has(key) || selected.includes(key)
+  )
+
+  if (selected.length === 0 && customEntries.length === 0) {
+    return ''
+  }
+
+  if (customEntries.length === 0) {
+    return JSON.stringify(selected, null, 2)
+  }
+
+  const config = Object.fromEntries(customEntries)
+  selected.forEach((endpointType, index) => {
+    if (!Object.prototype.hasOwnProperty.call(config, endpointType)) {
+      config[String(index)] = endpointType
+    }
+  })
+
+  return JSON.stringify(config, null, 2)
+}
+
+function getEndpointLabel(
+  endpoint: EndpointOption,
+  t: (key: string) => string
+) {
+  if (endpoint.labelKeys) return endpoint.labelKeys.map((key) => t(key)).join(' ')
+  return endpoint.labelKey ? t(endpoint.labelKey) : endpoint.label
 }
 
 export function ModelMutateDrawer({
@@ -661,14 +793,6 @@ export function ModelMutateDrawer({
     ]
   )
 
-  const handleFillEndpointTemplate = (templateKey: string) => {
-    const template = ENDPOINT_TEMPLATES[templateKey]
-    if (template) {
-      const templateJson = JSON.stringify({ [templateKey]: template }, null, 2)
-      form.setValue('endpoints', templateJson)
-    }
-  }
-
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent className={sideDrawerContentClassName('sm:max-w-2xl')}>
@@ -868,59 +992,127 @@ export function ModelMutateDrawer({
 
             {/* Endpoints Configuration */}
             <SideDrawerSection>
-              <div className='flex items-center justify-between'>
+              <div className='flex flex-wrap items-center justify-between gap-2'>
                 <h3 className='text-sm font-semibold'>{t('Endpoints')}</h3>
-                <Select<string>
-                  items={Object.keys(ENDPOINT_TEMPLATES).map((key) => ({
-                    value: key,
-                    label: key,
-                  }))}
-                  onValueChange={(v) =>
-                    v !== null && handleFillEndpointTemplate(v)
-                  }
-                >
-                  <SelectTrigger size='sm' className='w-[200px]'>
-                    <SelectValue placeholder={t('Load template...')} />
-                  </SelectTrigger>
-                  <SelectContent alignItemWithTrigger={false}>
-                    <SelectGroup>
-                      {Object.keys(ENDPOINT_TEMPLATES).map((key) => (
-                        <SelectItem key={key} value={key}>
-                          {key}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                <div className='flex items-center gap-2'>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() =>
+                      form.setValue(
+                        'endpoints',
+                        formatEndpointSelection(
+                          ENDPOINT_OPTIONS.map((endpoint) => endpoint.type),
+                          parseEndpointSelection(form.getValues('endpoints'))
+                            .customConfig
+                        )
+                      )
+                    }
+                  >
+                    {t('Select all')}
+                  </Button>
+                  <Button
+                    type='button'
+                    variant='outline'
+                    size='sm'
+                    onClick={() => form.setValue('endpoints', '')}
+                  >
+                    {t('Clear all')}
+                  </Button>
+                </div>
               </div>
 
               <FormField
                 control={form.control}
                 name='endpoints'
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>{t('Endpoint Configuration')}</FormLabel>
-                    <FormControl>
-                      <JsonEditor
-                        value={field.value || ''}
-                        onChange={field.onChange}
-                        keyPlaceholder='endpoint_type'
-                        valuePlaceholder='{"path": "/v1/...", "method": "POST"}'
-                        keyLabel='Endpoint Type'
-                        valueLabel='Configuration'
-                        valueType='any'
-                        arrayAsKeys
-                        emptyMessage={t(
-                          'No endpoints configured. Switch to JSON mode or add rows to define endpoints.'
-                        )}
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      {t('Define API endpoints for this model (JSON format)')}
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
+                render={({ field }) => {
+                  const { selectedTypes, customConfig } =
+                    parseEndpointSelection(field.value)
+                  const customEndpointNames = Object.keys(customConfig)
+
+                  return (
+                    <FormItem>
+                      <FormLabel>{t('Endpoint Configuration')}</FormLabel>
+                      <FormControl>
+                        <div className='grid gap-1.5'>
+                          {ENDPOINT_OPTIONS.map((endpoint) => {
+                            const checked = selectedTypes.includes(
+                              endpoint.type
+                            )
+                            const controlId = `endpoint-${endpoint.type}`
+
+                            return (
+                              <label
+                                key={endpoint.type}
+                                htmlFor={controlId}
+                                className={`border-border bg-background hover:bg-muted/40 flex cursor-pointer items-center gap-2 rounded-md border px-2 py-1.5 transition-colors ${
+                                  checked
+                                    ? 'border-primary/50 bg-primary/5'
+                                    : ''
+                                }`}
+                              >
+                                <Checkbox
+                                  id={controlId}
+                                  checked={checked}
+                                  onCheckedChange={(value) => {
+                                    const nextTypes = value
+                                      ? Array.from(
+                                          new Set([
+                                            ...selectedTypes,
+                                            endpoint.type,
+                                          ])
+                                        )
+                                      : selectedTypes.filter(
+                                          (type) => type !== endpoint.type
+                                        )
+                                    field.onChange(
+                                      formatEndpointSelection(
+                                        nextTypes,
+                                        customConfig
+                                      )
+                                    )
+                                  }}
+                                />
+                                <span className='flex min-w-0 flex-1 items-center gap-2'>
+                                  <span className='min-w-[9rem] truncate text-sm font-medium'>
+                                    {getEndpointLabel(endpoint, t)}
+                                  </span>
+                                  <span className='flex min-w-0 flex-1 items-center gap-1.5'>
+                                    <Badge variant='outline'>
+                                      {endpoint.method}
+                                    </Badge>
+                                    <code className='text-muted-foreground truncate text-xs'>
+                                      {endpoint.path}
+                                    </code>
+                                  </span>
+                                  <code className='text-muted-foreground hidden max-w-[11rem] truncate text-xs sm:block'>
+                                    {endpoint.type}
+                                  </code>
+                                </span>
+                              </label>
+                            )
+                          })}
+                        </div>
+                      </FormControl>
+                      {customEndpointNames.length > 0 && (
+                        <div className='bg-muted/40 flex flex-wrap items-center gap-2 rounded-lg p-2'>
+                          <Badge variant='secondary'>{t('Custom')}</Badge>
+                          {customEndpointNames.map((endpointName) => (
+                            <code
+                              key={endpointName}
+                              className='text-muted-foreground text-xs'
+                            >
+                              {endpointName}
+                            </code>
+                          ))}
+                        </div>
+                      )}
+                      <FormDescription>{t('API Endpoints')}</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )
+                }}
               />
             </SideDrawerSection>
 

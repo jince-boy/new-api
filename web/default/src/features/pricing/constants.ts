@@ -68,13 +68,24 @@ export function getQuotaTypeLabels(
 export const ENDPOINT_TYPES = {
   ALL: 'all',
   OPENAI: 'openai',
+  OPENAI_COMPLETIONS: 'openai-completions',
   OPENAI_RESPONSE: 'openai-response',
+  OPENAI_RESPONSE_COMPACT: 'openai-response-compact',
   ANTHROPIC: 'anthropic',
   GEMINI: 'gemini',
   JINA_RERANK: 'jina-rerank',
   IMAGE_GENERATION: 'image-generation',
+  IMAGE_EDITS: 'image-edits',
   EMBEDDINGS: 'embeddings',
+  AUDIO_SPEECH: 'audio-speech',
+  AUDIO_TRANSCRIPTIONS: 'audio-transcriptions',
+  AUDIO_TRANSLATIONS: 'audio-translations',
+  MODERATIONS: 'moderations',
+  REALTIME: 'realtime',
   OPENAI_VIDEO: 'openai-video',
+  OPENAI_VIDEO_RETRIEVE: 'openai-video-retrieve',
+  OPENAI_VIDEO_CONTENT: 'openai-video-content',
+  OPENAI_VIDEO_REMIX: 'openai-video-remix',
 } as const
 
 export type EndpointTypeOption =
@@ -87,13 +98,24 @@ export function getEndpointTypeLabels(
   return {
     [ENDPOINT_TYPES.ALL]: t('All Types'),
     [ENDPOINT_TYPES.OPENAI]: 'Chat',
+    [ENDPOINT_TYPES.OPENAI_COMPLETIONS]: t('OpenAI Completions'),
     [ENDPOINT_TYPES.OPENAI_RESPONSE]: 'Response',
+    [ENDPOINT_TYPES.OPENAI_RESPONSE_COMPACT]: t('OpenAI Responses Compact'),
     [ENDPOINT_TYPES.ANTHROPIC]: 'Anthropic',
     [ENDPOINT_TYPES.GEMINI]: 'Gemini',
     [ENDPOINT_TYPES.JINA_RERANK]: 'Rerank',
     [ENDPOINT_TYPES.IMAGE_GENERATION]: t('Image'),
+    [ENDPOINT_TYPES.IMAGE_EDITS]: t('OpenAI Image Edits'),
     [ENDPOINT_TYPES.EMBEDDINGS]: t('Embeddings'),
+    [ENDPOINT_TYPES.AUDIO_SPEECH]: t('OpenAI Audio Speech'),
+    [ENDPOINT_TYPES.AUDIO_TRANSCRIPTIONS]: t('OpenAI Audio Transcriptions'),
+    [ENDPOINT_TYPES.AUDIO_TRANSLATIONS]: t('OpenAI Audio Translations'),
+    [ENDPOINT_TYPES.MODERATIONS]: 'OpenAI Moderations',
+    [ENDPOINT_TYPES.REALTIME]: t('OpenAI Realtime'),
     [ENDPOINT_TYPES.OPENAI_VIDEO]: t('Video'),
+    [ENDPOINT_TYPES.OPENAI_VIDEO_RETRIEVE]: `${t('Video')} ${t('Status')}`,
+    [ENDPOINT_TYPES.OPENAI_VIDEO_CONTENT]: `${t('Video')} ${t('Content')}`,
+    [ENDPOINT_TYPES.OPENAI_VIDEO_REMIX]: t('Video Remix'),
   }
 }
 

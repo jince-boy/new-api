@@ -22,7 +22,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { Dialog } from '@/components/dialog'
 import { Button } from '@/components/ui/button'
+import { Combobox } from '@/components/ui/combobox'
 
 import {
   fetchUpstreamRatios,
@@ -30,10 +32,10 @@ import {
   updateSystemOption,
 } from '../api'
 import type {
-  DifferencesMap,
   RatioType,
   UpstreamChannel,
   UpstreamConfig,
+  UpstreamPricingItem,
 } from '../types'
 import { ChannelSelectorDialog } from './channel-selector-dialog'
 import {
@@ -52,7 +54,6 @@ import {
 import {
   NUMERIC_SYNC_FIELDS,
   RATIO_SYNC_FIELDS,
-  getPreferredSyncField,
   type ResolutionsMap,
 } from './upstream-ratio-sync-helpers'
 import { UpstreamRatioSyncTable } from './upstream-ratio-sync-table'
@@ -90,13 +91,6 @@ function getDefaultEndpointForChannel(channel: UpstreamChannel): string {
   return DEFAULT_ENDPOINT
 }
 
-function getBillingCategory(ratioType: string): 'price' | 'ratio' | 'tiered' {
-  if (ratioType === 'model_price') return 'price'
-  if (ratioType === 'billing_mode' || ratioType === 'billing_expr')
-    return 'tiered'
-  return 'ratio'
-}
-
 function optionKeyBySyncField(ratioType: string): string {
   const explicit: Record<string, string> = {
     billing_mode: 'billing_setting.billing_mode',
@@ -117,25 +111,6 @@ function parseJsonRecord<T>(raw: string | undefined | null): Record<string, T> {
   }
 }
 
-function deleteResolutionField(
-  res: ResolutionsMap,
-  model: string,
-  ratioType: string
-): ResolutionsMap {
-  if (!res[model]) return res
-  const newModelRes = { ...res[model] }
-  delete newModelRes[ratioType]
-  if (ratioType === 'billing_expr') delete newModelRes['billing_mode']
-  if (ratioType === 'billing_mode') delete newModelRes['billing_expr']
-  const next = { ...res }
-  if (Object.keys(newModelRes).length === 0) {
-    delete next[model]
-  } else {
-    next[model] = newModelRes
-  }
-  return next
-}
-
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -150,8 +125,10 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
   const [channelEndpoints, setChannelEndpoints] = useState<
     Record<number, string>
   >({})
-  const [differences, setDifferences] = useState<DifferencesMap>({})
+  const [upstreamItems, setUpstreamItems] = useState<UpstreamPricingItem[]>([])
   const [resolutions, setResolutions] = useState<ResolutionsMap>({})
+  const [syncTargets, setSyncTargets] = useState<Record<string, string>>({})
+  const [targetDialogOpen, setTargetDialogOpen] = useState(false)
   const [conflictItems, setConflictItems] = useState<ConflictItem[]>([])
   const [confirmLoading, setConfirmLoading] = useState(false)
 
@@ -189,7 +166,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         return
       }
 
-      const { differences: diffs, test_results } = data.data
+      const { items = [], test_results } = data.data
 
       const errorResults = test_results.filter((r) => r.status === 'error')
       if (errorResults.length > 0) {
@@ -199,10 +176,10 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         toast.warning(t('Some channels failed: {{errorMsg}}', { errorMsg }))
       }
 
-      setDifferences(diffs)
+      setUpstreamItems(items)
       setResolutions({})
 
-      if (Object.keys(diffs).length === 0) {
+      if (items.length === 0) {
         toast.success(t('No price differences found'))
       } else {
         toast.success(t('Upstream prices fetched successfully'))
@@ -226,22 +203,8 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       toast.success(t('Prices synced successfully'))
       queryClient.invalidateQueries({ queryKey: ['system-options'] })
 
-      setDifferences((prevDiffs) => {
-        const newDiffs = { ...prevDiffs }
-        Object.entries(resolutions).forEach(([model, ratios]) => {
-          Object.keys(ratios).forEach((ratioType) => {
-            if (newDiffs[model]?.[ratioType as RatioType]) {
-              delete newDiffs[model][ratioType as RatioType]
-              if (Object.keys(newDiffs[model]).length === 0) {
-                delete newDiffs[model]
-              }
-            }
-          })
-        })
-        return newDiffs
-      })
-
       setResolutions({})
+      setSyncTargets({})
     },
     onError: (error: Error) => {
       toast.error(error.message || t('Failed to sync prices'))
@@ -272,70 +235,63 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
     fetchMutation.mutate({ upstreams, timeout: 10 })
   }
 
-  const handleSelectValue = useCallback(
-    (
-      model: string,
-      ratioType: RatioType,
-      value: number | string,
-      sourceName: string
-    ) => {
-      const modelDiffs = differences[model]
+  const handleSelectItem = useCallback((item: UpstreamPricingItem) => {
+    setResolutions((prev) => ({
+      ...prev,
+      [item.key]: { ...item.sync_values },
+    }))
+    setSyncTargets((prev) => ({
+      ...prev,
+      [item.key]: prev[item.key] || item.model_id || item.model_name,
+    }))
+  }, [])
 
-      // Prefer billing_expr over individual ratio fields when available
-      const preferredType = sourceName
-        ? getPreferredSyncField(modelDiffs || {}, ratioType, sourceName)
-        : ratioType
-      const preferredValue =
-        preferredType === ratioType
-          ? value
-          : (modelDiffs?.[preferredType]?.upstreams?.[sourceName] ?? value)
+  const handleUnselectItem = useCallback((itemKey: string) => {
+    setResolutions((prev) => {
+      const next = { ...prev }
+      delete next[itemKey]
+      return next
+    })
+    setSyncTargets((prev) => {
+      const next = { ...prev }
+      delete next[itemKey]
+      return next
+    })
+  }, [])
 
-      const finalType = preferredType
-      const finalValue = preferredValue as number | string
-      const category = getBillingCategory(finalType)
-
-      setResolutions((prev) => {
-        const newModelRes = { ...(prev[model] || {}) }
-
-        // Clear conflicting categories
-        Object.keys(newModelRes).forEach((rt) => {
-          if (
-            category !== 'tiered' &&
-            getBillingCategory(rt) !== 'tiered' &&
-            getBillingCategory(rt) !== category
-          ) {
-            delete newModelRes[rt]
-          }
-        })
-
-        newModelRes[finalType] = finalValue
-
-        // When selecting a tiered field, auto-populate paired fields from the same source
-        if (category === 'tiered' && sourceName && modelDiffs) {
-          const modeVal = modelDiffs.billing_mode?.upstreams?.[sourceName]
-          const exprVal = modelDiffs.billing_expr?.upstreams?.[sourceName]
-          if (modeVal !== undefined && modeVal !== null && modeVal !== 'same') {
-            newModelRes['billing_mode'] = modeVal
-          } else if (finalType === 'billing_expr') {
-            newModelRes['billing_mode'] = 'tiered_expr'
-          }
-          if (exprVal !== undefined && exprVal !== null && exprVal !== 'same') {
-            newModelRes['billing_expr'] = exprVal
-          }
-        }
-
-        return { ...prev, [model]: newModelRes }
+  const handleBulkSelect = useCallback((items: UpstreamPricingItem[]) => {
+    setResolutions((prev) => {
+      const next = { ...prev }
+      items.forEach((item) => {
+        next[item.key] = { ...item.sync_values }
       })
-    },
-    [differences]
-  )
+      return next
+    })
+    setSyncTargets((prev) => {
+      const next = { ...prev }
+      items.forEach((item) => {
+        next[item.key] = next[item.key] || item.model_id || item.model_name
+      })
+      return next
+    })
+  }, [])
 
-  const handleUnselectValue = useCallback(
-    (model: string, ratioType: RatioType) => {
-      setResolutions((prev) => deleteResolutionField(prev, model, ratioType))
-    },
-    []
-  )
+  const handleBulkUnselect = useCallback((items: UpstreamPricingItem[]) => {
+    setResolutions((prev) => {
+      const next = { ...prev }
+      items.forEach((item) => {
+        delete next[item.key]
+      })
+      return next
+    })
+    setSyncTargets((prev) => {
+      const next = { ...prev }
+      items.forEach((item) => {
+        delete next[item.key]
+      })
+      return next
+    })
+  }, [])
 
   const parsedRatios = useMemo(() => {
     return {
@@ -363,8 +319,11 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
   const getLocalBillingCategory = (
     model: string,
     currentRatios: ParsedRatios
-  ): 'price' | 'ratio' | null => {
+  ): 'price' | 'ratio' | 'tiered' | null => {
     if (currentRatios.ModelPrice[model] !== undefined) return 'price'
+    if (currentRatios['billing_setting.billing_expr'][model] !== undefined) {
+      return 'tiered'
+    }
     if (
       currentRatios.ModelRatio[model] !== undefined ||
       currentRatios.CompletionRatio[model] !== undefined ||
@@ -397,9 +356,12 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         },
       }
 
-      Object.entries(resolutions).forEach(([model, ratios]) => {
+      Object.entries(resolutions).forEach(([itemKey, ratios]) => {
+        const model = syncTargets[itemKey]?.trim()
+        if (!model) return
         const selectedTypes = Object.keys(ratios)
         const hasPrice = selectedTypes.includes('model_price')
+        const hasTiered = selectedTypes.includes('billing_expr')
         const hasRatio = selectedTypes.some((rt) =>
           RATIO_SYNC_FIELDS.includes(rt as RatioType)
         )
@@ -412,9 +374,15 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
           delete finalRatios.ImageRatio[model]
           delete finalRatios.AudioRatio[model]
           delete finalRatios.AudioCompletionRatio[model]
+          delete finalRatios['billing_setting.billing_mode'][model]
+          delete finalRatios['billing_setting.billing_expr'][model]
         }
-        if (hasRatio) {
+        if (hasRatio || hasTiered) {
           delete finalRatios.ModelPrice[model]
+        }
+        if (hasRatio && !hasTiered) {
+          delete finalRatios['billing_setting.billing_mode'][model]
+          delete finalRatios['billing_setting.billing_expr'][model]
         }
 
         Object.entries(ratios).forEach(([ratioType, value]) => {
@@ -437,21 +405,32 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         })
       })
     },
-    [resolutions, syncMutate]
+    [resolutions, syncMutate, syncTargets]
   )
 
-  const findSourceChannel = (
-    model: string,
-    ratioType: RatioType,
-    value: number | string
-  ): string => {
-    const upMap = differences[model]?.[ratioType]?.upstreams
-    if (!upMap) return 'Unknown'
-    const entry = Object.entries(upMap).find(([, v]) => v === value)
-    return entry ? entry[0] : 'Unknown'
+  const handleApplySync = () => {
+    setTargetDialogOpen(true)
   }
 
-  const handleApplySync = () => {
+  const selectedItems = useMemo(
+    () => upstreamItems.filter((item) => resolutions[item.key]),
+    [upstreamItems, resolutions]
+  )
+
+  const localModelOptions = useMemo(() => {
+    const names = new Set<string>()
+    Object.values(parsedRatios).forEach((record) => {
+      Object.keys(record).forEach((model) => names.add(model))
+    })
+    upstreamItems.forEach((item) => {
+      names.add(item.model_id || item.model_name)
+    })
+    return Array.from(names)
+      .sort()
+      .map((model) => ({ value: model, label: model }))
+  }, [parsedRatios, upstreamItems])
+
+  const handleConfirmTargetMapping = () => {
     const currentRatios = parsedRatios
     const conflicts: ConflictItem[] = []
 
@@ -459,12 +438,20 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
     const modelRatioLabel = t('Model ratio')
     const completionRatioLabel = t('Completion ratio')
 
-    Object.entries(resolutions).forEach(([model, ratios]) => {
+    for (const item of selectedItems) {
+      const model = syncTargets[item.key]?.trim()
+      const ratios = resolutions[item.key]
+      if (!model) {
+        toast.error(t('Model name is required'))
+        return
+      }
       const localCat = getLocalBillingCategory(model, currentRatios)
       const selectedTypes = Object.keys(ratios)
       let newCat: 'price' | 'ratio' | 'tiered'
       if ('model_price' in ratios) {
         newCat = 'price'
+      } else if ('billing_expr' in ratios) {
+        newCat = 'tiered'
       } else if (RATIO_SYNC_FIELDS.some((rt) => selectedTypes.includes(rt))) {
         newCat = 'ratio'
       } else {
@@ -475,26 +462,23 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
         const currentDesc =
           localCat === 'price'
             ? `${fixedPriceLabel}: ${currentRatios.ModelPrice[model]}`
-            : `${modelRatioLabel}: ${currentRatios.ModelRatio[model] ?? '-'}\n${completionRatioLabel}: ${currentRatios.CompletionRatio[model] ?? '-'}`
+            : localCat === 'tiered'
+              ? `${t('Expression billing')}: ${currentRatios['billing_setting.billing_expr'][model] ?? '-'}`
+              : `${modelRatioLabel}: ${currentRatios.ModelRatio[model] ?? '-'}\n${completionRatioLabel}: ${currentRatios.CompletionRatio[model] ?? '-'}`
 
         const newDesc =
           newCat === 'price'
             ? `${fixedPriceLabel}: ${ratios.model_price}`
             : `${modelRatioLabel}: ${ratios.model_ratio ?? '-'}\n${completionRatioLabel}: ${ratios.completion_ratio ?? '-'}`
 
-        const channelNames = selectedTypes
-          .map((rt) => findSourceChannel(model, rt as RatioType, ratios[rt]))
-          .filter((v, idx, arr) => arr.indexOf(v) === idx)
-          .join(', ')
-
         conflicts.push({
-          channel: channelNames,
+          channel: item.source_name,
           model,
           current: currentDesc,
           newVal: newDesc,
         })
       }
-    })
+    }
 
     if (conflicts.length > 0) {
       setConflictItems(conflicts)
@@ -502,6 +486,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       return
     }
 
+    setTargetDialogOpen(false)
     toast.info(t('Syncing prices, please wait...'))
     performSync(currentRatios)
   }
@@ -512,6 +497,7 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       const success = await performSync(parsedRatios)
       if (success) {
         setConflictDialogOpen(false)
+        setTargetDialogOpen(false)
       }
     } finally {
       setConfirmLoading(false)
@@ -544,13 +530,80 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
       </div>
 
       <UpstreamRatioSyncTable
-        differences={differences}
+        items={upstreamItems}
         resolutions={resolutions}
         isDisabled={isLoading}
         isSyncing={fetchMutation.isPending}
-        onSelectValue={handleSelectValue}
-        onUnselectValue={handleUnselectValue}
+        onSelectItem={handleSelectItem}
+        onUnselectItem={handleUnselectItem}
+        onBulkSelect={handleBulkSelect}
+        onBulkUnselect={handleBulkUnselect}
       />
+
+      <Dialog
+        open={targetDialogOpen}
+        onOpenChange={setTargetDialogOpen}
+        title={t('Confirm Selection')}
+        contentClassName='sm:max-w-4xl'
+        footer={
+          <>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => setTargetDialogOpen(false)}
+              disabled={isLoading}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button
+              type='button'
+              onClick={handleConfirmTargetMapping}
+              disabled={isLoading || selectedItems.length === 0}
+            >
+              {t('Confirm')}
+            </Button>
+          </>
+        }
+      >
+        <div className='space-y-3'>
+          {selectedItems.map((item) => (
+            <div
+              key={item.key}
+              className='grid gap-2 rounded-md border p-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] md:items-center'
+            >
+              <div className='min-w-0'>
+                <div className='text-muted-foreground text-xs'>
+                  {item.provider_name || item.source_name}
+                </div>
+                <div className='truncate font-medium'>{item.model_name}</div>
+                {item.model_id && item.model_id !== item.model_name && (
+                  <div className='text-muted-foreground truncate font-mono text-xs'>
+                    {item.model_id}
+                  </div>
+                )}
+              </div>
+              <div className='min-w-0'>
+                <div className='text-muted-foreground mb-1 text-xs'>
+                  {t('Replacement Model')}
+                </div>
+                <Combobox
+                  options={localModelOptions}
+                  value={syncTargets[item.key] || ''}
+                  onValueChange={(value) =>
+                    setSyncTargets((prev) => ({
+                      ...prev,
+                      [item.key]: value || '',
+                    }))
+                  }
+                  placeholder={t('Select Model')}
+                  searchPlaceholder={t('Search model name...')}
+                  allowCustomValue
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </Dialog>
 
       <ChannelSelectorDialog
         open={channelDialogOpen}

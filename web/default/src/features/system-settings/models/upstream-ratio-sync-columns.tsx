@@ -17,12 +17,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { type ColumnDef } from '@tanstack/react-table'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Info } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { BadgeCell } from '@/components/data-table'
+import { Dialog } from '@/components/dialog'
 import { StatusBadge } from '@/components/status-badge'
+import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Tooltip,
@@ -30,6 +32,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
+import { parseTiersFromExpr } from '@/features/pricing/lib/billing-expr'
 
 import type { RatioType } from '../types'
 import {
@@ -115,6 +119,9 @@ export function useUpstreamRatioSyncColumns(
                         size='sm'
                         copyable={false}
                       />
+                    ) : ratioType === 'billing_expr' &&
+                      typeof current === 'string' ? (
+                      <BillingExpressionValue expr={current} t={t} />
                     ) : (
                       <TooltipProvider>
                         <Tooltip>
@@ -235,6 +242,7 @@ export function useUpstreamRatioSyncColumns(
                     />
                     <div className='min-w-0 flex-1'>
                       {renderUpstreamValue({
+                        ratioType,
                         upstreamVal,
                         isConfident,
                         isSelected:
@@ -277,6 +285,7 @@ export function useUpstreamRatioSyncColumns(
 }
 
 type RenderUpstreamValueArgs = {
+  ratioType: RatioType
   upstreamVal: number | string | 'same' | null | undefined
   isConfident: boolean
   isSelected: boolean
@@ -287,7 +296,8 @@ type RenderUpstreamValueArgs = {
 }
 
 function renderUpstreamValue(args: RenderUpstreamValueArgs) {
-  const { upstreamVal, isConfident, isSelected, isDisabled, t } = args
+  const { ratioType, upstreamVal, isConfident, isSelected, isDisabled, t } =
+    args
 
   if (upstreamVal === null || upstreamVal === undefined) {
     return (
@@ -326,20 +336,24 @@ function renderUpstreamValue(args: RenderUpstreamValueArgs) {
           }
         }}
       />
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span className='inline-block max-w-[240px] cursor-default truncate font-mono text-sm' />
-            }
-          >
-            {text}
-          </TooltipTrigger>
-          <TooltipContent>
-            <p className='max-w-xs text-xs break-all'>{text}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
+      {ratioType === 'billing_expr' ? (
+        <BillingExpressionValue expr={text} t={t} />
+      ) : (
+        <TooltipProvider>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <span className='inline-block max-w-[240px] cursor-default truncate font-mono text-sm' />
+              }
+            >
+              {text}
+            </TooltipTrigger>
+            <TooltipContent>
+              <p className='max-w-xs text-xs break-all'>{text}</p>
+            </TooltipContent>
+          </Tooltip>
+        </TooltipProvider>
+      )}
       {!isConfident && (
         <TooltipProvider>
           <Tooltip>
@@ -352,6 +366,61 @@ function renderUpstreamValue(args: RenderUpstreamValueArgs) {
           </Tooltip>
         </TooltipProvider>
       )}
+    </div>
+  )
+}
+
+function BillingExpressionValue({
+  expr,
+  t,
+}: {
+  expr: string
+  t: (key: string) => string
+}) {
+  const tiers = useMemo(() => parseTiersFromExpr(expr), [expr])
+  const summary =
+    tiers.length > 0
+      ? `${t('Tiered')} - ${tiers.length} ${t('Tier')}`
+      : t('Expression billing')
+
+  return (
+    <div className='flex min-w-0 flex-wrap items-center gap-2'>
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span className='bg-muted inline-flex max-w-[180px] cursor-default items-center rounded-md px-2 py-1 font-mono text-xs' />
+            }
+          >
+            {summary}
+          </TooltipTrigger>
+          <TooltipContent>
+            <p className='max-w-xs text-xs break-all'>{expr}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+
+      <Dialog
+        title={t('Billing Details')}
+        trigger={
+          <Button type='button' variant='outline' size='xs'>
+            <Info className='h-3 w-3' />
+            {t('Details')}
+          </Button>
+        }
+        contentClassName='sm:max-w-5xl'
+        bodyClassName='max-w-full overflow-x-auto'
+      >
+        <DynamicPricingBreakdown billingExpr={expr} compact />
+        <div className='mt-3'>
+          <div className='text-muted-foreground mb-1 text-xs font-medium'>
+            {t('Raw expression')}
+          </div>
+          <code className='bg-muted block rounded-md p-2 text-xs break-all'>
+            {expr}
+          </code>
+        </div>
+      </Dialog>
     </div>
   )
 }

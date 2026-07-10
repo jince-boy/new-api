@@ -20,20 +20,16 @@ import { type TFunction } from 'i18next'
 
 import { formatTimestampToDate } from '@/lib/format'
 
-import { getNameRuleConfig, getQuotaTypeConfig } from '../constants'
+import {
+  ENDPOINT_OPTIONS,
+  getNameRuleConfig,
+  getQuotaTypeConfig,
+} from '../constants'
 import type { NameRule, Model } from '../types'
 
-const KNOWN_ENDPOINT_TYPES = new Set([
-  'openai',
-  'openai-response',
-  'openai-response-compact',
-  'anthropic',
-  'gemini',
-  'jina-rerank',
-  'image-generation',
-  'embeddings',
-  'openai-video',
-])
+export const KNOWN_ENDPOINT_TYPES = new Set(
+  ENDPOINT_OPTIONS.map((endpoint) => endpoint.type)
+)
 
 // ============================================================================
 // Time Formatting
