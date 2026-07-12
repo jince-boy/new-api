@@ -496,8 +496,6 @@ func FetchUpstreamRatios(c *gin.Context) {
 	wg.Wait()
 	close(ch)
 
-	localData := getLocalPricingSyncData()
-
 	var testResults []dto.TestResult
 	var successfulChannels []struct {
 		name string
@@ -523,8 +521,11 @@ func FetchUpstreamRatios(c *gin.Context) {
 		}
 	}
 
-	differences := buildDifferences(localData, successfulChannels)
 	pricingItems := buildUpstreamPricingItems(successfulChannels)
+	differences := make(map[string]map[string]dto.DifferenceItem)
+	if !req.CatalogOnly {
+		differences = buildDifferences(getLocalPricingSyncData(), successfulChannels)
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -545,7 +546,7 @@ func buildUpstreamPricingItems(successfulChannels []struct {
 		if rawItems, ok := channel.data[upstreamPricingItemsField].([]dto.UpstreamPricingItem); ok {
 			for _, item := range rawItems {
 				item.SourceName = channel.name
-				item.Key = channel.name + "::" + item.ModelName
+				item.Key = channel.name + "::" + item.ProviderID + "::" + item.ModelName
 				items = append(items, item)
 			}
 			continue
@@ -905,6 +906,8 @@ type modelsDevModel struct {
 	ToolCall         bool                   `json:"tool_call"`
 	StructuredOutput bool                   `json:"structured_output"`
 	Temperature      bool                   `json:"temperature"`
+	OpenWeights      bool                   `json:"open_weights"`
+	Experimental     map[string]interface{} `json:"experimental"`
 	Knowledge        string                 `json:"knowledge"`
 	ReleaseDate      string                 `json:"release_date"`
 	LastUpdated      string                 `json:"last_updated"`
@@ -946,6 +949,12 @@ type modelsDevTierMeta struct {
 	Size int64  `json:"size"`
 }
 
+type modelsDevPricingBand struct {
+	Label string
+	Size  int64
+	Cost  modelsDevCost
+}
+
 type modelsDevCandidate struct {
 	Provider     string
 	ProviderID   string
@@ -953,6 +962,7 @@ type modelsDevCandidate struct {
 	ModelName    string
 	Model        modelsDevModel
 	Cost         modelsDevCost
+	HasPricing   bool
 }
 
 func cloneFloatPtr(v *float64) *float64 {
@@ -1019,7 +1029,7 @@ func normalizeModelsDevCost(cost modelsDevCost) (modelsDevCost, bool) {
 		return normalized.Tiers[i].Tier.Size < normalized.Tiers[j].Tier.Size
 	})
 
-	if cost.ContextOver200K != nil && len(normalized.Tiers) == 0 {
+	if cost.ContextOver200K != nil {
 		contextCost, ok := normalizeModelsDevCost(*cost.ContextOver200K)
 		if ok {
 			normalized.ContextOver200K = &contextCost
@@ -1029,12 +1039,7 @@ func normalizeModelsDevCost(cost modelsDevCost) (modelsDevCost, bool) {
 	return normalized, true
 }
 
-func buildModelsDevCandidate(providerKey string, providerData modelsDevProvider, modelName string, model modelsDevModel) (modelsDevCandidate, bool) {
-	normalized, ok := normalizeModelsDevCost(model.Cost)
-	if !ok {
-		return modelsDevCandidate{}, false
-	}
-
+func buildModelsDevCandidate(providerKey string, providerData modelsDevProvider, modelName string, model modelsDevModel) modelsDevCandidate {
 	providerID := providerData.ID
 	if providerID == "" {
 		providerID = providerKey
@@ -1050,6 +1055,7 @@ func buildModelsDevCandidate(providerKey string, providerData modelsDevProvider,
 		model.Name = modelName
 	}
 
+	normalized, hasPricing := normalizeModelsDevCost(model.Cost)
 	return modelsDevCandidate{
 		Provider:     providerKey,
 		ProviderID:   providerID,
@@ -1057,7 +1063,8 @@ func buildModelsDevCandidate(providerKey string, providerData modelsDevProvider,
 		ModelName:    modelName,
 		Model:        model,
 		Cost:         normalized,
-	}, true
+		HasPricing:   hasPricing,
+	}
 }
 
 func shouldReplaceModelsDevCandidate(current, next modelsDevCandidate) bool {
@@ -1145,6 +1152,41 @@ func modelsDevContextTierLabel(size int64) string {
 	return fmt.Sprintf("context_over_%d", size)
 }
 
+func modelsDevPricingBands(cost modelsDevCost) []modelsDevPricingBand {
+	bands := make([]modelsDevPricingBand, 0, len(cost.Tiers)+1)
+	// models.dev emits context_over_200k as a legacy compatibility alias for
+	// a single explicit context tier. cost.tiers contains the exact threshold.
+	if len(cost.Tiers) == 0 && cost.ContextOver200K != nil {
+		bands = append(bands, modelsDevPricingBand{
+			Label: "context_over_200k",
+			Size:  200000,
+			Cost:  *cost.ContextOver200K,
+		})
+	}
+	for _, tier := range cost.Tiers {
+		band := modelsDevPricingBand{
+			Label: "tier_" + modelsDevContextTierLabel(tier.Tier.Size),
+			Size:  tier.Tier.Size,
+			Cost:  tier.modelsDevCost,
+		}
+		replaced := false
+		for index := range bands {
+			if bands[index].Size == band.Size {
+				bands[index] = band
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			bands = append(bands, band)
+		}
+	}
+	sort.SliceStable(bands, func(i, j int) bool {
+		return bands[i].Size < bands[j].Size
+	})
+	return bands
+}
+
 func buildModelsDevBillingExpr(cost modelsDevCost) (string, bool) {
 	hasRichPricing := cost.CacheWrite != nil || cost.InputAudio != nil || cost.OutputAudio != nil
 	hasTieredPricing := len(cost.Tiers) > 0 || cost.ContextOver200K != nil
@@ -1157,25 +1199,18 @@ func buildModelsDevBillingExpr(cost modelsDevCost) (string, bool) {
 		return baseCall, true
 	}
 
-	contextTiers := cost.Tiers
-	if len(contextTiers) == 0 && cost.ContextOver200K != nil {
-		contextTiers = []modelsDevTier{{
-			modelsDevCost: *cost.ContextOver200K,
-			Tier: modelsDevTierMeta{
-				Type: "context",
-				Size: 200000,
-			},
-		}}
+	bands := modelsDevPricingBands(cost)
+	if len(bands) == 0 {
+		return baseCall, true
 	}
-
-	parts := make([]string, 0, len(contextTiers)+1)
-	parts = append(parts, fmt.Sprintf("len <= %d ? %s", contextTiers[0].Tier.Size, baseCall))
-	for index, tier := range contextTiers {
-		tierCall := buildModelsDevTierCall(modelsDevContextTierLabel(tier.Tier.Size), tier.modelsDevCost)
-		if index < len(contextTiers)-1 {
-			parts = append(parts, fmt.Sprintf("len <= %d ? %s", contextTiers[index+1].Tier.Size, tierCall))
+	parts := make([]string, 0, len(bands)+1)
+	parts = append(parts, fmt.Sprintf("len <= %d ? %s", bands[0].Size, baseCall))
+	for index, band := range bands {
+		bandCall := buildModelsDevTierCall(band.Label, band.Cost)
+		if index < len(bands)-1 {
+			parts = append(parts, fmt.Sprintf("len <= %d ? %s", bands[index+1].Size, bandCall))
 		} else {
-			parts = append(parts, tierCall)
+			parts = append(parts, bandCall)
 		}
 	}
 
@@ -1209,7 +1244,7 @@ func modelsDevModelType(model modelsDevModel) string {
 }
 
 func modelsDevCapabilities(model modelsDevModel) []string {
-	capabilities := make([]string, 0, 6)
+	capabilities := make([]string, 0, 8)
 	if model.Reasoning {
 		capabilities = append(capabilities, "Reasoning")
 	}
@@ -1224,6 +1259,12 @@ func modelsDevCapabilities(model modelsDevModel) []string {
 	}
 	if model.Temperature {
 		capabilities = append(capabilities, "Temperature")
+	}
+	if model.OpenWeights {
+		capabilities = append(capabilities, "Open weights")
+	}
+	if len(model.Experimental) > 0 {
+		capabilities = append(capabilities, "Experimental")
 	}
 	return capabilities
 }
@@ -1242,15 +1283,13 @@ func modelsDevPricingTier(label string, condition string, cost modelsDevCost) dt
 func modelsDevPricingItem(sourceName string, modelName string, candidate modelsDevCandidate, syncValues map[string]interface{}) dto.UpstreamPricingItem {
 	cost := candidate.Cost
 	expr, _ := buildModelsDevBillingExpr(cost)
-	tiers := []dto.UpstreamPricingTier{
-		modelsDevPricingTier("base", "", cost),
-	}
-	for _, tier := range cost.Tiers {
-		condition := fmt.Sprintf("len > %d", tier.Tier.Size)
-		tiers = append(tiers, modelsDevPricingTier(modelsDevContextTierLabel(tier.Tier.Size), condition, tier.modelsDevCost))
-	}
-	if len(cost.Tiers) == 0 && cost.ContextOver200K != nil {
-		tiers = append(tiers, modelsDevPricingTier("context_over_200k", "len > 200000", *cost.ContextOver200K))
+	tiers := make([]dto.UpstreamPricingTier, 0, len(cost.Tiers)+1)
+	if candidate.HasPricing {
+		tiers = append(tiers, modelsDevPricingTier("base", "", cost))
+		for _, band := range modelsDevPricingBands(cost) {
+			condition := fmt.Sprintf("len > %d", band.Size)
+			tiers = append(tiers, modelsDevPricingTier(band.Label, condition, band.Cost))
+		}
 	}
 
 	billingMode := ""
@@ -1259,26 +1298,31 @@ func modelsDevPricingItem(sourceName string, modelName string, candidate modelsD
 	}
 
 	return dto.UpstreamPricingItem{
-		Key:             sourceName + "::" + modelName,
-		SourceName:      sourceName,
-		ModelName:       modelName,
-		ModelID:         candidate.Model.ID,
-		ProviderName:    candidate.ProviderName,
-		ProviderID:      candidate.ProviderID,
-		Type:            modelsDevModelType(candidate.Model),
-		InputPrice:      cloneFloatPtr(cost.Input),
-		OutputPrice:     cloneFloatPtr(cost.Output),
-		CacheReadPrice:  cloneFloatPtr(cost.CacheRead),
-		CacheWritePrice: cloneFloatPtr(cost.CacheWrite),
-		Context:         candidate.Model.Limit.Context,
-		Capabilities:    modelsDevCapabilities(candidate.Model),
-		ReleaseDate:     candidate.Model.ReleaseDate,
-		LastUpdated:     candidate.Model.LastUpdated,
-		Description:     candidate.Model.Description,
-		BillingMode:     billingMode,
-		BillingExpr:     expr,
-		SyncValues:      syncValues,
-		Tiers:           tiers,
+		Key:              sourceName + "::" + candidate.ProviderID + "::" + modelName,
+		SourceName:       sourceName,
+		ModelName:        modelName,
+		ModelID:          candidate.Model.ID,
+		ProviderName:     candidate.ProviderName,
+		ProviderID:       candidate.ProviderID,
+		Type:             modelsDevModelType(candidate.Model),
+		InputPrice:       cloneFloatPtr(cost.Input),
+		OutputPrice:      cloneFloatPtr(cost.Output),
+		CacheReadPrice:   cloneFloatPtr(cost.CacheRead),
+		CacheWritePrice:  cloneFloatPtr(cost.CacheWrite),
+		Context:          candidate.Model.Limit.Context,
+		InputLimit:       candidate.Model.Limit.Input,
+		OutputLimit:      candidate.Model.Limit.Output,
+		InputModalities:  append([]string(nil), candidate.Model.Modalities.Input...),
+		OutputModalities: append([]string(nil), candidate.Model.Modalities.Output...),
+		Capabilities:     modelsDevCapabilities(candidate.Model),
+		Knowledge:        candidate.Model.Knowledge,
+		ReleaseDate:      candidate.Model.ReleaseDate,
+		LastUpdated:      candidate.Model.LastUpdated,
+		Description:      candidate.Model.Description,
+		BillingMode:      billingMode,
+		BillingExpr:      expr,
+		SyncValues:       syncValues,
+		Tiers:            tiers,
 	}
 }
 
@@ -1316,6 +1360,7 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 	sort.Strings(providers)
 
 	selectedCandidates := make(map[string]modelsDevCandidate)
+	allCandidates := make([]modelsDevCandidate, 0)
 	for _, provider := range providers {
 		providerData := upstreamData[provider]
 		if len(providerData.Models) == 0 {
@@ -1329,8 +1374,9 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 		sort.Strings(modelNames)
 
 		for _, modelName := range modelNames {
-			candidate, ok := buildModelsDevCandidate(provider, providerData, modelName, providerData.Models[modelName])
-			if !ok {
+			candidate := buildModelsDevCandidate(provider, providerData, modelName, providerData.Models[modelName])
+			allCandidates = append(allCandidates, candidate)
+			if !candidate.HasPricing {
 				continue
 			}
 			current, exists := selectedCandidates[modelName]
@@ -1340,8 +1386,8 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 		}
 	}
 
-	if len(selectedCandidates) == 0 {
-		return nil, fmt.Errorf("no valid models.dev pricing entries found")
+	if len(allCandidates) == 0 {
+		return nil, fmt.Errorf("no models.dev entries found")
 	}
 
 	modelRatioMap := make(map[string]any)
@@ -1352,7 +1398,7 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 	audioCompletionRatioMap := make(map[string]any)
 	billingModeMap := make(map[string]any)
 	billingExprMap := make(map[string]any)
-	pricingItems := make([]dto.UpstreamPricingItem, 0, len(selectedCandidates))
+	pricingItems := make([]dto.UpstreamPricingItem, 0, len(allCandidates))
 
 	for modelName, candidate := range selectedCandidates {
 		cost := candidate.Cost
@@ -1371,7 +1417,6 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 				syncValues[billing_setting.BillingModeField] = billing_setting.BillingModeTieredExpr
 				syncValues[billing_setting.BillingExprField] = expr
 			}
-			pricingItems = append(pricingItems, modelsDevPricingItem(modelsDevPresetName, modelName, candidate, syncValues))
 			continue
 		}
 
@@ -1417,8 +1462,46 @@ func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
 			syncValues[billing_setting.BillingModeField] = billing_setting.BillingModeTieredExpr
 			syncValues[billing_setting.BillingExprField] = expr
 		}
-		pricingItems = append(pricingItems, modelsDevPricingItem(modelsDevPresetName, modelName, candidate, syncValues))
 	}
+
+	for _, candidate := range allCandidates {
+		cost := candidate.Cost
+		syncValues := make(map[string]interface{})
+		if candidate.HasPricing {
+			input := modelsDevCostValue(cost.Input)
+			if input == 0 {
+				syncValues["model_ratio"] = 0.0
+			} else {
+				syncValues["model_ratio"] = roundRatioValue(input * float64(ratio_setting.USD) / modelsDevInputCostRatioBase)
+				if cost.Output != nil {
+					syncValues["completion_ratio"] = roundRatioValue(*cost.Output / input)
+				}
+				if cost.CacheRead != nil {
+					syncValues["cache_ratio"] = roundRatioValue(*cost.CacheRead / input)
+				}
+				if cost.CacheWrite != nil {
+					syncValues["create_cache_ratio"] = roundRatioValue(*cost.CacheWrite / input)
+				}
+				if cost.InputAudio != nil {
+					syncValues["audio_ratio"] = roundRatioValue(*cost.InputAudio / input)
+				}
+				if cost.OutputAudio != nil {
+					syncValues["audio_completion_ratio"] = roundRatioValue(*cost.OutputAudio / input)
+				}
+			}
+			if expr, ok := buildModelsDevBillingExpr(cost); ok {
+				syncValues[billing_setting.BillingModeField] = billing_setting.BillingModeTieredExpr
+				syncValues[billing_setting.BillingExprField] = expr
+			}
+		}
+		pricingItems = append(pricingItems, modelsDevPricingItem(modelsDevPresetName, candidate.ModelName, candidate, syncValues))
+	}
+	sort.SliceStable(pricingItems, func(i, j int) bool {
+		if pricingItems[i].ProviderName != pricingItems[j].ProviderName {
+			return pricingItems[i].ProviderName < pricingItems[j].ProviderName
+		}
+		return pricingItems[i].ModelName < pricingItems[j].ModelName
+	})
 
 	converted := make(map[string]any)
 	if len(modelRatioMap) > 0 {

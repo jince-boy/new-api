@@ -144,7 +144,11 @@ func RedisHSetObj(key string, obj interface{}, expiration time.Duration) error {
 	}
 
 	txn := RDB.TxPipeline()
-	txn.HSet(ctx, key, data)
+	// Redis 3 only accepts one field-value pair per HSET command. Queue fields
+	// individually so hash cache writes remain compatible with older servers.
+	for field, value := range data {
+		txn.HSet(ctx, key, field, value)
+	}
 
 	// 只有在 expiration 大于 0 时才设置过期时间
 	if expiration > 0 {

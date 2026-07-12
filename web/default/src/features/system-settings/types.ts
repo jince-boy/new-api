@@ -451,7 +451,12 @@ export type UpstreamPricingItem = {
   cache_read_price?: number
   cache_write_price?: number
   context?: number
+  input_limit?: number
+  output_limit?: number
+  input_modalities?: string[]
+  output_modalities?: string[]
   capabilities?: string[]
+  knowledge?: string
   release_date?: string
   last_updated?: string
   description?: string
@@ -477,6 +482,7 @@ export type UpstreamConfig = {
 export type FetchUpstreamRatiosRequest = {
   upstreams: UpstreamConfig[]
   timeout: number
+  catalog_only?: boolean
 }
 
 export type TestResult = {

@@ -17,8 +17,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { ColumnDef } from '@tanstack/react-table'
-import { Info, Loader2, Search } from 'lucide-react'
-import { type ReactNode, useDeferredValue, useMemo, useState } from 'react'
+import { ArrowUpRight, Loader2, RefreshCcw, Search } from 'lucide-react'
+import { useDeferredValue, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -26,14 +26,21 @@ import {
   DataTableView,
   useDataTable,
 } from '@/components/data-table'
-import { Dialog } from '@/components/dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
-import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
 
-import type { UpstreamPricingItem, UpstreamPricingTier } from '../types'
+import type { UpstreamPricingItem } from '../types'
+import { UpstreamPricingItemDetails } from './upstream-pricing-item-details'
+import { CapabilityList, ProviderMark } from './upstream-pricing-display'
+import {
+  formatContext,
+  formatPrice,
+  getProviderIdentity,
+  type ProviderOption,
+} from './upstream-pricing-utils'
+import { UpstreamProviderFilter } from './upstream-provider-filter'
 import type { ResolutionsMap } from './upstream-ratio-sync-helpers'
 
 type UpstreamPricingItemsTableProps = {
@@ -41,195 +48,60 @@ type UpstreamPricingItemsTableProps = {
   resolutions: ResolutionsMap
   isDisabled: boolean
   isSyncing: boolean
+  lastFetchedAt: number | null
+  onRefresh: () => void
   onSelectItem: (item: UpstreamPricingItem) => void
   onUnselectItem: (itemKey: string) => void
   onBulkSelect: (items: UpstreamPricingItem[]) => void
   onBulkUnselect: (items: UpstreamPricingItem[]) => void
 }
 
-const TYPE_LABELS: Record<string, string> = {
-  text: 'Text',
-  image: 'Image',
-  audio: 'Audio',
-  video: 'Video',
-  embedding: 'Embeddings',
-  rerank: 'Rerank',
-}
-
-const CAPABILITY_LABELS: Record<string, string> = {
-  Reasoning: 'Reasoning',
-  'Structured output': 'Structured output',
-}
-
-function formatPrice(value: number | null | undefined): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) {
-    return '-'
-  }
-  return `$${value.toLocaleString(undefined, { maximumFractionDigits: 6 })}`
-}
-
-function formatContext(value: number | null | undefined): string {
-  if (!value || !Number.isFinite(value)) return '-'
-  if (value >= 1_000_000) {
-    const millions = value / 1_000_000
-    return `${Number.isInteger(millions) ? millions.toFixed(0) : millions.toFixed(1)}M`
-  }
-  if (value >= 1000) {
-    const thousands = value / 1000
-    return `${Number.isInteger(thousands) ? thousands.toFixed(0) : thousands.toFixed(1)}K`
-  }
-  return String(value)
-}
-
-function DetailField(props: { label: string; value: ReactNode }) {
-  return (
-    <div className='grid grid-cols-[120px_1fr] border-b text-sm last:border-b-0'>
-      <div className='bg-muted/40 text-muted-foreground px-3 py-2'>
-        {props.label}
-      </div>
-      <div className='min-w-0 px-3 py-2'>{props.value || '-'}</div>
-    </div>
-  )
-}
-
-function TierCard(props: { tier: UpstreamPricingTier }) {
-  const { t } = useTranslation()
-  const entries = [
-    ['Input', props.tier.input_price],
-    ['Output', props.tier.output_price],
-    ['Cache Read', props.tier.cache_read_price],
-    ['Cache Write', props.tier.cache_write_price],
-  ] as const
-
-  return (
-    <div className='rounded-md border p-3'>
-      <div className='mb-2 flex items-center justify-between gap-2'>
-        <div className='font-medium'>{props.tier.label || 'base'}</div>
-        {props.tier.condition && (
-          <Badge variant='outline' className='font-mono text-xs'>
-            {props.tier.condition}
-          </Badge>
-        )}
-      </div>
-      <div className='grid grid-cols-2 gap-x-4 gap-y-2 text-sm'>
-        {entries.map(([label, value]) => (
-          <div key={label} className='flex items-center justify-between gap-3'>
-            <span className='text-muted-foreground'>{t(label)}</span>
-            <span className='font-mono'>{formatPrice(value)}/M</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function ModelDetailsDialog(props: { item: UpstreamPricingItem }) {
-  const { t } = useTranslation()
-  const capabilities = props.item.capabilities || []
-
-  return (
-    <Dialog
-      title={props.item.model_name}
-      trigger={
-        <Button type='button' variant='ghost' size='sm'>
-          <Info className='h-3.5 w-3.5' />
-          {t('Details')}
-        </Button>
-      }
-      contentClassName='sm:max-w-5xl'
-      bodyClassName='space-y-4'
-    >
-      <div className='overflow-hidden rounded-md border'>
-        <DetailField
-          label={t('Model')}
-          value={props.item.model_id || props.item.model_name}
-        />
-        <DetailField
-          label={t('Provider')}
-          value={props.item.provider_name || props.item.source_name}
-        />
-        <DetailField
-          label={t('Type')}
-          value={t(TYPE_LABELS[props.item.type || ''] || props.item.type || 'Text')}
-        />
-        <DetailField
-          label={t('Capabilities')}
-          value={
-            capabilities.length > 0 ? (
-              <div className='flex flex-wrap gap-1'>
-                {capabilities.map((capability) => (
-                  <Badge key={capability} variant='secondary'>
-                    {t(CAPABILITY_LABELS[capability] || capability)}
-                  </Badge>
-                ))}
-              </div>
-            ) : null
-          }
-        />
-        <DetailField label={t('Description')} value={props.item.description} />
-        <DetailField label={t('Published')} value={props.item.release_date} />
-        <DetailField label={t('Updated')} value={props.item.last_updated} />
-        <DetailField label={t('Context')} value={formatContext(props.item.context)} />
-      </div>
-
-      {props.item.tiers && props.item.tiers.length > 0 && (
-        <div>
-          <div className='mb-2 text-sm font-medium'>{t('Billing Details')}</div>
-          <div className='grid gap-2 md:grid-cols-2'>
-            {props.item.tiers.map((tier) => (
-              <TierCard
-                key={`${tier.label}-${tier.condition ?? 'base'}`}
-                tier={tier}
-              />
-            ))}
-          </div>
-        </div>
-      )}
-
-      {props.item.billing_expr && (
-        <div>
-          <DynamicPricingBreakdown billingExpr={props.item.billing_expr} compact />
-          <div className='mt-3'>
-            <div className='text-muted-foreground mb-1 text-xs font-medium'>
-              {t('Raw expression')}
-            </div>
-            <code className='bg-muted block rounded-md p-2 text-xs break-all'>
-              {props.item.billing_expr}
-            </code>
-          </div>
-        </div>
-      )}
-    </Dialog>
-  )
-}
-
 export function UpstreamPricingItemsTable(props: UpstreamPricingItemsTableProps) {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
+  const [selectedProviders, setSelectedProviders] = useState<string[]>([])
   const deferredSearch = useDeferredValue(search)
+
+  const providerOptions = useMemo(() => {
+    const providers = new Map<string, ProviderOption>()
+    for (const item of props.items) {
+      const provider = getProviderIdentity(item)
+      const current = providers.get(provider.id)
+      providers.set(provider.id, {
+        ...provider,
+        count: (current?.count || 0) + 1,
+      })
+    }
+    return [...providers.values()].sort((a, b) =>
+      a.name.localeCompare(b.name)
+    )
+  }, [props.items])
 
   const filteredItems = useMemo(() => {
     const keyword = deferredSearch.trim().toLowerCase()
-    if (!keyword) return props.items
-    return props.items.filter((item) =>
-      [
+    const providerSet = new Set(selectedProviders)
+    return props.items.filter((item) => {
+      const provider = getProviderIdentity(item)
+      if (providerSet.size > 0 && !providerSet.has(provider.id)) return false
+      if (!keyword) return true
+      return [
         item.model_name,
         item.model_id,
-        item.provider_name,
-        item.provider_id,
-        item.source_name,
-      ]
-        .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(keyword))
-    )
-  }, [deferredSearch, props.items])
+        provider.name,
+        provider.id,
+      ].some((value) => value?.toLowerCase().includes(keyword))
+    })
+  }, [deferredSearch, props.items, selectedProviders])
 
   const columns = useMemo<ColumnDef<UpstreamPricingItem>[]>(() => {
-    const selectedCount = filteredItems.filter(
+    const selectableItems = filteredItems.filter(
+      (item) => Object.keys(item.sync_values).length > 0
+    )
+    const selectedCount = selectableItems.filter(
       (item) => Object.keys(props.resolutions[item.key] || {}).length > 0
     ).length
     const allSelected =
-      filteredItems.length > 0 && selectedCount === filteredItems.length
+      selectableItems.length > 0 && selectedCount === selectableItems.length
 
     return [
       {
@@ -238,64 +110,130 @@ export function UpstreamPricingItemsTable(props: UpstreamPricingItemsTableProps)
           <Checkbox
             checked={allSelected}
             indeterminate={selectedCount > 0 && !allSelected}
-            disabled={props.isDisabled || filteredItems.length === 0}
+            disabled={props.isDisabled || selectableItems.length === 0}
             onCheckedChange={(checked) => {
-              if (checked) props.onBulkSelect(filteredItems)
-              else props.onBulkUnselect(filteredItems)
+              if (checked) props.onBulkSelect(selectableItems)
+              else props.onBulkUnselect(selectableItems)
             }}
             aria-label={t('Select all (filtered)')}
           />
         ),
-        cell: ({ row }) => (
-          <Checkbox
-            checked={Object.keys(props.resolutions[row.original.key] || {}).length > 0}
-            disabled={props.isDisabled}
-            onCheckedChange={(checked) => {
-              if (checked) props.onSelectItem(row.original)
-              else props.onUnselectItem(row.original.key)
-            }}
-          />
-        ),
-        size: 48,
+        cell: ({ row }) => {
+          const canSync = Object.keys(row.original.sync_values).length > 0
+          return (
+            <Checkbox
+              checked={
+                Object.keys(props.resolutions[row.original.key] || {}).length > 0
+              }
+              disabled={props.isDisabled || !canSync}
+              onCheckedChange={(checked) => {
+                if (checked) props.onSelectItem(row.original)
+                else props.onUnselectItem(row.original.key)
+              }}
+            />
+          )
+        },
+        size: 36,
       },
       {
         accessorKey: 'model_name',
         header: t('Model'),
         cell: ({ row }) => (
-          <div className='min-w-[220px]'>
-            <div className='font-medium'>{row.original.model_name}</div>
-            {row.original.model_id && row.original.model_id !== row.original.model_name && (
-              <div className='text-muted-foreground font-mono text-xs'>
-                {row.original.model_id}
-              </div>
-            )}
+          <div className='min-w-[190px] max-w-[240px] leading-tight'>
+            <div className='truncate font-medium'>{row.original.model_name}</div>
+            <div className='text-muted-foreground mt-0.5 truncate font-mono text-[10px]'>
+              {row.original.model_id || row.original.model_name}
+            </div>
           </div>
         ),
       },
       {
         accessorKey: 'provider_name',
         header: t('Provider'),
-        cell: ({ row }) => row.original.provider_name || row.original.source_name,
+        cell: ({ row }) => {
+          const provider = getProviderIdentity(row.original)
+          return (
+            <ProviderMark
+              iconKey={provider.iconKey}
+              name={provider.name}
+              providerId={row.original.provider_id}
+            />
+          )
+        },
       },
       {
         accessorKey: 'input_price',
         header: t('Input price'),
-        cell: ({ row }) => <span className='font-mono'>{formatPrice(row.original.input_price)}/M</span>,
+        cell: ({ row }) => (
+          <span className='flex items-center gap-1 font-mono'>
+            {formatPrice(row.original.input_price)}
+            {(row.original.tiers?.length || 0) > 1 && (
+              <ArrowUpRight className='size-3 text-blue-600' aria-label={t('Tier')} />
+            )}
+          </span>
+        ),
       },
       {
         accessorKey: 'output_price',
         header: t('Output price'),
-        cell: ({ row }) => <span className='font-mono'>{formatPrice(row.original.output_price)}/M</span>,
+        cell: ({ row }) => (
+          <span className='flex items-center gap-1 font-mono'>
+            {formatPrice(row.original.output_price)}
+            {(row.original.tiers?.length || 0) > 1 && (
+              <ArrowUpRight className='size-3 text-blue-600' aria-label={t('Tier')} />
+            )}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'cache_read_price',
+        header: t('Cache Read'),
+        cell: ({ row }) => (
+          <span className='font-mono'>
+            {formatPrice(row.original.cache_read_price)}
+            {(row.original.tiers?.length || 0) > 1 && (
+              <ArrowUpRight className='ml-1 inline size-3 text-blue-600' aria-label={t('Tier')} />
+            )}
+          </span>
+        ),
+      },
+      {
+        accessorKey: 'cache_write_price',
+        header: t('Cache Write'),
+        cell: ({ row }) => (
+          <span className='font-mono'>
+            {formatPrice(row.original.cache_write_price)}
+            {(row.original.tiers?.length || 0) > 1 && (
+              <ArrowUpRight className='ml-1 inline size-3 text-blue-600' aria-label={t('Tier')} />
+            )}
+          </span>
+        ),
       },
       {
         accessorKey: 'context',
         header: t('Context'),
-        cell: ({ row }) => <span className='font-mono'>{formatContext(row.original.context)}</span>,
+        cell: ({ row }) => (
+          <span className='font-mono'>{formatContext(row.original.context)}</span>
+        ),
+      },
+      {
+        accessorKey: 'capabilities',
+        header: t('Capabilities'),
+        cell: ({ row }) => (
+          <CapabilityList capabilities={row.original.capabilities || []} />
+        ),
+      },
+      {
+        accessorKey: 'last_updated',
+        header: t('Updated'),
+        cell: ({ row }) => (
+          <span className='font-mono'>{row.original.last_updated || '-'}</span>
+        ),
       },
       {
         id: 'details',
         header: '',
-        cell: ({ row }) => <ModelDetailsDialog item={row.original} />,
+        cell: ({ row }) => <UpstreamPricingItemDetails item={row.original} />,
       },
     ]
   }, [filteredItems, props, t])
@@ -304,7 +242,7 @@ export function UpstreamPricingItemsTable(props: UpstreamPricingItemsTableProps)
     data: filteredItems,
     columns,
     getRowId: (item) => item.key,
-    initialPagination: { pageIndex: 0, pageSize: 20 },
+    initialPagination: { pageIndex: 0, pageSize: 50 },
     withFilteredRowModel: false,
     withSortedRowModel: false,
     withFacetedRowModel: false,
@@ -312,39 +250,104 @@ export function UpstreamPricingItemsTable(props: UpstreamPricingItemsTableProps)
 
   if (props.items.length === 0) {
     return (
-      <div className='flex h-64 flex-col items-center justify-center gap-3 rounded-md border'>
-        {props.isSyncing && <Loader2 className='text-muted-foreground h-8 w-8 animate-spin' />}
-        <p className='text-muted-foreground text-sm'>
-          {props.isSyncing
-            ? t('Fetching upstream prices...')
-            : t('Select sync channels to compare prices')}
+      <div className='flex h-64 flex-col items-center justify-center gap-3 rounded-md border text-[12px]'>
+        {props.isSyncing && (
+          <Loader2 className='text-muted-foreground size-7 animate-spin' />
+        )}
+        <p className='text-muted-foreground'>
+          {props.isSyncing ? t('Fetching upstream prices...') : 'models.dev'}
         </p>
+        {!props.isSyncing && (
+          <Button type='button' size='sm' onClick={props.onRefresh}>
+            <RefreshCcw data-icon='inline-start' />
+            {t('Refresh')}
+          </Button>
+        )}
       </div>
     )
   }
 
   return (
-    <div className='flex h-full min-h-[520px] flex-col gap-4'>
-      <div className='relative shrink-0'>
-        <Search className='text-muted-foreground absolute top-1/2 left-2 h-4 w-4 -translate-y-1/2' />
-        <Input
-          placeholder={t('Search model name...')}
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
+    <div className='flex h-full min-h-[520px] flex-col gap-2 text-[12px]'>
+      <div className='flex shrink-0 flex-col gap-2 lg:flex-row lg:items-center'>
+        <div className='relative min-w-0 flex-1'>
+          <Search className='text-muted-foreground absolute top-1/2 left-2 size-3.5 -translate-y-1/2' />
+          <Input
+            placeholder={t(
+              'Search model name, provider, endpoint, or tag...'
+            )}
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value)
+              table.setPageIndex(0)
+            }}
+            disabled={props.isDisabled}
+            className='h-8 ps-7 text-[12px]'
+          />
+        </div>
+        <UpstreamProviderFilter
+          options={providerOptions}
+          selected={selectedProviders}
           disabled={props.isDisabled}
-          className='ps-8'
+          onChange={(providers) => {
+            setSelectedProviders(providers)
+            table.setPageIndex(0)
+          }}
         />
+        <div className='text-muted-foreground flex shrink-0 items-center gap-2 whitespace-nowrap'>
+          <Badge
+            variant='outline'
+            className='h-7 rounded-sm px-2 text-[11px] font-normal'
+          >
+            {t('Total:')} {filteredItems.length.toLocaleString()}
+          </Badge>
+          {props.lastFetchedAt && (
+            <Badge
+              variant='outline'
+              className='h-7 rounded-sm px-2 text-[11px] font-normal'
+            >
+              {t('Last updated:')}{' '}
+              {new Date(props.lastFetchedAt).toLocaleString()}
+            </Badge>
+          )}
+          <Button
+            type='button'
+            variant='outline'
+            size='sm'
+            className='h-8 text-[12px]'
+            onClick={props.onRefresh}
+            disabled={props.isDisabled}
+          >
+            <RefreshCcw
+              data-icon='inline-start'
+              className={props.isSyncing ? 'animate-spin' : undefined}
+            />
+            {t('Refresh')}
+          </Button>
+        </div>
       </div>
+
       <DataTableView
         table={table}
         containerClassName='min-h-0 flex-1 rounded-md'
-        tableContainerClassName='h-full min-h-0 overflow-x-auto'
-        getColumnClassName={() => 'align-middle whitespace-nowrap'}
-        getRowClassName={() => 'align-middle'}
+        tableContainerClassName='h-full min-h-0 overflow-auto'
+        tableClassName='min-w-[1480px] text-[12px] [&_td]:text-[12px] [&_td_*]:text-[12px] [&_th]:text-[12px] [&_th_*]:text-[12px]'
+        tableHeaderRowClassName='h-8 bg-muted/30'
+        tableBodyClassName='[&>tr]:h-12'
+        getColumnClassName={(columnId) =>
+          columnId === 'capabilities'
+            ? 'align-middle whitespace-normal px-2 py-1.5'
+            : 'align-middle whitespace-nowrap px-2 py-1.5'
+        }
+        getRowClassName={(row) =>
+          Object.keys(row.original.sync_values).length > 0
+            ? 'align-middle'
+            : 'align-middle opacity-60'
+        }
         emptyContent={t('No results found')}
-        emptyCellClassName='h-24 text-center'
+        emptyCellClassName='h-24 text-center text-[12px]'
       />
-      <div className='shrink-0'>
+      <div className='shrink-0 [&_*]:text-[12px]'>
         <DataTablePagination table={table} />
       </div>
     </div>
