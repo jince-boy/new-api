@@ -134,7 +134,7 @@ type EndpointSelection = {
   customConfig: Record<string, unknown>
 }
 
-const endpointTypeSet = new Set(
+const endpointTypeSet = new Set<string>(
   ENDPOINT_OPTIONS.map((endpoint) => endpoint.type)
 )
 
@@ -1057,12 +1057,12 @@ export function ModelMutateDrawer({
                                   checked={checked}
                                   onCheckedChange={(value) => {
                                     const nextTypes = value
-                                      ? Array.from(
-                                          new Set([
+                                      ? [
+                                          ...new Set([
                                             ...selectedTypes,
                                             endpoint.type,
-                                          ])
-                                        )
+                                          ]),
+                                        ]
                                       : selectedTypes.filter(
                                           (type) => type !== endpoint.type
                                         )

@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type TFunction } from 'i18next'
+import type { TFunction } from 'i18next'
 
 import { formatTimestampToDate } from '@/lib/format'
 
@@ -27,7 +27,7 @@ import {
 } from '../constants'
 import type { NameRule, Model } from '../types'
 
-export const KNOWN_ENDPOINT_TYPES = new Set(
+export const KNOWN_ENDPOINT_TYPES = new Set<string>(
   ENDPOINT_OPTIONS.map((endpoint) => endpoint.type)
 )
 

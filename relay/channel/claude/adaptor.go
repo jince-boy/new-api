@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service/relayconvert"
 	"github.com/QuantumNous/new-api/setting/model_setting"
 	"github.com/QuantumNous/new-api/types"
 
@@ -95,14 +96,14 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
-	claudeRequest, err := RequestOpenAI2ClaudeMessage(c, *request)
+	result, err := relayconvert.ConvertRequest(c, info, types.RelayFormatClaude, request)
 	if err != nil {
 		return nil, err
 	}
-	if info != nil {
+	if claudeRequest, ok := result.Value.(*dto.ClaudeRequest); ok && info != nil {
 		ApplySamplingParameterCompatibilityForModel(claudeRequest, info.UpstreamModelName)
 	}
-	return claudeRequest, nil
+	return result.Value, nil
 }
 
 func (a *Adaptor) ConvertRerankRequest(c *gin.Context, relayMode int, request dto.RerankRequest) (any, error) {

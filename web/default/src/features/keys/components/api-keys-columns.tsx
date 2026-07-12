@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { type ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
 
 import { BadgeCell, TruncatedCell } from '@/components/data-table'
@@ -30,12 +30,15 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { toIntlLocale } from '@/i18n/languages'
 import { getUserGroups } from '@/lib/api'
-import { formatQuota, formatTimestampToDate } from '@/lib/format'
+import dayjs from '@/lib/dayjs'
+import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { API_KEY_STATUSES } from '../constants'
-import { type ApiKey } from '../types'
+import type { ApiKey } from '../types'
+import { ApiKeyTimestampCell } from './api-key-timestamp-cell'
 import {
   FALLBACK_DEFAULT_API_KEY_PURPOSES,
   fetchDefaultApiKeyPurposes,
@@ -73,8 +76,8 @@ function useGroupRatios(): Record<string, number> {
   return data ?? {}
 }
 
-export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
-  const { t } = useTranslation()
+export function useApiKeysColumns(now: number): ColumnDef<ApiKey>[] {
+  const { t, i18n } = useTranslation()
   const groupRatios = useGroupRatios()
   const { data: purposeResponse } = useQuery({
     queryKey: ['default-api-key-purposes'],
@@ -88,6 +91,9 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
       : FALLBACK_DEFAULT_API_KEY_PURPOSES
     ).map((purpose) => [purpose.purpose, purpose.label])
   )
+  const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const justNowLabel = t('Just now')
+  const staleAccessThreshold = dayjs(now).subtract(3, 'month').valueOf()
   return [
     {
       id: 'select',
@@ -118,11 +124,10 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
       cell: ({ row }) => {
         const apiKey = row.original
         const apiKeyDefaultPurposes = apiKey.default_purposes ?? []
-        const defaultPurposes = apiKeyDefaultPurposes.length
-          ? apiKeyDefaultPurposes
-          : apiKey.default_chat
-            ? ['chat']
-            : []
+        let defaultPurposes = apiKeyDefaultPurposes
+        if (defaultPurposes.length === 0 && apiKey.default_chat) {
+          defaultPurposes = ['chat']
+        }
         return (
           <div className='flex min-w-0 items-center gap-2'>
             <span className='truncate font-medium'>
@@ -300,9 +305,13 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
       accessorKey: 'created_time',
       header: t('Created'),
       cell: ({ row }) => (
-        <span className='text-muted-foreground block truncate font-mono text-xs tabular-nums'>
-          {formatTimestampToDate(row.getValue('created_time'))}
-        </span>
+        <ApiKeyTimestampCell
+          timestamp={row.getValue('created_time')}
+          now={now}
+          locale={locale}
+          justNowLabel={justNowLabel}
+          className='text-muted-foreground'
+        />
       ),
       size: 180,
       meta: { mobileHidden: true },
@@ -312,13 +321,17 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
       header: t('Last Used'),
       cell: ({ row }) => {
         const accessedTime = row.getValue('accessed_time') as number
-        if (!accessedTime) {
-          return <span className='text-muted-foreground text-xs'>-</span>
-        }
+        const isStale =
+          accessedTime > 0 && accessedTime * 1000 < staleAccessThreshold
+
         return (
-          <span className='text-muted-foreground block truncate font-mono text-xs tabular-nums'>
-            {formatTimestampToDate(accessedTime)}
-          </span>
+          <ApiKeyTimestampCell
+            timestamp={accessedTime}
+            now={now}
+            locale={locale}
+            justNowLabel={justNowLabel}
+            className={isStale ? 'text-warning' : 'text-muted-foreground'}
+          />
         )
       },
       size: 180,
@@ -339,16 +352,17 @@ export function useApiKeysColumns(): ColumnDef<ApiKey>[] {
             />
           )
         }
-        const isExpired = expiredTime * 1000 < Date.now()
+        const isExpired = expiredTime * 1000 < now
         return (
-          <span
+          <ApiKeyTimestampCell
+            timestamp={expiredTime}
+            now={now}
+            locale={locale}
+            justNowLabel={justNowLabel}
             className={cn(
-              'block truncate font-mono text-xs tabular-nums',
               isExpired ? 'text-destructive' : 'text-muted-foreground'
             )}
-          >
-            {formatTimestampToDate(expiredTime)}
-          </span>
+          />
         )
       },
       size: 180,

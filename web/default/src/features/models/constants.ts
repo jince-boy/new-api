@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type TFunction } from 'i18next'
+import type { TFunction } from 'i18next'
 
 import type { NameRule, ModelStatus, SyncSource } from './types'
 
@@ -161,7 +161,7 @@ export type EndpointOption = {
   path: string
   method: string
   labelKey?: string
-  labelKeys?: string[]
+  labelKeys?: readonly string[]
   label: string
 }
 

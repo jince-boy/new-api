@@ -16,15 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type ColumnDef } from '@tanstack/react-table'
-import { AlertTriangle, Info } from 'lucide-react'
+import type { ColumnDef } from '@tanstack/react-table'
+import { AlertTriangle } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { BadgeCell } from '@/components/data-table'
-import { Dialog } from '@/components/dialog'
+import { DataTableColumnHeader } from '@/components/data-table'
 import { StatusBadge } from '@/components/status-badge'
-import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Tooltip,
@@ -32,21 +30,26 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
-import { parseTiersFromExpr } from '@/features/pricing/lib/billing-expr'
 
 import type { RatioType } from '../types'
 import {
-  getOrderedRatioTypes,
+  getAlignedRatioTypes,
   getPreferredSyncField,
   getSyncFieldLabel,
-  isSelectableUpstreamValue,
+  isSelectedResolutionValue,
   type ModelRow,
   type ResolutionsMap,
 } from './upstream-ratio-sync-helpers'
+import type { UpstreamBulkSelectState } from './upstream-ratio-sync-table'
+
+const syncFieldListClassName = 'flex max-w-full min-w-0 flex-col gap-1.5'
+const syncFieldRowClassName =
+  'bg-muted/30 flex h-8 w-fit max-w-full min-w-0 items-center gap-2 rounded-md px-2'
+const syncFieldLabelClassName = 'min-w-[4.5rem] shrink-0'
 
 export function useUpstreamRatioSyncColumns(
   upstreamNames: string[],
+  bulkSelectStateByUpstream: Record<string, UpstreamBulkSelectState>,
   resolutions: ResolutionsMap,
   ratioTypeFilter: string,
   isDisabled: boolean,
@@ -57,8 +60,8 @@ export function useUpstreamRatioSyncColumns(
     sourceName: string
   ) => void,
   onUnselectValue: (model: string, ratioType: RatioType) => void,
-  onBulkSelect: (upstreamName: string, rows: ModelRow[]) => void,
-  onBulkUnselect: (upstreamName: string, rows: ModelRow[]) => void
+  onBulkSelect: (upstreamName: string) => void,
+  onBulkUnselect: (upstreamName: string) => void
 ): ColumnDef<ModelRow>[] {
   const { t } = useTranslation()
 
@@ -66,7 +69,11 @@ export function useUpstreamRatioSyncColumns(
     const baseColumns: ColumnDef<ModelRow>[] = [
       {
         accessorKey: 'model',
-        header: t('Model'),
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title={t('Model')} />
+        ),
+        size: 220,
+        minSize: 180,
         cell: ({ row }) => {
           const model = row.original.model
           return (
@@ -94,23 +101,29 @@ export function useUpstreamRatioSyncColumns(
       },
       {
         id: 'current',
-        header: t('Current Price'),
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title={t('Current Price')} />
+        ),
+        size: 260,
+        minSize: 220,
         cell: ({ row }) => {
-          const fields = getOrderedRatioTypes(
+          const fields = getAlignedRatioTypes(
             row.original.ratioTypes,
+            upstreamNames,
             ratioTypeFilter
           )
           return (
-            <div className='flex max-w-full min-w-0 flex-col gap-2'>
+            <div className={syncFieldListClassName}>
               {fields.map((ratioType) => {
                 const current = row.original.ratioTypes[ratioType]?.current
                 return (
-                  <BadgeCell key={ratioType} className='ml-0 flex-wrap gap-2'>
+                  <div key={ratioType} className={syncFieldRowClassName}>
                     <StatusBadge
                       label={getSyncFieldLabel(ratioType, t)}
                       autoColor={ratioType}
                       size='sm'
                       copyable={false}
+                      className={syncFieldLabelClassName}
                     />
                     {current === null || current === undefined ? (
                       <StatusBadge
@@ -119,9 +132,6 @@ export function useUpstreamRatioSyncColumns(
                         size='sm'
                         copyable={false}
                       />
-                    ) : ratioType === 'billing_expr' &&
-                      typeof current === 'string' ? (
-                      <BillingExpressionValue expr={current} t={t} />
                     ) : (
                       <TooltipProvider>
                         <Tooltip>
@@ -131,10 +141,10 @@ export function useUpstreamRatioSyncColumns(
                                 label={String(current)}
                                 variant='info'
                                 size='sm'
-                                className='max-w-[200px] truncate'
+                                className='max-w-[160px] truncate font-mono'
                               />
                             }
-                          ></TooltipTrigger>
+                          />
                           <TooltipContent>
                             <p className='max-w-xs text-xs break-all'>
                               {String(current)}
@@ -143,7 +153,7 @@ export function useUpstreamRatioSyncColumns(
                         </Tooltip>
                       </TooltipProvider>
                     )}
-                  </BadgeCell>
+                  </div>
                 )
               })}
             </div>
@@ -155,41 +165,19 @@ export function useUpstreamRatioSyncColumns(
     const upstreamColumns: ColumnDef<ModelRow>[] = upstreamNames.map(
       (upstreamName) => ({
         id: `upstream_${upstreamName}`,
-        header: ({ table }) => {
-          const rows = table.getFilteredRowModel().rows.map((r) => r.original)
-
-          let selectableCount = 0
-          let selectedCount = 0
-
-          rows.forEach((row) => {
-            getOrderedRatioTypes(row.ratioTypes, ratioTypeFilter).forEach(
-              (ratioType) => {
-                const upstreamVal =
-                  row.ratioTypes[ratioType]?.upstreams?.[upstreamName]
-                const preferredField = getPreferredSyncField(
-                  row.ratioTypes,
-                  ratioType,
-                  upstreamName
-                )
-                if (
-                  preferredField === ratioType &&
-                  isSelectableUpstreamValue(upstreamVal)
-                ) {
-                  selectableCount++
-                  if (resolutions[row.model]?.[ratioType] === upstreamVal) {
-                    selectedCount++
-                  }
-                }
-              }
-            )
-          })
-
+        size: 280,
+        minSize: 240,
+        header: () => {
+          const bulkSelectState = bulkSelectStateByUpstream[upstreamName]
+          const displayName = bulkSelectState?.displayName ?? upstreamName
+          const selectableCount = bulkSelectState?.selectableCount ?? 0
+          const selectedCount = bulkSelectState?.selectedCount ?? 0
           const allSelected =
             selectableCount > 0 && selectedCount === selectableCount
           const someSelected =
             selectedCount > 0 && selectedCount < selectableCount
           return (
-            <div className='flex items-center gap-2'>
+            <div className='flex h-9 min-w-0 items-center gap-1.5'>
               {selectableCount > 0 && (
                 <Checkbox
                   checked={allSelected}
@@ -197,57 +185,68 @@ export function useUpstreamRatioSyncColumns(
                   disabled={isDisabled}
                   onCheckedChange={(checked) => {
                     if (checked) {
-                      onBulkSelect(upstreamName, rows)
+                      onBulkSelect(upstreamName)
                     } else {
-                      onBulkUnselect(upstreamName, rows)
+                      onBulkUnselect(upstreamName)
                     }
                   }}
+                  aria-label={t('Select all (filtered)')}
+                  className='shrink-0'
                 />
               )}
-              <span className='font-medium'>{upstreamName}</span>
+              <div className='flex min-w-0 flex-1 items-center gap-1.5'>
+                <span className='min-w-0 truncate font-medium'>
+                  {displayName}
+                </span>
+                {selectableCount > 0 && (
+                  <span className='bg-muted text-muted-foreground shrink-0 rounded px-1.5 py-0.5 text-[11px] leading-none font-normal tabular-nums'>
+                    {selectedCount}/{selectableCount}
+                  </span>
+                )}
+              </div>
             </div>
           )
         },
         cell: ({ row }) => {
-          const fields = getOrderedRatioTypes(
+          const fields = getAlignedRatioTypes(
             row.original.ratioTypes,
+            upstreamNames,
             ratioTypeFilter
-          ).filter(
-            (ratioType) =>
-              getPreferredSyncField(
-                row.original.ratioTypes,
-                ratioType,
-                upstreamName
-              ) === ratioType
           )
 
           return (
-            <div className='flex max-w-full min-w-0 flex-col gap-2'>
+            <div className={syncFieldListClassName}>
               {fields.map((ratioType) => {
                 const diff = row.original.ratioTypes[ratioType]
                 const upstreamVal = diff?.upstreams?.[upstreamName]
                 const isConfident = diff?.confidence?.[upstreamName] !== false
+                const isVisibleForSource =
+                  getPreferredSyncField(
+                    row.original.ratioTypes,
+                    ratioType,
+                    upstreamName
+                  ) === ratioType
 
                 return (
-                  <div
-                    key={ratioType}
-                    className='flex min-w-0 items-start gap-2'
-                  >
+                  <div key={ratioType} className={syncFieldRowClassName}>
                     <StatusBadge
                       label={getSyncFieldLabel(ratioType, t)}
                       autoColor={ratioType}
                       size='sm'
                       copyable={false}
-                      className='shrink-0'
+                      className={syncFieldLabelClassName}
                     />
                     <div className='min-w-0 flex-1'>
                       {renderUpstreamValue({
-                        ratioType,
                         upstreamVal,
+                        isAvailable: isVisibleForSource,
                         isConfident,
-                        isSelected:
-                          resolutions[row.original.model]?.[ratioType] ===
-                          upstreamVal,
+                        isSelected: isSelectedResolutionValue(
+                          resolutions,
+                          row.original.model,
+                          ratioType,
+                          upstreamVal
+                        ),
                         isDisabled,
                         t,
                         onSelect: () =>
@@ -273,6 +272,7 @@ export function useUpstreamRatioSyncColumns(
     return [...baseColumns, ...upstreamColumns]
   }, [
     upstreamNames,
+    bulkSelectStateByUpstream,
     resolutions,
     ratioTypeFilter,
     isDisabled,
@@ -285,8 +285,8 @@ export function useUpstreamRatioSyncColumns(
 }
 
 type RenderUpstreamValueArgs = {
-  ratioType: RatioType
   upstreamVal: number | string | 'same' | null | undefined
+  isAvailable: boolean
   isConfident: boolean
   isSelected: boolean
   isDisabled: boolean
@@ -296,8 +296,14 @@ type RenderUpstreamValueArgs = {
 }
 
 function renderUpstreamValue(args: RenderUpstreamValueArgs) {
-  const { ratioType, upstreamVal, isConfident, isSelected, isDisabled, t } =
+  const { upstreamVal, isAvailable, isConfident, isSelected, isDisabled, t } =
     args
+
+  if (!isAvailable) {
+    return (
+      <StatusBadge label='—' variant='neutral' size='sm' copyable={false} />
+    )
+  }
 
   if (upstreamVal === null || upstreamVal === undefined) {
     return (
@@ -324,7 +330,7 @@ function renderUpstreamValue(args: RenderUpstreamValueArgs) {
   const text = String(upstreamVal)
 
   return (
-    <div className='flex min-w-0 items-center gap-2'>
+    <div className='flex h-full min-w-0 items-center gap-2'>
       <Checkbox
         checked={isSelected}
         disabled={isDisabled}
@@ -335,25 +341,22 @@ function renderUpstreamValue(args: RenderUpstreamValueArgs) {
             args.onUnselect()
           }
         }}
+        className='size-4'
       />
-      {ratioType === 'billing_expr' ? (
-        <BillingExpressionValue expr={text} t={t} />
-      ) : (
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <span className='inline-block max-w-[240px] cursor-default truncate font-mono text-sm' />
-              }
-            >
-              {text}
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className='max-w-xs text-xs break-all'>{text}</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      )}
+      <TooltipProvider>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <span className='inline-block max-w-[240px] cursor-default truncate font-mono text-sm' />
+            }
+          >
+            {text}
+          </TooltipTrigger>
+          <TooltipContent>
+            <p className='max-w-xs text-xs break-all'>{text}</p>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
       {!isConfident && (
         <TooltipProvider>
           <Tooltip>
@@ -370,57 +373,3 @@ function renderUpstreamValue(args: RenderUpstreamValueArgs) {
   )
 }
 
-function BillingExpressionValue({
-  expr,
-  t,
-}: {
-  expr: string
-  t: (key: string) => string
-}) {
-  const tiers = useMemo(() => parseTiersFromExpr(expr), [expr])
-  const summary =
-    tiers.length > 0
-      ? `${t('Tiered')} - ${tiers.length} ${t('Tier')}`
-      : t('Expression billing')
-
-  return (
-    <div className='flex min-w-0 flex-wrap items-center gap-2'>
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <span className='bg-muted inline-flex max-w-[180px] cursor-default items-center rounded-md px-2 py-1 font-mono text-xs' />
-            }
-          >
-            {summary}
-          </TooltipTrigger>
-          <TooltipContent>
-            <p className='max-w-xs text-xs break-all'>{expr}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-
-      <Dialog
-        title={t('Billing Details')}
-        trigger={
-          <Button type='button' variant='outline' size='xs'>
-            <Info className='h-3 w-3' />
-            {t('Details')}
-          </Button>
-        }
-        contentClassName='sm:max-w-5xl'
-        bodyClassName='max-w-full overflow-x-auto'
-      >
-        <DynamicPricingBreakdown billingExpr={expr} compact />
-        <div className='mt-3'>
-          <div className='text-muted-foreground mb-1 text-xs font-medium'>
-            {t('Raw expression')}
-          </div>
-          <code className='bg-muted block rounded-md p-2 text-xs break-all'>
-            {expr}
-          </code>
-        </div>
-      </Dialog>
-    </div>
-  )
-}
