@@ -53,6 +53,7 @@ import { PromptDialog } from '../dialogs/prompt-dialog'
 import {
   createDurationColumn,
   createChannelColumn,
+  createIpColumn,
   createProgressColumn,
   createFailReasonColumn,
 } from './column-helpers'
@@ -116,6 +117,8 @@ export function useDrawingLogsColumns(
       createChannelColumn<MidjourneyLog>({ headerLabel: t('Channel') })
     )
   }
+
+  columns.push(createIpColumn<MidjourneyLog>(t('IP Address')))
 
   columns.push({
     accessorKey: 'action',

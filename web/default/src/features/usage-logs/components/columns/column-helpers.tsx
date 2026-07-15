@@ -54,7 +54,7 @@ export function CacheTooltip({
       <Tooltip>
         <TooltipTrigger
           render={<Zap className={`size-3 flex-shrink-0 ${color}`} />}
-        ></TooltipTrigger>
+        />
         <TooltipContent side='top'>
           <p className='text-xs'>
             {label}: {formatTokens(tokens)}
@@ -188,6 +188,27 @@ export function createChannelColumn<T>(config: {
           showDot={false}
           className='font-mono'
         />
+      )
+    },
+    meta: { label: headerLabel },
+  }
+}
+
+/**
+ * Create an IP address column for admin log views.
+ */
+export function createIpColumn<T>(headerLabel: string): ColumnDef<T> {
+  return {
+    accessorKey: 'ip',
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title={headerLabel} />
+    ),
+    cell: ({ row }) => {
+      const ip = row.getValue('ip') as string
+      return (
+        <span className='text-muted-foreground font-mono text-xs'>
+          {ip || '-'}
+        </span>
       )
     },
     meta: { label: headerLabel },

@@ -40,6 +40,7 @@ import { useUsageLogsContext } from '../usage-logs-provider'
 import {
   createDurationColumn,
   createChannelColumn,
+  createIpColumn,
   createProgressColumn,
 } from './column-helpers'
 
@@ -161,6 +162,8 @@ export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
       },
     })
   }
+
+  columns.push(createIpColumn<TaskLog>(t('IP Address')))
 
   columns.push(
     {

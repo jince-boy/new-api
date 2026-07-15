@@ -64,6 +64,7 @@ import { DetailsDialog } from '../dialogs/details-dialog'
 import { ModelBadge } from '../model-badge'
 import { TimingMetricsCell, StreamTpsCell } from '../timing-metrics-cell'
 import { useUsageLogsContext } from '../usage-logs-provider'
+import { createIpColumn } from './column-helpers'
 
 interface DetailSegment {
   text: string
@@ -542,6 +543,8 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
       }
     )
   }
+
+  columns.push(createIpColumn<UsageLog>(t('IP Address')))
 
   columns.push({
     accessorKey: 'token_name',

@@ -20,6 +20,7 @@ type Midjourney struct {
 	Progress    string `json:"progress" gorm:"type:varchar(30);index"`
 	FailReason  string `json:"fail_reason"`
 	ChannelId   int    `json:"channel_id"`
+	Ip          string `json:"ip" gorm:"type:varchar(45);index;default:''"`
 	Quota       int    `json:"quota"`
 	Buttons     string `json:"buttons"`
 	Properties  string `json:"properties"`
