@@ -14,9 +14,65 @@ import (
 
 	"github.com/bytedance/gopkg/util/gopool"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 const UserNameMaxLength = 20
+
+var userSortColumns = map[string]string{
+	"id":            "id",
+	"username":      "username",
+	"quota":         "quota",
+	"group":         "group",
+	"created_at":    "created_at",
+	"last_login_at": "last_login_at",
+}
+
+type UserSortOptions struct {
+	SortBy    string
+	SortOrder string
+}
+
+func NewUserSortOptions(sortBy string, sortOrder string) UserSortOptions {
+	normalizedSortBy := strings.ToLower(strings.TrimSpace(sortBy))
+	normalizedSortOrder := strings.ToLower(strings.TrimSpace(sortOrder))
+	if _, ok := userSortColumns[normalizedSortBy]; !ok {
+		normalizedSortBy = "id"
+		normalizedSortOrder = "desc"
+	} else if normalizedSortOrder != "asc" {
+		normalizedSortOrder = "desc"
+	}
+
+	return UserSortOptions{
+		SortBy:    normalizedSortBy,
+		SortOrder: normalizedSortOrder,
+	}
+}
+
+func (options UserSortOptions) Apply(query *gorm.DB) *gorm.DB {
+	columnName, ok := userSortColumns[options.SortBy]
+	if !ok {
+		columnName = "id"
+	}
+	q := query.Order(clause.OrderByColumn{
+		Column: clause.Column{Name: columnName},
+		Desc:   options.SortOrder != "asc",
+	})
+	if columnName != "id" {
+		q = q.Order(clause.OrderByColumn{
+			Column: clause.Column{Name: "id"},
+			Desc:   true,
+		})
+	}
+	return q
+}
+
+func resolveUserSortOptions(sortOptions []UserSortOptions) UserSortOptions {
+	if len(sortOptions) == 0 {
+		return NewUserSortOptions("", "")
+	}
+	return sortOptions[0]
+}
 
 // User if you add sensitive fields, don't forget to clean them in setupLogin function.
 // Otherwise, the sensitive information will be saved on local storage in plain text!
@@ -291,11 +347,11 @@ func GetAllUsersQuota() (totalQuota int64, err error) {
 	return totalQuota, err
 }
 
-func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, totalQuota int64, err error) {
+func GetAllUsers(pageInfo *common.PageInfo, sortOptions ...UserSortOptions) (users []*User, total int64, err error) {
 	// Start transaction
 	tx := DB.Begin()
 	if tx.Error != nil {
-		return nil, 0, 0, tx.Error
+		return nil, 0, tx.Error
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -307,31 +363,26 @@ func GetAllUsers(pageInfo *common.PageInfo) (users []*User, total int64, totalQu
 	err = tx.Unscoped().Model(&User{}).Count(&total).Error
 	if err != nil {
 		tx.Rollback()
-		return nil, 0, 0, err
-	}
-
-	err = tx.Unscoped().Model(&User{}).Select("COALESCE(SUM(quota), 0)").Scan(&totalQuota).Error
-	if err != nil {
-		tx.Rollback()
-		return nil, 0, 0, err
+		return nil, 0, err
 	}
 
 	// Get paginated users within same transaction
-	err = tx.Unscoped().Order("id desc").Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Omit("password", "access_token").Find(&users).Error
+	order := resolveUserSortOptions(sortOptions)
+	err = order.Apply(tx.Unscoped()).Limit(pageInfo.GetPageSize()).Offset(pageInfo.GetStartIdx()).Omit("password", "access_token").Find(&users).Error
 	if err != nil {
 		tx.Rollback()
-		return nil, 0, 0, err
+		return nil, 0, err
 	}
 
 	// Commit transaction
 	if err = tx.Commit().Error; err != nil {
-		return nil, 0, 0, err
+		return nil, 0, err
 	}
 
-	return users, total, totalQuota, nil
+	return users, total, nil
 }
 
-func SearchUsers(keyword string, group string, role *int, status *int, startIdx int, num int) ([]*User, int64, error) {
+func SearchUsers(keyword string, group string, role *int, status *int, startIdx int, num int, sortOptions ...UserSortOptions) ([]*User, int64, error) {
 	var users []*User
 	var total int64
 	var err error
@@ -385,7 +436,8 @@ func SearchUsers(keyword string, group string, role *int, status *int, startIdx 
 	}
 
 	// 获取分页数据
-	err = query.Omit("password", "access_token").Order("id desc").Limit(num).Offset(startIdx).Find(&users).Error
+	order := resolveUserSortOptions(sortOptions)
+	err = order.Apply(query.Omit("password", "access_token")).Limit(num).Offset(startIdx).Find(&users).Error
 	if err != nil {
 		tx.Rollback()
 		return nil, 0, err
