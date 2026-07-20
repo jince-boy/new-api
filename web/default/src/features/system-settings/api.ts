@@ -22,6 +22,7 @@ import type {
   ConfirmPaymentComplianceResponse,
   FetchUpstreamRatiosRequest,
   GroupChatQRCodeUploadResponse,
+  LogoUploadResponse,
   LogCleanupTask,
   SystemOptionsResponse,
   SystemTaskListResponse,
@@ -53,6 +54,18 @@ export async function uploadGroupChatQRCode(file: File, expiresAt: string) {
     '/api/option/group-chat-qrcode',
     formData
   )
+  return res.data
+}
+
+export async function uploadLogo(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const res = await api.post<LogoUploadResponse>('/api/option/logo', formData)
+  return res.data
+}
+
+export async function removeLogo() {
+  const res = await api.delete<UpdateOptionResponse>('/api/option/logo')
   return res.data
 }
 

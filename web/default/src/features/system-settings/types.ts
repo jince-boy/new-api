@@ -48,6 +48,14 @@ export type GroupChatQRCodeUploadResponse = {
   }
 }
 
+export type LogoUploadResponse = {
+  success: boolean
+  message: string
+  data?: {
+    url: string
+  }
+}
+
 export type ConfirmPaymentComplianceResponse = {
   success: boolean
   message: string

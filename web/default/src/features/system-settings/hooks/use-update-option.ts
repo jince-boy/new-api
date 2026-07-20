@@ -25,12 +25,13 @@ import { updateSystemOption } from '../api'
 import type { UpdateOptionRequest } from '../types'
 
 // Configuration keys that require status refresh
-const STATUS_RELATED_KEYS = [
+const STATUS_RELATED_KEYS = new Set([
   'theme.frontend',
   'HeaderNavModules',
   'SidebarModulesAdmin',
   'Notice',
   'LogConsumeEnabled',
+  'Logo',
   'QuotaPerUnit',
   'USDExchangeRate',
   'DisplayInCurrencyEnabled',
@@ -40,7 +41,7 @@ const STATUS_RELATED_KEYS = [
   'general_setting.quota_display_type',
   'general_setting.custom_currency_symbol',
   'general_setting.custom_currency_exchange_rate',
-]
+])
 
 const SUCCESS_FLUSH_DELAY_MS = 120
 
@@ -119,7 +120,7 @@ export function useUpdateOption(options: UseUpdateOptionOptions = {}) {
       if (shouldInvalidate !== false) {
         shouldInvalidateRef.current = true
 
-        if (STATUS_RELATED_KEYS.includes(variables.key)) {
+        if (STATUS_RELATED_KEYS.has(variables.key)) {
           shouldRefreshStatusRef.current = true
         }
       }

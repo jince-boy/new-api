@@ -30,6 +30,7 @@ export type TopNavLink = {
   requiresAuth?: boolean
   external?: boolean
   openInNewTab?: boolean
+  isCustom?: boolean
 }
 
 type CustomNavLink = {
@@ -64,6 +65,7 @@ const parseCustomNavLinks = (raw: unknown): TopNavLink[] => {
           href,
           external: true,
           openInNewTab: Boolean(item.openInNewTab),
+          isCustom: true,
         }
       })
       .filter((item): item is TopNavLink => Boolean(item))

@@ -23,6 +23,8 @@ import {
   type UseFormProps,
   type FieldValues,
   type FieldNamesMarkedBoolean,
+  type FieldPath,
+  type FieldPathValue,
 } from 'react-hook-form'
 import { toast } from 'sonner'
 
@@ -275,11 +277,26 @@ export function useSettingsForm<T extends FieldValues>({
     toast.success(i18next.t('Form reset to saved values'))
   }
 
+  const markFieldSaved = <TName extends FieldPath<T>>(
+    name: TName,
+    value: FieldPathValue<T, TName>
+  ) => {
+    baselineRef.current[name] = value
+    setDeepValue(
+      defaultValuesRef.current as Record<string, unknown>,
+      name,
+      value
+    )
+    serializedDefaultsRef.current = JSON.stringify(baselineRef.current)
+    form.resetField(name, { defaultValue: value })
+  }
+
   return {
     form,
     // eslint-disable-next-line react-hooks/refs
     handleSubmit: form.handleSubmit(handleSubmit),
     handleReset,
+    markFieldSaved,
     isDirty: form.formState.isDirty,
     isSubmitting: form.formState.isSubmitting,
   }

@@ -29,7 +29,8 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 
-import { type TopNavLink } from '../types'
+import type { TopNavLink } from '../types'
+import { CustomNavMenu } from './custom-nav-menu'
 
 type TopNavProps = React.HTMLAttributes<HTMLElement> & {
   links: TopNavLink[]
@@ -52,6 +53,11 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
       })),
     [links]
   )
+  const customLinks = normalizedLinks.filter((link) => link.isCustom)
+  const desktopLinks =
+    customLinks.length > 1
+      ? normalizedLinks.filter((link) => !link.isCustom)
+      : normalizedLinks
 
   return (
     <>
@@ -97,7 +103,7 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
                       </Link>
                     )
                   }
-                ></DropdownMenuItem>
+                />
               )
             )}
           </DropdownMenuContent>
@@ -112,7 +118,7 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
         )}
         {...props}
       >
-        {normalizedLinks.map(
+        {desktopLinks.map(
           ({ title, href, isActive, disabled, external, openInNewTab }) =>
             external ? (
               <a
@@ -135,6 +141,7 @@ export function TopNav({ className, links, ...props }: TopNavProps) {
               </Link>
             )
         )}
+        {customLinks.length > 1 && <CustomNavMenu links={customLinks} />}
       </nav>
     </>
   )

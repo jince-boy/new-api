@@ -16,8 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type LinkProps } from '@tanstack/react-router'
-import { type TFunction } from 'i18next'
+import type { LinkProps } from '@tanstack/react-router'
+import type { TFunction } from 'i18next'
 
 /**
  * Base navigation item type
@@ -98,6 +98,7 @@ export type TopNavLink = {
   requiresAuth?: boolean
   external?: boolean
   openInNewTab?: boolean
+  isCustom?: boolean
 }
 
 /**
