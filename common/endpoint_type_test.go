@@ -8,9 +8,13 @@ import (
 )
 
 func TestXaiVideoModelUsesOpenAIVideoEndpoint(t *testing.T) {
-	endpoints := GetEndpointTypesByChannelType(constant.ChannelTypeXai, "grok-imagine-video-1.5")
+	for _, model := range []string{"grok-imagine-video", "grok-imagine-video-1.5-preview"} {
+		t.Run(model, func(t *testing.T) {
+			endpoints := GetEndpointTypesByChannelType(constant.ChannelTypeXai, model)
 
-	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIVideo}, endpoints)
+			assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIVideo}, endpoints)
+		})
+	}
 }
 
 func TestDefaultEndpointInfoIncludesOpenAIVideo(t *testing.T) {
