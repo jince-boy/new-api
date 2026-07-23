@@ -31,11 +31,13 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import { useStatus } from '@/hooks/use-status'
 
 import { DocsSidebar } from './components/docs-sidebar'
 import { EndpointReference } from './components/endpoint-reference'
 import { GuideContent } from './components/guide-content'
 import { apiDocItemsById, defaultApiDocItem } from './data/catalog'
+import { resolveApiDocsBaseUrl } from './lib/base-url'
 import { apiDocsLayoutClasses } from './lib/layout'
 import type { ApiDocItem } from './types'
 
@@ -44,19 +46,18 @@ type ApiDocsPageProps = {
   onSelectedIdChange: (id: string) => void
 }
 
-function getBaseUrl(): string {
-  if (typeof window === 'undefined') return 'https://api.example.com'
-  return window.location.origin
-}
-
 export function ApiDocsPage(props: ApiDocsPageProps) {
   const { t } = useTranslation()
+  const { status } = useStatus()
   const [query, setQuery] = useState('')
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false)
   const selectedItem =
     (props.selectedId && apiDocItemsById.get(props.selectedId)) ||
     defaultApiDocItem
-  const baseUrl = getBaseUrl()
+  const baseUrl = resolveApiDocsBaseUrl(
+    status,
+    typeof window === 'undefined' ? '' : window.location.origin
+  )
 
   const selectItem = (item: ApiDocItem) => {
     props.onSelectedIdChange(item.id)
