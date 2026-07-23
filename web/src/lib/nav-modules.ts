@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { getStatus } from '@/lib/api'
 
 export type ModuleAccess = { enabled: boolean; requireAuth: boolean }
+export type DocsNavigation = { enabled: boolean; openInNewTab: boolean }
 
 export type HeaderNavModule = 'rankings' | 'pricing'
 
@@ -27,9 +28,9 @@ export type HeaderNavModules = {
   console: boolean
   pricing: ModuleAccess
   rankings: ModuleAccess
-  docs: boolean
+  docs: DocsNavigation
   about: boolean
-  [key: string]: boolean | ModuleAccess
+  [key: string]: boolean | ModuleAccess | DocsNavigation
 }
 
 const DEFAULT_HEADER_NAV_MODULES: HeaderNavModules = {
@@ -37,7 +38,7 @@ const DEFAULT_HEADER_NAV_MODULES: HeaderNavModules = {
   console: true,
   pricing: { enabled: true, requireAuth: false },
   rankings: { enabled: true, requireAuth: false },
-  docs: true,
+  docs: { enabled: true, openInNewTab: false },
   about: true,
 }
 
@@ -51,6 +52,7 @@ function cloneHeaderNavDefaults(): HeaderNavModules {
     ...DEFAULT_HEADER_NAV_MODULES,
     pricing: { ...DEFAULT_HEADER_NAV_MODULES.pricing },
     rankings: { ...DEFAULT_HEADER_NAV_MODULES.rankings },
+    docs: { ...DEFAULT_HEADER_NAV_MODULES.docs },
   }
 }
 
@@ -93,6 +95,30 @@ function parseAccess(raw: unknown, fallback: ModuleAccess): ModuleAccess {
   return { ...fallback }
 }
 
+function parseDocs(raw: unknown, fallback: DocsNavigation): DocsNavigation {
+  if (
+    typeof raw === 'boolean' ||
+    typeof raw === 'number' ||
+    typeof raw === 'string'
+  ) {
+    return {
+      enabled: parseHeaderNavBoolean(raw, fallback.enabled),
+      openInNewTab: fallback.openInNewTab,
+    }
+  }
+  if (raw && typeof raw === 'object') {
+    const record = raw as Record<string, unknown>
+    return {
+      enabled: parseHeaderNavBoolean(record.enabled, fallback.enabled),
+      openInNewTab: parseHeaderNavBoolean(
+        record.openInNewTab,
+        fallback.openInNewTab
+      ),
+    }
+  }
+  return { ...fallback }
+}
+
 function parseHeaderNavRecord(raw: unknown): Record<string, unknown> | null {
   if (!raw || String(raw).trim() === '') return null
   if (raw && typeof raw === 'object') return raw as Record<string, unknown>
@@ -116,6 +142,10 @@ export function parseHeaderNavModules(raw: unknown): HeaderNavModules {
     }
     if (key === 'rankings') {
       result.rankings = parseAccess(value, result.rankings)
+      return
+    }
+    if (key === 'docs') {
+      result.docs = parseDocs(value, result.docs)
       return
     }
 

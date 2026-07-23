@@ -7,24 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestXaiVideoModelUsesOpenAIVideoEndpoint(t *testing.T) {
-	for _, model := range []string{"grok-imagine-video", "grok-imagine-video-1.5-preview"} {
-		t.Run(model, func(t *testing.T) {
-			endpoints := GetEndpointTypesByChannelType(constant.ChannelTypeXai, model)
-
-			assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAIVideo}, endpoints)
-		})
-	}
-}
-
-func TestDefaultEndpointInfoIncludesOpenAIVideo(t *testing.T) {
-	endpoint, ok := GetDefaultEndpointInfo(constant.EndpointTypeOpenAIVideo)
-
-	assert.True(t, ok)
-	assert.Equal(t, "/v1/videos", endpoint.Path)
-	assert.Equal(t, "POST", endpoint.Method)
-}
-
 func TestDefaultEndpointInfoIncludesAllModelConfigurableRoutes(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -39,9 +21,6 @@ func TestDefaultEndpointInfoIncludesAllModelConfigurableRoutes(t *testing.T) {
 		{name: "audio translations", endpointType: constant.EndpointTypeAudioTranslations, path: "/v1/audio/translations", method: "POST"},
 		{name: "moderations", endpointType: constant.EndpointTypeModerations, path: "/v1/moderations", method: "POST"},
 		{name: "realtime", endpointType: constant.EndpointTypeRealtime, path: "/v1/realtime", method: "GET"},
-		{name: "video retrieve", endpointType: constant.EndpointTypeOpenAIVideoRetrieve, path: "/v1/videos/{task_id}", method: "GET"},
-		{name: "video content", endpointType: constant.EndpointTypeOpenAIVideoContent, path: "/v1/videos/{task_id}/content", method: "GET"},
-		{name: "video remix", endpointType: constant.EndpointTypeOpenAIVideoRemix, path: "/v1/videos/{video_id}/remix", method: "POST"},
 	}
 
 	for _, tt := range tests {

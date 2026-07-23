@@ -32,10 +32,6 @@ var defaultEndpointInfoMap = map[constant.EndpointType]EndpointInfo{
 	constant.EndpointTypeAudioTranslations:     {Path: "/v1/audio/translations", Method: "POST"},
 	constant.EndpointTypeModerations:           {Path: "/v1/moderations", Method: "POST"},
 	constant.EndpointTypeRealtime:              {Path: "/v1/realtime", Method: "GET"},
-	constant.EndpointTypeOpenAIVideo:           {Path: "/v1/videos", Method: "POST"},
-	constant.EndpointTypeOpenAIVideoRetrieve:   {Path: "/v1/videos/{task_id}", Method: "GET"},
-	constant.EndpointTypeOpenAIVideoContent:    {Path: "/v1/videos/{task_id}/content", Method: "GET"},
-	constant.EndpointTypeOpenAIVideoRemix:      {Path: "/v1/videos/{video_id}/remix", Method: "POST"},
 }
 
 // GetDefaultEndpointInfo 返回指定端点类型的默认信息以及是否存在

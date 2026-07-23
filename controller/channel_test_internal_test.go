@@ -211,12 +211,6 @@ func TestResolveChannelTestUserIDUsesRequestUser(t *testing.T) {
 	require.Equal(t, 2, userID)
 }
 
-func TestIsVideoChannelTestModel(t *testing.T) {
-	require.True(t, isVideoChannelTestModel("grok-imagine-video", ""))
-	require.True(t, isVideoChannelTestModel("custom-model", string(constant.EndpointTypeOpenAIVideo)))
-	require.False(t, isVideoChannelTestModel("gpt-4o-mini", ""))
-}
-
 func TestSelectChannelsForAutomaticTestPassiveRecoveryOnlyUsesAutoDisabled(t *testing.T) {
 	channels := []*model.Channel{
 		{Id: 1, Status: common.ChannelStatusEnabled},

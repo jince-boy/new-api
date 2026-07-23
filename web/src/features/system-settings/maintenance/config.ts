@@ -21,14 +21,19 @@ export type HeaderNavAccessConfig = {
   requireAuth: boolean
 }
 
+export type HeaderNavDocsConfig = {
+  enabled: boolean
+  openInNewTab: boolean
+}
+
 export type HeaderNavModulesConfig = {
   home: boolean
   console: boolean
   pricing: HeaderNavAccessConfig
   rankings: HeaderNavAccessConfig
-  docs: boolean
+  docs: HeaderNavDocsConfig
   about: boolean
-  [key: string]: boolean | HeaderNavAccessConfig
+  [key: string]: boolean | HeaderNavAccessConfig | HeaderNavDocsConfig
 }
 
 export type SidebarSectionConfig = {
@@ -49,7 +54,10 @@ export const HEADER_NAV_DEFAULT: HeaderNavModulesConfig = {
     enabled: true,
     requireAuth: false,
   },
-  docs: true,
+  docs: {
+    enabled: true,
+    openInNewTab: false,
+  },
   about: true,
 }
 
@@ -98,6 +106,7 @@ const cloneHeaderNavDefault = (): HeaderNavModulesConfig => ({
   ...HEADER_NAV_DEFAULT,
   pricing: { ...HEADER_NAV_DEFAULT.pricing },
   rankings: { ...HEADER_NAV_DEFAULT.rankings },
+  docs: { ...HEADER_NAV_DEFAULT.docs },
 })
 
 const parseAccessModule = (
@@ -119,6 +128,30 @@ const parseAccessModule = (
     return {
       enabled: toBoolean(record.enabled, fallback.enabled),
       requireAuth: toBoolean(record.requireAuth, fallback.requireAuth),
+    }
+  }
+  return { ...fallback }
+}
+
+const parseDocsModule = (
+  raw: unknown,
+  fallback: HeaderNavDocsConfig
+): HeaderNavDocsConfig => {
+  if (
+    typeof raw === 'boolean' ||
+    typeof raw === 'string' ||
+    typeof raw === 'number'
+  ) {
+    return {
+      enabled: toBoolean(raw, fallback.enabled),
+      openInNewTab: fallback.openInNewTab,
+    }
+  }
+  if (raw && typeof raw === 'object') {
+    const record = raw as Record<string, unknown>
+    return {
+      enabled: toBoolean(record.enabled, fallback.enabled),
+      openInNewTab: toBoolean(record.openInNewTab, fallback.openInNewTab),
     }
   }
   return { ...fallback }
@@ -146,6 +179,7 @@ export function parseHeaderNavModules(
       ...base,
       pricing: { ...base.pricing },
       rankings: { ...base.rankings },
+      docs: { ...base.docs },
     }
 
     Object.entries(parsed).forEach(([key, raw]) => {
@@ -155,6 +189,10 @@ export function parseHeaderNavModules(
       }
       if (key === 'rankings') {
         result.rankings = parseAccessModule(raw, base.rankings)
+        return
+      }
+      if (key === 'docs') {
+        result.docs = parseDocsModule(raw, base.docs)
         return
       }
 

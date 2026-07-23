@@ -27,9 +27,11 @@ import {
   FormControl,
   FormDescription,
   FormField,
+  FormItem,
   FormLabel,
   FormMessage,
 } from '@/components/ui/form'
+import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
 
 import {
@@ -55,7 +57,9 @@ const headerNavSchema = z.object({
   pricingRequireAuth: z.boolean(),
   rankingsEnabled: z.boolean(),
   rankingsRequireAuth: z.boolean(),
-  docs: z.boolean(),
+  docsEnabled: z.boolean(),
+  docsLink: z.string(),
+  docsOpenInNewTab: z.boolean(),
   about: z.boolean(),
 })
 
@@ -63,10 +67,14 @@ type HeaderNavFormValues = z.infer<typeof headerNavSchema>
 
 type HeaderNavigationSectionProps = {
   config: HeaderNavModulesConfig
+  initialDocsLink: string
   initialSerialized: string
 }
 
-const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
+const toFormValues = (
+  config: HeaderNavModulesConfig,
+  docsLink: string
+): HeaderNavFormValues => ({
   home:
     config.home === undefined ? HEADER_NAV_DEFAULT.home : Boolean(config.home),
   console:
@@ -89,21 +97,28 @@ const toFormValues = (config: HeaderNavModulesConfig): HeaderNavFormValues => ({
     config.rankings?.requireAuth === undefined
       ? HEADER_NAV_DEFAULT.rankings.requireAuth
       : Boolean(config.rankings.requireAuth),
-  docs:
-    config.docs === undefined ? HEADER_NAV_DEFAULT.docs : Boolean(config.docs),
+  docsEnabled:
+    config.docs?.enabled === undefined
+      ? HEADER_NAV_DEFAULT.docs.enabled
+      : Boolean(config.docs.enabled),
+  docsLink,
+  docsOpenInNewTab:
+    config.docs?.openInNewTab === undefined
+      ? HEADER_NAV_DEFAULT.docs.openInNewTab
+      : Boolean(config.docs.openInNewTab),
   about:
     config.about === undefined
       ? HEADER_NAV_DEFAULT.about
       : Boolean(config.about),
 })
 
-export function HeaderNavigationSection({
-  config,
-  initialSerialized,
-}: HeaderNavigationSectionProps) {
+export function HeaderNavigationSection(props: HeaderNavigationSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
-  const formDefaults = useMemo(() => toFormValues(config), [config])
+  const formDefaults = useMemo(
+    () => toFormValues(props.config, props.initialDocsLink),
+    [props.config, props.initialDocsLink]
+  )
 
   const form = useForm<HeaderNavFormValues>({
     resolver: zodResolver(headerNavSchema),
@@ -116,40 +131,49 @@ export function HeaderNavigationSection({
 
   const onSubmit = async (values: HeaderNavFormValues) => {
     const payload: HeaderNavModulesConfig = {
-      ...config,
+      ...props.config,
       home: values.home,
       console: values.console,
-      docs: values.docs,
+      docs: {
+        enabled: values.docsEnabled,
+        openInNewTab: values.docsOpenInNewTab,
+      },
       about: values.about,
       pricing: {
-        ...(config.pricing ?? HEADER_NAV_DEFAULT.pricing),
+        ...(props.config.pricing ?? HEADER_NAV_DEFAULT.pricing),
         enabled: values.pricingEnabled,
         requireAuth: values.pricingRequireAuth,
       },
       rankings: {
-        ...(config.rankings ?? HEADER_NAV_DEFAULT.rankings),
+        ...(props.config.rankings ?? HEADER_NAV_DEFAULT.rankings),
         enabled: values.rankingsEnabled,
         requireAuth: values.rankingsRequireAuth,
       },
     }
 
     const serialized = serializeHeaderNavModules(payload)
-    if (serialized === initialSerialized) {
-      return
+    const docsLink = values.docsLink.trim()
+    if (serialized !== props.initialSerialized) {
+      await updateOption.mutateAsync({
+        key: 'HeaderNavModules',
+        value: serialized,
+      })
     }
 
-    await updateOption.mutateAsync({
-      key: 'HeaderNavModules',
-      value: serialized,
-    })
+    if (docsLink !== props.initialDocsLink.trim()) {
+      await updateOption.mutateAsync({
+        key: 'general_setting.docs_link',
+        value: docsLink,
+      })
+    }
   }
 
   const resetToDefault = () => {
-    form.reset(toFormValues(HEADER_NAV_DEFAULT))
+    form.reset(toFormValues(HEADER_NAV_DEFAULT, props.initialDocsLink))
   }
 
   const simpleModules: Array<{
-    key: keyof HeaderNavFormValues
+    key: 'home' | 'console' | 'about'
     title: string
     description: string
   }> = [
@@ -164,11 +188,6 @@ export function HeaderNavigationSection({
       description: t('User dashboard and quota controls.'),
     },
     {
-      key: 'docs',
-      title: t('Docs'),
-      description: t('Documentation or external knowledge base.'),
-    },
-    {
       key: 'about',
       title: t('About'),
       description: t('Static page describing the platform.'),
@@ -176,8 +195,8 @@ export function HeaderNavigationSection({
   ]
 
   const accessModules: Array<{
-    enabledKey: keyof HeaderNavFormValues
-    requireAuthKey: keyof HeaderNavFormValues
+    enabledKey: 'pricingEnabled' | 'rankingsEnabled'
+    requireAuthKey: 'pricingRequireAuth' | 'rankingsRequireAuth'
     requireAuthDependsOn: 'pricingEnabled' | 'rankingsEnabled'
     title: string
     description: string
@@ -243,6 +262,78 @@ export function HeaderNavigationSection({
               />
             ))}
           </div>
+
+          <SettingsControlGroup>
+            <FormField
+              control={form.control}
+              name='docsEnabled'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>{t('User Guide')}</FormLabel>
+                    <FormDescription>
+                      {t('Show an external user guide in the top navigation.')}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </SettingsSwitchItem>
+              )}
+            />
+
+            <SettingsControlChildren className='grid gap-4 py-2 md:grid-cols-2'>
+              <FormField
+                control={form.control}
+                name='docsLink'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('User guide URL')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='url'
+                        autoComplete='url'
+                        placeholder={t('https://docs.example.com')}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Link to your user guide or knowledge base.')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='docsOpenInNewTab'
+                render={({ field }) => (
+                  <SettingsSwitchItem className='py-2'>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Open in new tab')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Turn this off to open the user guide in the current page.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </SettingsSwitchItem>
+                )}
+              />
+            </SettingsControlChildren>
+          </SettingsControlGroup>
 
           <div className='grid gap-4 lg:grid-cols-2'>
             {accessModules.map((module) => (

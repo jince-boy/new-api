@@ -78,6 +78,7 @@ const SITE_SECTIONS = [
       return (
         <HeaderNavigationSection
           config={headerNavConfig}
+          initialDocsLink={settings['general_setting.docs_link']}
           initialSerialized={headerNavSerialized}
         />
       )

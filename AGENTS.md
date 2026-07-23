@@ -95,6 +95,18 @@ Do NOT directly import or call `encoding/json` in business code. `json.RawMessag
 - Preserve explicit zero values in upstream relay request DTOs: absent client JSON fields must become `nil` and be omitted, while explicit `0`, `0.0`, or `false` values must remain non-`nil` and be sent upstream.
 - Avoid non-pointer scalars with `omitempty` for optional request parameters, because zero values will be silently dropped during marshal.
 
+**Public API documentation:** Public API work is incomplete until the customer-facing documentation is updated in the same change.
+
+- Any addition, removal, rename, or behavior change to a public model/relay endpoint MUST update all applicable documentation sources:
+  - `web/src/features/api-docs/data/catalog.ts` for the customer-facing `/docs` page;
+  - `docs/model-api.md` for the detailed Markdown reference;
+  - `docs/openapi/relay.json` for the machine-readable OpenAPI contract.
+- Documentation must be updated when the HTTP method, path, authentication, headers, content type, request fields, validation limits, response shape, streaming protocol, asynchronous task lifecycle, error format, or support status changes. A route that becomes implemented or unimplemented also requires an update.
+- The `/docs` page must remain written for external customers: use plain, natural language; include a realistic response, parameter requirements, important limits, and retry/idempotency guidance where relevant. Keep the page focused on reference documentation; standalone request code examples are optional and must not be added unless the product requirement explicitly calls for them. Do not expose internal channel details that customers cannot act on.
+- New `/docs` user-facing copy MUST be translated for every supported frontend locale (`en`, `zh`, `zh-TW`, `fr`, `ja`, `ru`, `vi`) using the project's i18n workflow.
+- Public endpoint families with several compatible paths (for example submit/fetch, streaming/non-streaming, or provider-native aliases) must list the related paths together so customers can discover the complete workflow.
+- Add or update documentation catalog tests when endpoint coverage or navigation behavior changes. Before completion, compare the documented catalog with `router/relay-router.go` and `router/video-router.go`; do not rely on the existing OpenAPI file alone because it may lag behind registered routes.
+
 **Billing expression system:** When working on tiered/dynamic billing (expression-based pricing), MUST read `pkg/billingexpr/expr.md` first. It documents the design philosophy, expression language, full architecture, token normalization rules, quota conversion, and expression versioning. All billing expression changes must follow that document.
 
 **Billing safety invariants:** Quota/billing code MUST never produce a negative charge (a credit) from arithmetic overflow or unvalidated input. Apply defense in depth:

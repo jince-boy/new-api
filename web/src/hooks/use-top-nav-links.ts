@@ -20,7 +20,10 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useStatus } from '@/hooks/use-status'
-import { parseHeaderNavModulesFromStatus } from '@/lib/nav-modules'
+import {
+  type DocsNavigation,
+  parseHeaderNavModulesFromStatus,
+} from '@/lib/nav-modules'
 import { useAuthStore } from '@/stores/auth-store'
 
 export type TopNavLink = {
@@ -37,6 +40,28 @@ type CustomNavLink = {
   name?: unknown
   url?: unknown
   openInNewTab?: unknown
+}
+
+export function buildDocumentationLinks(
+  docsLink: string | undefined,
+  docsNavigation: DocsNavigation,
+  translate: (key: string) => string
+): TopNavLink[] {
+  const links: TopNavLink[] = [
+    { title: translate('API Reference'), href: '/docs' },
+  ]
+
+  if (!docsNavigation.enabled || !docsLink) {
+    return links
+  }
+
+  links.push({
+    title: translate('User Guide'),
+    href: docsLink,
+    external: true,
+    openInNewTab: docsNavigation.openInNewTab,
+  })
+  return links
 }
 
 const parseCustomNavLinks = (raw: unknown): TopNavLink[] => {
@@ -101,7 +126,7 @@ const getCachedCustomNavLinks = (): unknown => {
  *   console: true,
  *   pricing: { enabled: true, requireAuth: false },
  *   rankings: { enabled: true, requireAuth: false },
- *   docs: true,
+ *   docs: { enabled: true, openInNewTab: false },
  *   about: true
  * }
  */
@@ -151,14 +176,8 @@ export function useTopNavLinks(): TopNavLink[] {
     links.push({ title: t('Rankings'), href: '/rankings', requiresAuth })
   }
 
-  // Docs (supports external links)
-  if (modules?.docs !== false) {
-    if (docsLink) {
-      links.push({ title: t('Docs'), href: docsLink, external: true })
-    } else {
-      links.push({ title: t('Docs'), href: '/docs' })
-    }
-  }
+  // The API reference is always available; the external user guide is configurable.
+  links.push(...buildDocumentationLinks(docsLink, modules.docs, t))
 
   // About
   if (modules?.about !== false) {

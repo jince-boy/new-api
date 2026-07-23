@@ -272,33 +272,3 @@ func TestModelPriceHelperRequestBillingRatiosOnlyApplyToFixedPrice(t *testing.T)
 	require.Equal(t, common.QuotaClampOverflow, clamp.Kind)
 	require.Nil(t, info.Billing)
 }
-
-func TestModelPriceHelperPerCallSupportsGrokVideoModelsByDefault(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	tests := []struct {
-		model string
-		price float64
-	}{
-		{model: "grok-imagine-video", price: 0.05},
-		{model: "grok-imagine-video-1.5-preview", price: 0.08},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.model, func(t *testing.T) {
-			ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
-			ctx.Set("group", "default")
-			info := &relaycommon.RelayInfo{
-				OriginModelName: tt.model,
-				UserGroup:       "default",
-				UsingGroup:      "default",
-			}
-
-			priceData, err := ModelPriceHelperPerCall(ctx, info)
-
-			require.NoError(t, err)
-			require.True(t, priceData.UsePrice)
-			require.InDelta(t, tt.price, priceData.ModelPrice, 0.000001)
-		})
-	}
-}
