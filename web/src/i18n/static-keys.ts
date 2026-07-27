@@ -45,6 +45,8 @@ export const STATIC_I18N_KEYS = [
   'Models',
   'Routing Reliability',
   'Maintenance',
+  'Invoice Management',
+  'Save invoice rules',
 
   // System info
   'online',

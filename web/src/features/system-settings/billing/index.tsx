@@ -107,6 +107,28 @@ const defaultBillingSettings: BillingSettings = {
   'checkin_setting.enabled': false,
   'checkin_setting.min_quota': 1000,
   'checkin_setting.max_quota': 10000,
+  'invoice_setting.enabled': false,
+  'invoice_setting.price_includes_tax': true,
+  'invoice_setting.tax_burden_mode': 'included',
+  'invoice_setting.minimum_amount': 0,
+  'invoice_setting.application_window_days': 365,
+  'invoice_setting.currency': 'CNY',
+  'invoice_setting.invoice_item_name': '技术服务费',
+  'invoice_setting.vat_period_mode': 'per_transaction',
+  'invoice_setting.vat_threshold_cents': 100000,
+  'invoice_setting.vat_rate_basis_points': 100,
+  'invoice_setting.vat_standard_rate_basis_points': 300,
+  'invoice_setting.vat_preferential_end_date': '2027-12-31',
+  'invoice_setting.urban_maintenance_tax_rate_basis_points': 700,
+  'invoice_setting.education_surcharge_rate_basis_points': 300,
+  'invoice_setting.local_education_rate_basis_points': 200,
+  'invoice_setting.surcharge_relief_basis_points': 5000,
+  'invoice_setting.pit_withholding_enabled': true,
+  'invoice_setting.policy_effective_date': '2026-01-01',
+  'invoice_setting.policy_notice':
+    '系统金额仅为个人向企业提供技术服务场景下的税费预估，不是最终纳税结论。个人所得税按劳务报酬预扣口径展示，但不自动计入客户补款；实际税额、纳税地点、按次或按月口径及开票资格，以主管税务机关、扣缴申报和完税凭证为准，管理员开票前必须复核。',
+  'invoice_setting.policy_source_urls':
+    'https://www.gov.cn/zhengce/2010-12/27/content_2602571.htm\nhttps://fgk.chinatax.gov.cn/zcfgk/c100011/c5195215/5195215/files/e8f018e817984b2dbf3b6a4f437411de.pdf\nhttps://www.ctaxnews.com.cn/zcjd/2026-02/02/content_1118200.html\nhttps://www.gov.cn/zhengce/content/2018-12/22/content_5351177.htm',
 }
 
 export function BillingSettings() {

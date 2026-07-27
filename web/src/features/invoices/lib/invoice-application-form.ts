@@ -1,0 +1,62 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+*/
+
+import type { TFunction } from 'i18next'
+import { z } from 'zod'
+
+export function createInvoiceApplicationSchema(t: TFunction) {
+  return z.object({
+    top_up_ids: z
+      .array(z.number().int().positive())
+      .min(1, t('Select at least one paid order.'))
+      .max(100, t('You can select up to 100 paid orders.')),
+    invoice_title: z
+      .string()
+      .trim()
+      .min(1, t('Invoice title is required.'))
+      .max(255, t('Invoice title is too long.')),
+    tax_number: z
+      .string()
+      .trim()
+      .min(1, t('Tax identification number is required.'))
+      .max(64, t('Tax identification number is too long.')),
+    company_address: z.string().trim().max(255),
+    company_phone: z.string().trim().max(64),
+    bank_name: z.string().trim().max(255),
+    bank_account: z.string().trim().max(128),
+    recipient_email: z
+      .string()
+      .trim()
+      .max(255)
+      .refine(
+        (value) => value === '' || z.string().email().safeParse(value).success,
+        t('Enter a valid recipient email address.')
+      ),
+    applicant_note: z
+      .string()
+      .trim()
+      .max(2000, t('Application note must be 2000 characters or fewer.')),
+  })
+}
+
+export type InvoiceApplicationFormValues = z.infer<
+  ReturnType<typeof createInvoiceApplicationSchema>
+>
+
+export const invoiceApplicationFormDefaults: InvoiceApplicationFormValues = {
+  top_up_ids: [],
+  invoice_title: '',
+  tax_number: '',
+  company_address: '',
+  company_phone: '',
+  bank_name: '',
+  bank_account: '',
+  recipient_email: '',
+  applicant_note: '',
+}

@@ -46,6 +46,8 @@ func TestMain(m *testing.M) {
 		&model.Log{},
 		&model.Channel{},
 		&model.TopUp{},
+		&model.InvoiceApplication{},
+		&model.InvoiceOrder{},
 		&model.UserSubscription{},
 		&model.SystemTask{},
 		&model.SystemTaskLock{},

@@ -192,6 +192,29 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/subscription/epay/notify", controller.SubscriptionEpayNotify)
 		apiRouter.GET("/subscription/epay/return", controller.SubscriptionEpayReturn)
 		apiRouter.POST("/subscription/epay/return", anonymousRequestBodyLimit, controller.SubscriptionEpayReturn)
+
+		invoiceRoute := apiRouter.Group("/invoice")
+		invoiceRoute.Use(middleware.UserAuth())
+		{
+			invoiceRoute.GET("/config", controller.GetInvoiceConfig)
+			invoiceRoute.GET("/payment-methods", controller.GetInvoicePaymentMethods)
+			invoiceRoute.GET("/eligible-orders", controller.GetEligibleInvoiceOrders)
+			invoiceRoute.GET("/self", controller.ListInvoiceApplications)
+			invoiceRoute.POST("/applications", middleware.CriticalRateLimit(), controller.CreateInvoiceApplication)
+			invoiceRoute.GET("/applications/:id", controller.GetInvoiceApplication)
+			invoiceRoute.POST("/applications/:id/pay", middleware.CriticalRateLimit(), controller.RequestInvoiceSupplementPayment)
+			invoiceRoute.GET("/applications/:id/download", middleware.DownloadRateLimit(), controller.DownloadInvoiceFile)
+		}
+		invoiceAdminRoute := apiRouter.Group("/invoice/admin")
+		invoiceAdminRoute.Use(middleware.AdminAuth())
+		{
+			invoiceAdminRoute.POST("/applications/:id/review", middleware.CriticalRateLimit(), controller.AdminReviewInvoiceApplication)
+			invoiceAdminRoute.POST("/applications/:id/file", middleware.UploadRateLimit(), controller.AdminUploadInvoiceFile)
+		}
+		apiRouter.POST("/invoice/epay/notify", anonymousRequestBodyLimit, controller.InvoiceEpayNotify)
+		apiRouter.GET("/invoice/epay/notify", controller.InvoiceEpayNotify)
+		apiRouter.POST("/invoice/epay/return", anonymousRequestBodyLimit, controller.InvoiceEpayReturn)
+		apiRouter.GET("/invoice/epay/return", controller.InvoiceEpayReturn)
 		optionRoute := apiRouter.Group("/option")
 		optionRoute.Use(middleware.RootAuth())
 		{

@@ -120,6 +120,10 @@ export function SidebarModulesSection({
       },
     },
     personal: {
+      invoice: {
+        title: t('Invoice applications'),
+        description: t('Apply for and download invoices for paid orders.'),
+      },
       topup: {
         title: t('Wallet'),
         description: t('Top up balance and view billing history.'),

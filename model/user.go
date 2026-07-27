@@ -198,6 +198,7 @@ func generateDefaultSidebarConfigForRole(userRole int) string {
 	// 个人中心区域 - 所有用户都可以访问
 	defaultConfig["personal"] = map[string]interface{}{
 		"enabled":  true,
+		"invoice":  true,
 		"topup":    true,
 		"personal": true,
 	}
