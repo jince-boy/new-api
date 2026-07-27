@@ -26,18 +26,12 @@ export function createInvoiceApplicationSchema(t: TFunction) {
       .trim()
       .min(1, t('Tax identification number is required.'))
       .max(64, t('Tax identification number is too long.')),
-    company_address: z.string().trim().max(255),
-    company_phone: z.string().trim().max(64),
-    bank_name: z.string().trim().max(255),
-    bank_account: z.string().trim().max(128),
     recipient_email: z
       .string()
       .trim()
+      .min(1, t('Recipient email is required.'))
       .max(255)
-      .refine(
-        (value) => value === '' || z.string().email().safeParse(value).success,
-        t('Enter a valid recipient email address.')
-      ),
+      .email(t('Enter a valid recipient email address.')),
     applicant_note: z
       .string()
       .trim()
@@ -53,10 +47,6 @@ export const invoiceApplicationFormDefaults: InvoiceApplicationFormValues = {
   top_up_ids: [],
   invoice_title: '',
   tax_number: '',
-  company_address: '',
-  company_phone: '',
-  bank_name: '',
-  bank_account: '',
   recipient_email: '',
   applicant_note: '',
 }

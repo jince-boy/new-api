@@ -9,181 +9,278 @@ License, or (at your option) any later version.
 
 import { Invoice01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
-import type { ReactNode } from 'react'
+import type {
+  ColumnDef,
+  ColumnFiltersState,
+  OnChangeFn,
+  PaginationState,
+  Updater,
+} from '@tanstack/react-table'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { DataTablePage, useDataTable } from '@/components/data-table'
 import { Button } from '@/components/ui/button'
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty'
-import { Skeleton } from '@/components/ui/skeleton'
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table'
 
 import { formatInvoiceDate, formatInvoiceMoney } from '../lib/format'
-import type { InvoiceApplication } from '../types'
+import { getInvoiceEmailAction } from '../lib/invoice-email-action'
+import type { InvoiceApplication, InvoiceStatus } from '../types'
 import { InvoiceStatusBadge } from './invoice-status-badge'
 
 type InvoiceApplicationsListProps = {
   applications: InvoiceApplication[]
   loading: boolean
+  fetching: boolean
   page: number
   pageSize: number
   total: number
+  keyword: string
+  status?: InvoiceStatus
+  isAdmin: boolean
+  sendingId: number | null
   onPageChange: (page: number) => void
-  showUser?: boolean
-  renderActions: (application: InvoiceApplication) => ReactNode
+  onPageSizeChange: (pageSize: number) => void
+  onKeywordChange: (keyword: string) => void
+  onStatusChange: (status?: InvoiceStatus) => void
+  onView: (application: InvoiceApplication) => void
+  onSend: (application: InvoiceApplication) => void
+}
+
+function resolveUpdater<T>(updater: Updater<T>, current: T): T {
+  return typeof updater === 'function'
+    ? (updater as (value: T) => T)(current)
+    : updater
 }
 
 export function InvoiceApplicationsList(props: InvoiceApplicationsListProps) {
   const { t } = useTranslation()
-  const totalPages = Math.max(1, Math.ceil(props.total / props.pageSize))
+  const columns = useMemo<ColumnDef<InvoiceApplication>[]>(() => {
+    const result: ColumnDef<InvoiceApplication>[] = [
+      {
+        accessorKey: 'id',
+        header: t('ID'),
+        cell: ({ row }) => (
+          <span className='font-mono text-sm'>#{row.original.id}</span>
+        ),
+        size: 80,
+        meta: { mobileOrder: 10 },
+      },
+      {
+        accessorKey: 'invoice_title',
+        header: t('Invoice title'),
+        cell: ({ row }) => (
+          <div className='flex min-w-44 flex-col gap-0.5'>
+            <span className='truncate font-medium'>
+              {row.original.invoice_title}
+            </span>
+            <span className='text-muted-foreground truncate text-xs'>
+              {row.original.tax_number}
+            </span>
+          </div>
+        ),
+        size: 220,
+        meta: { mobileTitle: true },
+      },
+      {
+        id: 'orders',
+        header: t('Paid orders'),
+        cell: ({ row }) => (
+          <div className='flex min-w-36 flex-col gap-0.5'>
+            <span className='font-medium tabular-nums'>
+              {formatInvoiceMoney(
+                row.original.invoice_amount_cents,
+                row.original.currency
+              )}
+            </span>
+            <span className='text-muted-foreground text-xs'>
+              {t('{{count}} orders', { count: row.original.orders.length })}
+            </span>
+          </div>
+        ),
+        size: 160,
+        meta: { mobileOrder: 30 },
+      },
+      {
+        accessorKey: 'recipient_email',
+        header: t('Recipient email'),
+        cell: ({ row }) => (
+          <span className='block max-w-56 truncate'>
+            {row.original.recipient_email}
+          </span>
+        ),
+        size: 220,
+        meta: { mobileOrder: 40 },
+      },
+      {
+        accessorKey: 'status',
+        header: t('Status'),
+        cell: ({ row }) => <InvoiceStatusBadge status={row.original.status} />,
+        filterFn: (row, id, value: string[]) =>
+          value.includes(String(row.getValue(id))),
+        size: 140,
+        meta: { mobileBadge: true },
+      },
+      {
+        id: 'delivery',
+        header: t('Email delivery'),
+        cell: ({ row }) => {
+          if (!row.original.invoice_email_sent_at) {
+            return (
+              <span className='text-muted-foreground'>{t('Not sent')}</span>
+            )
+          }
+          return (
+            <div className='flex min-w-36 flex-col gap-0.5'>
+              <span>{formatInvoiceDate(row.original.invoice_email_sent_at)}</span>
+              <span className='text-muted-foreground text-xs'>
+                {t('Sent {{count}} times', {
+                  count: row.original.invoice_email_send_count,
+                })}
+              </span>
+            </div>
+          )
+        },
+        size: 180,
+        meta: { mobileOrder: 50 },
+      },
+      {
+        accessorKey: 'created_at',
+        header: t('Submitted at'),
+        cell: ({ row }) => (
+          <span className='text-muted-foreground whitespace-nowrap'>
+            {formatInvoiceDate(row.original.created_at)}
+          </span>
+        ),
+        size: 180,
+        meta: { mobileHidden: true },
+      },
+      {
+        id: 'actions',
+        header: t('Actions'),
+        cell: ({ row }) => {
+          const emailAction = getInvoiceEmailAction(
+            row.original,
+            props.isAdmin
+          )
+          return (
+            <div className='flex justify-end gap-2'>
+              <Button
+                size='sm'
+                variant='outline'
+                onClick={() => props.onView(row.original)}
+              >
+                {t('View details')}
+              </Button>
+              {emailAction ? (
+                <Button
+                  size='sm'
+                  disabled={props.sendingId === row.original.id}
+                  onClick={() => props.onSend(row.original)}
+                >
+                  {emailAction === 'send'
+                    ? t('Send invoice')
+                    : t('Resend invoice')}
+                </Button>
+              ) : null}
+            </div>
+          )
+        },
+        enableHiding: false,
+        size: 240,
+        meta: { pinned: 'right' as const },
+      },
+    ]
 
-  if (props.loading) {
-    return (
-      <div className='flex flex-col gap-3'>
-        {Array.from({ length: 4 }, (_, index) => (
-          <Skeleton key={index} className='h-12 w-full' />
-        ))}
-      </div>
-    )
+    if (props.isAdmin) {
+      result.splice(2, 0, {
+        accessorKey: 'user_id',
+        header: t('User'),
+        cell: ({ row }) => (
+          <span className='font-mono text-sm'>{row.original.user_id}</span>
+        ),
+        size: 90,
+        meta: { mobileOrder: 20 },
+      })
+    }
+    return result
+  }, [props.isAdmin, props.onSend, props.onView, props.sendingId, t])
+
+  const pagination = useMemo<PaginationState>(
+    () => ({ pageIndex: props.page - 1, pageSize: props.pageSize }),
+    [props.page, props.pageSize]
+  )
+  const columnFilters = useMemo<ColumnFiltersState>(
+    () => (props.status ? [{ id: 'status', value: [props.status] }] : []),
+    [props.status]
+  )
+  const onPaginationChange: OnChangeFn<PaginationState> = (updater) => {
+    const next = resolveUpdater(updater, pagination)
+    if (next.pageSize !== props.pageSize) {
+      props.onPageSizeChange(next.pageSize)
+      props.onPageChange(1)
+      return
+    }
+    props.onPageChange(next.pageIndex + 1)
+  }
+  const onColumnFiltersChange: OnChangeFn<ColumnFiltersState> = (updater) => {
+    const next = resolveUpdater(updater, columnFilters)
+    const statusValues = next.find((filter) => filter.id === 'status')?.value as
+      | InvoiceStatus[]
+      | undefined
+    props.onStatusChange(statusValues?.[0])
+    props.onPageChange(1)
+  }
+  const onGlobalFilterChange: OnChangeFn<string> = (updater) => {
+    props.onKeywordChange(resolveUpdater(updater, props.keyword))
+    props.onPageChange(1)
   }
 
-  if (props.applications.length === 0) {
-    return (
-      <Empty className='min-h-52 border'>
-        <EmptyHeader>
-          <EmptyMedia variant='icon'>
-            <HugeiconsIcon icon={Invoice01Icon} />
-          </EmptyMedia>
-          <EmptyTitle>{t('No invoice applications')}</EmptyTitle>
-          <EmptyDescription>
-            {t(
-              'Invoice applications will appear here after they are submitted.'
-            )}
-          </EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    )
-  }
+  const { table } = useDataTable({
+    data: props.applications,
+    columns,
+    pagination,
+    columnFilters,
+    globalFilter: props.keyword,
+    onPaginationChange,
+    onColumnFiltersChange,
+    onGlobalFilterChange,
+    manualFiltering: true,
+    manualPagination: true,
+    totalCount: props.total,
+  })
 
   return (
-    <div className='flex min-h-0 flex-col gap-3'>
-      <div className='overflow-x-auto rounded-lg border'>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>{t('Application')}</TableHead>
-              {props.showUser ? <TableHead>{t('User')}</TableHead> : null}
-              <TableHead>{t('Status')}</TableHead>
-              <TableHead>{t('Paid order amount')}</TableHead>
-              <TableHead>{t('Tax supplement')}</TableHead>
-              <TableHead>{t('Invoice amount')}</TableHead>
-              <TableHead>{t('Submitted at')}</TableHead>
-              <TableHead className='text-right'>{t('Actions')}</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {props.applications.map((application) => (
-              <TableRow key={application.id}>
-                <TableCell>
-                  <div className='flex min-w-40 flex-col gap-0.5'>
-                    <span className='font-medium'>
-                      #{application.id} · {application.invoice_title}
-                    </span>
-                    <span className='text-muted-foreground text-xs'>
-                      {application.invoice_item_name} ·{' '}
-                      {t('{{count}} paid orders', {
-                        count: application.orders.length,
-                      })}
-                    </span>
-                    {application.reject_reason ? (
-                      <span className='text-destructive text-xs'>
-                        {t('Reason')}: {application.reject_reason}
-                      </span>
-                    ) : null}
-                  </div>
-                </TableCell>
-                {props.showUser ? (
-                  <TableCell className='tabular-nums'>
-                    {application.user_id}
-                  </TableCell>
-                ) : null}
-                <TableCell>
-                  <InvoiceStatusBadge status={application.status} />
-                </TableCell>
-                <TableCell className='tabular-nums'>
-                  {formatInvoiceMoney(
-                    application.order_amount_cents,
-                    application.currency
-                  )}
-                </TableCell>
-                <TableCell className='tabular-nums'>
-                  {formatInvoiceMoney(
-                    application.status === 'pending_review'
-                      ? application.suggested_supplement_cents
-                      : application.final_supplement_cents,
-                    application.currency
-                  )}
-                </TableCell>
-                <TableCell className='tabular-nums'>
-                  {formatInvoiceMoney(
-                    application.invoice_amount_cents,
-                    application.currency
-                  )}
-                </TableCell>
-                <TableCell className='whitespace-nowrap'>
-                  {formatInvoiceDate(application.created_at)}
-                </TableCell>
-                <TableCell>
-                  <div className='flex justify-end gap-2'>
-                    {props.renderActions(application)}
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-
-      <div className='flex items-center justify-between gap-3'>
-        <span className='text-muted-foreground text-sm'>
-          {t('{{total}} applications', { total: props.total })}
-        </span>
-        <div className='flex items-center gap-2'>
-          <Button
-            type='button'
-            variant='outline'
-            size='sm'
-            disabled={props.page <= 1}
-            onClick={() => props.onPageChange(props.page - 1)}
-          >
-            {t('Previous')}
-          </Button>
-          <span className='text-sm tabular-nums'>
-            {props.page} / {totalPages}
-          </span>
-          <Button
-            type='button'
-            variant='outline'
-            size='sm'
-            disabled={props.page >= totalPages}
-            onClick={() => props.onPageChange(props.page + 1)}
-          >
-            {t('Next')}
-          </Button>
-        </div>
-      </div>
-    </div>
+    <DataTablePage
+      table={table}
+      columns={columns}
+      isLoading={props.loading}
+      isFetching={props.fetching}
+      emptyTitle={t('No invoice applications')}
+      emptyDescription={t(
+        'Invoice applications will appear here after they are submitted.'
+      )}
+      emptyIcon={<HugeiconsIcon icon={Invoice01Icon} />}
+      skeletonKeyPrefix='invoice-applications-skeleton'
+      applyHeaderSize
+      toolbarProps={{
+        searchPlaceholder: t('Search by ID, invoice title, tax number, or email...'),
+        searchDebounceMs: 300,
+        filters: [
+          {
+            columnId: 'status',
+            title: t('Status'),
+            singleSelect: true,
+            options: [
+              { value: 'pending_review', label: t('Review pending') },
+              { value: 'pending_payment', label: t('Awaiting tax supplement') },
+              { value: 'approved', label: t('Approved') },
+              { value: 'issued', label: t('Issued') },
+              { value: 'rejected', label: t('Rejected') },
+            ],
+          },
+        ],
+      }}
+      pinnedColumns={[{ columnId: 'actions', side: 'right' }]}
+    />
   )
 }

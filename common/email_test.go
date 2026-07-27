@@ -2,23 +2,68 @@ package common
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
+	"mime"
+	"mime/multipart"
 	"net"
+	"net/mail"
 	"net/smtp"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBuildEmailMessageIncludesAttachment(t *testing.T) {
+	withSMTPSettings(t)
+	SMTPFrom = "sender@example.com"
+	SystemName = "Invoice Service"
+	payload := []byte("invoice-pdf-content")
+
+	message, err := buildEmailMessage(
+		"receiver@example.com",
+		"Invoice",
+		"<invoice@example.com>",
+		"<p>Your invoice is attached.</p>",
+		[]EmailAttachment{{FileName: "invoice-100.pdf", ContentType: "application/pdf", Data: payload}},
+	)
+	require.NoError(t, err)
+
+	parsed, err := mail.ReadMessage(bytes.NewReader(message))
+	require.NoError(t, err)
+	mediaType, params, err := mime.ParseMediaType(parsed.Header.Get("Content-Type"))
+	require.NoError(t, err)
+	assert.Equal(t, "multipart/mixed", mediaType)
+
+	parts := multipart.NewReader(parsed.Body, params["boundary"])
+	bodyPart, err := parts.NextPart()
+	require.NoError(t, err)
+	body, err := io.ReadAll(bodyPart)
+	require.NoError(t, err)
+	assert.Equal(t, "<p>Your invoice is attached.</p>", string(body))
+
+	attachmentPart, err := parts.NextPart()
+	require.NoError(t, err)
+	assert.Equal(t, "invoice-100.pdf", attachmentPart.FileName())
+	encodedAttachment, err := io.ReadAll(attachmentPart)
+	require.NoError(t, err)
+	decodedAttachment, err := base64.StdEncoding.DecodeString(string(encodedAttachment))
+	require.NoError(t, err)
+	assert.Equal(t, payload, decodedAttachment)
+}
 
 type fakeSMTPServer struct {
 	listener          net.Listener

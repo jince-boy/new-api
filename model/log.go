@@ -279,6 +279,48 @@ func RecordTopupLog(userId int, content string, callerIp string, paymentMethod s
 	}
 }
 
+// RecordInvoiceSupplementLog records a successful invoice supplement payment
+// once per payment trade number. The payment does not credit user quota, so the
+// log amount is retained as structured metadata instead of Quota.
+func RecordInvoiceSupplementLog(userId int, applicationId int, tradeNo string, amountCents int64, currency string, paymentMethod string, paymentProvider string, content string) error {
+	var existing int64
+	if err := LOG_DB.Model(&Log{}).
+		Where("type = ? AND request_id = ?", LogTypeTopup, tradeNo).
+		Count(&existing).Error; err != nil {
+		return err
+	}
+	if existing > 0 {
+		return nil
+	}
+
+	username, _ := GetUsernameById(userId, false)
+	other := map[string]interface{}{
+		"invoice_application_id":   applicationId,
+		"invoice_payment_trade_no": tradeNo,
+		"amount_cents":             amountCents,
+		"currency":                 currency,
+		"payment_method":           paymentMethod,
+		"payment_provider":         paymentProvider,
+		"admin_info": map[string]interface{}{
+			"server_ip":               common.GetIp(),
+			"node_name":               common.NodeName,
+			"payment_method":          paymentMethod,
+			"callback_payment_method": paymentMethod,
+			"payment_provider":        paymentProvider,
+			"version":                 common.Version,
+		},
+	}
+	return createLog(&Log{
+		UserId:    userId,
+		Username:  username,
+		CreatedAt: common.GetTimestamp(),
+		Type:      LogTypeTopup,
+		Content:   content,
+		RequestId: tradeNo,
+		Other:     common.MapToJsonStr(other),
+	})
+}
+
 func RecordErrorLog(c *gin.Context, userId int, channelId int, modelName string, tokenName string, content string, tokenId int, useTimeSeconds int,
 	isStream bool, group string, other map[string]interface{}) {
 	logger.LogInfo(c, fmt.Sprintf("record error log: userId=%d, channelId=%d, modelName=%s, tokenName=%s, content=%s", userId, channelId, modelName, tokenName, common.LocalLogPreview(content)))

@@ -185,7 +185,7 @@ export function InvoiceApplicationDialog(props: InvoiceApplicationDialogProps) {
     )
   } else {
     orderSelectionContent = (
-      <div className='max-h-56 overflow-y-auto rounded-lg border'>
+      <div className='max-h-[22rem] overflow-y-auto rounded-lg border'>
         {props.orders.map((order) => {
           const checked = selectedIds.includes(order.id)
           return (
@@ -226,161 +226,115 @@ export function InvoiceApplicationDialog(props: InvoiceApplicationDialogProps) {
 
   return (
     <Dialog open={props.open} onOpenChange={handleOpenChange}>
-      <DialogContent className='max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-2xl'>
+      <DialogContent className='max-h-[calc(100vh-2rem)] overflow-y-auto sm:max-w-4xl'>
         <DialogHeader>
           <DialogTitle>{t('Apply for an invoice')}</DialogTitle>
           <DialogDescription>
             {t(
-              'Select paid orders and enter the enterprise buyer information shown on the invoice.'
+              'Select paid orders and provide the invoice and delivery information.'
             )}
           </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit}>
-          <FieldGroup>
-            <FieldSet>
+          <div className='grid gap-6 md:grid-cols-2'>
+            <FieldSet className='min-w-0'>
               <FieldLegend>{t('Paid orders')}</FieldLegend>
               <FieldDescription>
                 {t('Selected amount')}:{' '}
-                {formatInvoiceMoney(selectedTotal, currency)}
+                <span className='text-foreground font-medium tabular-nums'>
+                  {formatInvoiceMoney(selectedTotal, currency)}
+                </span>
               </FieldDescription>
               {orderSelectionContent}
               <FieldError errors={[form.formState.errors.top_up_ids]} />
             </FieldSet>
 
-            <div className='grid gap-5 sm:grid-cols-2'>
-              <Field
-                data-invalid={Boolean(form.formState.errors.invoice_title)}
-              >
-                <FieldLabel htmlFor='invoice-title'>
-                  {t('Invoice title')}
-                </FieldLabel>
-                <Input
-                  id='invoice-title'
-                  autoComplete='organization'
-                  aria-invalid={Boolean(form.formState.errors.invoice_title)}
-                  {...form.register('invoice_title')}
-                />
-                <FieldError errors={[form.formState.errors.invoice_title]} />
-              </Field>
-              <Field data-invalid={Boolean(form.formState.errors.tax_number)}>
-                <FieldLabel htmlFor='invoice-tax-number'>
-                  {t('Tax identification number')}
-                </FieldLabel>
-                <Input
-                  id='invoice-tax-number'
-                  aria-invalid={Boolean(form.formState.errors.tax_number)}
-                  {...form.register('tax_number')}
-                />
-                <FieldError errors={[form.formState.errors.tax_number]} />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor='invoice-company-address'>
-                  {t('Company address')}
-                </FieldLabel>
-                <Input
-                  id='invoice-company-address'
-                  autoComplete='street-address'
-                  {...form.register('company_address')}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor='invoice-company-phone'>
-                  {t('Company phone')}
-                </FieldLabel>
-                <Input
-                  id='invoice-company-phone'
-                  autoComplete='tel'
-                  {...form.register('company_phone')}
-                />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor='invoice-bank-name'>
-                  {t('Bank name')}
-                </FieldLabel>
-                <Input id='invoice-bank-name' {...form.register('bank_name')} />
-              </Field>
-              <Field>
-                <FieldLabel htmlFor='invoice-bank-account'>
-                  {t('Bank account')}
-                </FieldLabel>
-                <Input
-                  id='invoice-bank-account'
-                  {...form.register('bank_account')}
-                />
-              </Field>
-              <Field
-                className='sm:col-span-2'
-                data-invalid={Boolean(form.formState.errors.recipient_email)}
-              >
-                <FieldLabel htmlFor='invoice-recipient-email'>
-                  {t('Recipient email')}
-                </FieldLabel>
-                <Input
-                  id='invoice-recipient-email'
-                  type='email'
-                  autoComplete='email'
-                  aria-invalid={Boolean(form.formState.errors.recipient_email)}
-                  {...form.register('recipient_email')}
-                />
-                <FieldDescription>
-                  {t(
-                    'Optional. Used by the administrator when delivering the invoice.'
-                  )}
-                </FieldDescription>
-                <FieldError errors={[form.formState.errors.recipient_email]} />
-              </Field>
-              <Field
-                className='sm:col-span-2'
-                data-invalid={Boolean(form.formState.errors.applicant_note)}
-              >
-                <FieldLabel htmlFor='invoice-applicant-note'>
-                  {t('Application note')}
-                </FieldLabel>
-                <Textarea
-                  id='invoice-applicant-note'
-                  maxLength={2000}
-                  aria-invalid={Boolean(form.formState.errors.applicant_note)}
-                  {...form.register('applicant_note')}
-                />
-                <FieldDescription>
-                  {t(
-                    'Optional information for the administrator reviewing this invoice application.'
-                  )}
-                </FieldDescription>
-                <FieldError errors={[form.formState.errors.applicant_note]} />
-              </Field>
-            </div>
-
-            <Alert>
-              <AlertDescription>
-                {t(
-                  'The system will estimate VAT, surcharges, and individual income tax withholding after submission. An administrator must verify the estimate and confirm any final tax supplement before payment.'
-                )}
-              </AlertDescription>
-            </Alert>
-
-            <DialogFooter>
-              <Button
-                type='button'
-                variant='outline'
-                onClick={() => handleOpenChange(false)}
-              >
-                {t('Cancel')}
-              </Button>
-              <Button type='submit' disabled={submitDisabled}>
-                {props.submitting ? (
-                  <Spinner data-icon='inline-start' />
-                ) : (
-                  <HugeiconsIcon
-                    icon={AddInvoiceIcon}
-                    data-icon='inline-start'
+            <FieldSet className='min-w-0'>
+              <FieldLegend>{t('Invoice information')}</FieldLegend>
+              <FieldGroup>
+                <Field
+                  data-invalid={Boolean(form.formState.errors.invoice_title)}
+                >
+                  <FieldLabel htmlFor='invoice-title'>
+                    {t('Invoice title')}
+                  </FieldLabel>
+                  <Input
+                    id='invoice-title'
+                    autoComplete='organization'
+                    aria-invalid={Boolean(form.formState.errors.invoice_title)}
+                    {...form.register('invoice_title')}
                   />
-                )}
-                {t('Submit application')}
-              </Button>
-            </DialogFooter>
-          </FieldGroup>
+                  <FieldError errors={[form.formState.errors.invoice_title]} />
+                </Field>
+                <Field data-invalid={Boolean(form.formState.errors.tax_number)}>
+                  <FieldLabel htmlFor='invoice-tax-number'>
+                    {t('Tax identification number')}
+                  </FieldLabel>
+                  <Input
+                    id='invoice-tax-number'
+                    aria-invalid={Boolean(form.formState.errors.tax_number)}
+                    {...form.register('tax_number')}
+                  />
+                  <FieldError errors={[form.formState.errors.tax_number]} />
+                </Field>
+                <Field
+                  data-invalid={Boolean(form.formState.errors.recipient_email)}
+                >
+                  <FieldLabel htmlFor='invoice-recipient-email'>
+                    {t('Recipient email')}
+                  </FieldLabel>
+                  <Input
+                    id='invoice-recipient-email'
+                    type='email'
+                    autoComplete='email'
+                    aria-invalid={Boolean(form.formState.errors.recipient_email)}
+                    {...form.register('recipient_email')}
+                  />
+                  <FieldDescription>
+                    {t('The invoice will be sent to this email address.')}
+                  </FieldDescription>
+                  <FieldError errors={[form.formState.errors.recipient_email]} />
+                </Field>
+                <Field
+                  data-invalid={Boolean(form.formState.errors.applicant_note)}
+                >
+                  <FieldLabel htmlFor='invoice-applicant-note'>
+                    {t('Application note')}
+                  </FieldLabel>
+                  <Textarea
+                    id='invoice-applicant-note'
+                    maxLength={2000}
+                    rows={4}
+                    aria-invalid={Boolean(form.formState.errors.applicant_note)}
+                    {...form.register('applicant_note')}
+                  />
+                  <FieldError errors={[form.formState.errors.applicant_note]} />
+                </Field>
+              </FieldGroup>
+            </FieldSet>
+          </div>
+
+          <DialogFooter className='mt-6'>
+            <Button
+              type='button'
+              variant='outline'
+              onClick={() => handleOpenChange(false)}
+            >
+              {t('Cancel')}
+            </Button>
+            <Button type='submit' disabled={submitDisabled}>
+              {props.submitting ? (
+                <Spinner data-icon='inline-start' />
+              ) : (
+                <HugeiconsIcon
+                  icon={AddInvoiceIcon}
+                  data-icon='inline-start'
+                />
+              )}
+              {t('Submit application')}
+            </Button>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

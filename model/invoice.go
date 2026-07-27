@@ -27,6 +27,7 @@ const (
 
 var (
 	ErrInvoiceNotFound              = errors.New("invoice application not found")
+	ErrInvoiceOrderAlreadyApplied   = errors.New("one or more paid orders already have an invoice application")
 	ErrInvoiceStatusInvalid         = errors.New("invoice application status invalid")
 	ErrInvoicePaymentRequired       = errors.New("invoice tax supplement payment is required")
 	ErrInvoicePaymentOrderNotFound  = errors.New("invoice payment order not found")
@@ -72,6 +73,8 @@ type InvoiceApplication struct {
 	InvoiceFileName              string         `json:"invoice_file_name" gorm:"type:varchar(255)"`
 	InvoiceFilePath              string         `json:"-" gorm:"type:text"`
 	InvoiceFileContentType       string         `json:"invoice_file_content_type" gorm:"type:varchar(128)"`
+	InvoiceEmailSentAt           int64          `json:"invoice_email_sent_at"`
+	InvoiceEmailSendCount        int            `json:"invoice_email_send_count"`
 	CreatedAt                    int64          `json:"created_at" gorm:"index"`
 	UpdatedAt                    int64          `json:"updated_at"`
 	IssuedAt                     int64          `json:"issued_at"`
@@ -89,18 +92,19 @@ type InvoiceOrder struct {
 }
 
 type InvoicePaymentOrder struct {
-	Id              int    `json:"id"`
-	ApplicationId   int    `json:"application_id" gorm:"index"`
-	UserId          int    `json:"user_id" gorm:"index"`
-	TradeNo         string `json:"trade_no" gorm:"type:varchar(128);uniqueIndex"`
-	AmountCents     int64  `json:"amount_cents"`
-	Currency        string `json:"currency" gorm:"type:varchar(8)"`
-	PaymentMethod   string `json:"payment_method" gorm:"type:varchar(50)"`
-	PaymentProvider string `json:"payment_provider" gorm:"type:varchar(50)"`
-	Status          string `json:"status" gorm:"type:varchar(32);index"`
-	ProviderPayload string `json:"provider_payload" gorm:"type:text"`
-	CreateTime      int64  `json:"create_time"`
-	CompleteTime    int64  `json:"complete_time"`
+	Id                 int    `json:"id"`
+	ApplicationId      int    `json:"application_id" gorm:"index"`
+	UserId             int    `json:"user_id" gorm:"index"`
+	TradeNo            string `json:"trade_no" gorm:"type:varchar(128);uniqueIndex"`
+	AmountCents        int64  `json:"amount_cents"`
+	Currency           string `json:"currency" gorm:"type:varchar(8)"`
+	PaymentMethod      string `json:"payment_method" gorm:"type:varchar(50)"`
+	PaymentProvider    string `json:"payment_provider" gorm:"type:varchar(50)"`
+	Status             string `json:"status" gorm:"type:varchar(32);index"`
+	ProviderPayload    string `json:"provider_payload" gorm:"type:text"`
+	CreateTime         int64  `json:"create_time"`
+	CompleteTime       int64  `json:"complete_time"`
+	UsageLogRecordedAt int64  `json:"usage_log_recorded_at"`
 }
 
 func ListInvoiceApplications(userId int, status string, keyword string, pageInfo *common.PageInfo) ([]*InvoiceApplication, int64, error) {

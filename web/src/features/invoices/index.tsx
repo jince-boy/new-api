@@ -7,7 +7,7 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 
-import { AddInvoiceIcon, Search01Icon } from '@hugeicons/core-free-icons'
+import { AddInvoiceIcon, RefreshIcon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
@@ -17,29 +17,20 @@ import { toast } from 'sonner'
 import { SectionPageLayout } from '@/components/layout'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { submitPaymentForm } from '@/features/wallet/lib'
 import { ROLE } from '@/lib/roles'
+import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
   createInvoiceApplication,
-  downloadInvoiceFile,
   getEligibleInvoiceOrders,
   getInvoiceApplications,
   getInvoiceConfig,
   getInvoicePaymentMethods,
   requestInvoiceSupplementPayment,
   reviewInvoiceApplication,
+  sendInvoiceEmail,
   uploadInvoiceFile,
 } from './api'
 import { InvoiceApplicationDialog } from './components/invoice-application-dialog'
@@ -50,10 +41,10 @@ import type {
   EligibleInvoiceOrder,
   InvoiceApplication,
   InvoicePaymentMethod,
+  InvoiceStatus,
   ReviewInvoiceApplicationRequest,
 } from './types'
 
-const PAGE_SIZE = 20
 const EMPTY_ORDERS: EligibleInvoiceOrder[] = []
 const EMPTY_PAYMENT_METHODS: InvoicePaymentMethod[] = []
 
@@ -63,14 +54,13 @@ export function Invoices() {
   const userRole = useAuthStore((state) => state.auth.user?.role)
   const isAdmin = Boolean(userRole && userRole >= ROLE.ADMIN)
   const [page, setPage] = useState(1)
-  const [status, setStatus] = useState<string | null>('all')
-  const [keywordInput, setKeywordInput] = useState('')
+  const [pageSize, setPageSize] = useState(20)
+  const [status, setStatus] = useState<InvoiceStatus>()
   const [keyword, setKeyword] = useState('')
   const [applicationDialogOpen, setApplicationDialogOpen] = useState(false)
   const [detailsTarget, setDetailsTarget] = useState<InvoiceApplication | null>(
     null
   )
-  const [downloading, setDownloading] = useState(false)
 
   const configQuery = useQuery({
     queryKey: ['invoices', 'config'],
@@ -87,18 +77,41 @@ export function Invoices() {
     enabled: !isAdmin,
   })
   const applicationsQuery = useQuery({
-    queryKey: ['invoices', 'applications', isAdmin, page, status, keyword],
+    queryKey: [
+      'invoices',
+      'applications',
+      isAdmin,
+      page,
+      pageSize,
+      status,
+      keyword,
+    ],
     queryFn: () =>
-      getInvoiceApplications(page, PAGE_SIZE, {
-        status: status === 'all' ? undefined : status || undefined,
-        keyword: keyword || undefined,
+      getInvoiceApplications(page, pageSize, {
+        status,
+        keyword: keyword.trim() || undefined,
       }),
+    placeholderData: (previousData) => previousData,
   })
 
   const refreshApplications = async () => {
     await queryClient.invalidateQueries({
       queryKey: ['invoices', 'applications'],
     })
+  }
+
+  const handleRefresh = async () => {
+    const requests: Promise<unknown>[] = [
+      configQuery.refetch(),
+      applicationsQuery.refetch(),
+    ]
+    if (!isAdmin) {
+      requests.push(
+        eligibleOrdersQuery.refetch(),
+        paymentMethodsQuery.refetch()
+      )
+    }
+    await Promise.all(requests)
   }
 
   const createMutation = useMutation({
@@ -121,7 +134,7 @@ export function Invoices() {
         refreshApplications(),
       ])
     },
-    onError: (error: Error) => toast.error(t(error.message)),
+    onError: () => toast.error(t('Failed to submit invoice application.')),
   })
 
   const reviewMutation = useMutation({
@@ -138,7 +151,7 @@ export function Invoices() {
       setDetailsTarget(null)
       await refreshApplications()
     },
-    onError: (error: Error) => toast.error(t(error.message)),
+    onError: () => toast.error(t('Failed to review invoice application.')),
   })
 
   const paymentMutation = useMutation({
@@ -159,7 +172,7 @@ export function Invoices() {
       submitPaymentForm(response.url, response.data)
       toast.success(t('Redirecting to payment page...'))
     },
-    onError: (error: Error) => toast.error(t(error.message)),
+    onError: () => toast.error(t('Payment request failed')),
   })
 
   const uploadMutation = useMutation({
@@ -172,24 +185,34 @@ export function Invoices() {
       return response
     },
     onSuccess: async () => {
-      toast.success(t('Invoice uploaded.'))
+      toast.success(t('Invoice uploaded and sent.'))
       setDetailsTarget(null)
       await refreshApplications()
     },
-    onError: (error: Error) => toast.error(t(error.message)),
+    onError: async () => {
+      toast.error(
+        t(
+          'Invoice upload or email delivery failed. Refresh the list and try again.'
+        )
+      )
+      setDetailsTarget(null)
+      await refreshApplications()
+    },
   })
 
-  const handleDownload = async () => {
-    if (!detailsTarget) return
-    try {
-      setDownloading(true)
-      await downloadInvoiceFile(detailsTarget)
-    } catch {
-      toast.error(t('Failed to download invoice.'))
-    } finally {
-      setDownloading(false)
-    }
-  }
+  const sendMutation = useMutation({
+    mutationFn: async (application: InvoiceApplication) => {
+      const response = await sendInvoiceEmail(application.id)
+      if (!response.success) throw new Error(response.message)
+      return response
+    },
+    onSuccess: async () => {
+      toast.success(t('Invoice email sent.'))
+      setDetailsTarget(null)
+      await refreshApplications()
+    },
+    onError: () => toast.error(t('Failed to send invoice email.')),
+  })
 
   const handleOpenApplicationDialog = () => {
     setApplicationDialogOpen(true)
@@ -204,166 +227,84 @@ export function Invoices() {
     reviewMutation.isPending ||
     paymentMutation.isPending ||
     uploadMutation.isPending ||
-    downloading
+    sendMutation.isPending
+  const refreshing =
+    configQuery.isFetching ||
+    applicationsQuery.isFetching ||
+    (!isAdmin &&
+      (eligibleOrdersQuery.isFetching || paymentMethodsQuery.isFetching))
 
   return (
-    <SectionPageLayout>
-      <SectionPageLayout.Title>
-        {isAdmin ? t('Invoice review') : t('Invoice applications')}
-      </SectionPageLayout.Title>
-      {!isAdmin ? (
+    <>
+      <SectionPageLayout fixedContent>
+        <SectionPageLayout.Title>
+          {isAdmin ? t('Invoice review') : t('Invoice applications')}
+        </SectionPageLayout.Title>
         <SectionPageLayout.Actions>
-          <Button onClick={handleOpenApplicationDialog}>
-            <HugeiconsIcon icon={AddInvoiceIcon} data-icon='inline-start' />
-            {t('Apply for an invoice')}
+          <Button
+            variant='outline'
+            size='icon-sm'
+            onClick={() => void handleRefresh()}
+            disabled={refreshing}
+            title={t('Refresh')}
+            aria-label={t('Refresh')}
+          >
+            <HugeiconsIcon
+              icon={RefreshIcon}
+              data-icon='inline-start'
+              className={cn(refreshing && 'animate-spin')}
+            />
           </Button>
-        </SectionPageLayout.Actions>
-      ) : null}
-      <SectionPageLayout.Content>
-        <div className='mx-auto flex w-full max-w-7xl flex-col gap-4'>
-          {config && !config.enabled ? (
-            <Alert>
-              <AlertTitle>
-                {t('Invoice applications are unavailable')}
-              </AlertTitle>
-              <AlertDescription>
-                {t('The administrator has not enabled invoice applications.')}
-              </AlertDescription>
-            </Alert>
+          {!isAdmin ? (
+            <Button
+              onClick={handleOpenApplicationDialog}
+              disabled={config?.enabled === false}
+            >
+              <HugeiconsIcon icon={AddInvoiceIcon} data-icon='inline-start' />
+              {t('Apply for an invoice')}
+            </Button>
           ) : null}
+        </SectionPageLayout.Actions>
+        <SectionPageLayout.Content>
+          <div className='flex h-full min-h-0 flex-col gap-3'>
+            {config && !config.enabled ? (
+              <Alert>
+                <AlertTitle>
+                  {t('Invoice applications are unavailable')}
+                </AlertTitle>
+                <AlertDescription>
+                  {t('The administrator has not enabled invoice applications.')}
+                </AlertDescription>
+              </Alert>
+            ) : null}
 
-          <Card>
-            <CardHeader className='gap-3'>
-              <div className='flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between'>
-                <CardTitle>
-                  {isAdmin
-                    ? t('Invoice application list')
-                    : t('Application history')}
-                </CardTitle>
-                <div className='flex flex-col gap-2 sm:flex-row'>
-                  <div className='flex min-w-64 gap-2'>
-                    <Input
-                      value={keywordInput}
-                      placeholder={t(
-                        'Search application number, title, tax number, or email'
-                      )}
-                      onChange={(event) => setKeywordInput(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') {
-                          setPage(1)
-                          setKeyword(keywordInput.trim())
-                        }
-                      }}
-                    />
-                    <Button
-                      variant='outline'
-                      size='icon'
-                      aria-label={t('Search')}
-                      onClick={() => {
-                        setPage(1)
-                        setKeyword(keywordInput.trim())
-                      }}
-                    >
-                      <HugeiconsIcon icon={Search01Icon} />
-                    </Button>
-                  </div>
-                  <Select
-                    items={[
-                      { value: 'all', label: t('All statuses') },
-                      { value: 'pending_review', label: t('Review pending') },
-                      {
-                        value: 'pending_payment',
-                        label: t('Awaiting tax supplement'),
-                      },
-                      { value: 'approved', label: t('Approved') },
-                      { value: 'issued', label: t('Issued') },
-                      { value: 'rejected', label: t('Rejected') },
-                    ]}
-                    value={status}
-                    onValueChange={(value) => {
-                      setPage(1)
-                      setStatus(value)
-                    }}
-                  >
-                    <SelectTrigger className='sm:w-52'>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent alignItemWithTrigger={false}>
-                      <SelectGroup>
-                        <SelectItem value='all'>{t('All statuses')}</SelectItem>
-                        <SelectItem value='pending_review'>
-                          {t('Review pending')}
-                        </SelectItem>
-                        <SelectItem value='pending_payment'>
-                          {t('Awaiting tax supplement')}
-                        </SelectItem>
-                        <SelectItem value='approved'>
-                          {t('Approved')}
-                        </SelectItem>
-                        <SelectItem value='issued'>{t('Issued')}</SelectItem>
-                        <SelectItem value='rejected'>
-                          {t('Rejected')}
-                        </SelectItem>
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              {config ? (
-                <details className='rounded-md border px-3 py-2 text-sm'>
-                  <summary className='cursor-pointer font-medium'>
-                    {t('Detailed invoicing instructions')}
-                  </summary>
-                  <div className='text-muted-foreground mt-3 space-y-2'>
-                    <p>{config.policy_notice}</p>
-                    <p>
-                      {t('VAT threshold')}: {config.vat_threshold_cents / 100}{' '}
-                      {config.currency} · {t('Current estimated VAT rate')}:{' '}
-                      {config.vat_rate_basis_points / 100}%
-                    </p>
-                    <div className='flex flex-wrap gap-x-3 gap-y-1'>
-                      {config.policy_source_urls
-                        .split('\n')
-                        .filter(Boolean)
-                        .map((source) => (
-                          <a
-                            key={source}
-                            className='text-primary underline'
-                            href={source}
-                            target='_blank'
-                            rel='noreferrer'
-                          >
-                            {t('Policy source')}
-                          </a>
-                        ))}
-                    </div>
-                  </div>
-                </details>
-              ) : null}
-            </CardHeader>
-            <CardContent>
+            <div className='min-h-0 flex-1'>
               <InvoiceApplicationsList
                 applications={applications?.items ?? []}
                 loading={applicationsQuery.isLoading}
+                fetching={applicationsQuery.isFetching}
                 page={page}
-                pageSize={PAGE_SIZE}
+                pageSize={pageSize}
                 total={applications?.total ?? 0}
+                keyword={keyword}
+                status={status}
+                isAdmin={isAdmin}
+                sendingId={
+                  sendMutation.isPending
+                    ? (sendMutation.variables?.id ?? null)
+                    : null
+                }
                 onPageChange={setPage}
-                showUser={isAdmin}
-                renderActions={(application) => (
-                  <Button
-                    size='sm'
-                    variant='outline'
-                    onClick={() => setDetailsTarget(application)}
-                  >
-                    {isAdmin ? t('View and review') : t('View details')}
-                  </Button>
-                )}
+                onPageSizeChange={setPageSize}
+                onKeywordChange={setKeyword}
+                onStatusChange={setStatus}
+                onView={setDetailsTarget}
+                onSend={(application) => sendMutation.mutate(application)}
               />
-            </CardContent>
-          </Card>
-        </div>
-      </SectionPageLayout.Content>
+            </div>
+          </div>
+        </SectionPageLayout.Content>
+      </SectionPageLayout>
 
       {!isAdmin ? (
         <InvoiceApplicationDialog
@@ -372,9 +313,7 @@ export function Invoices() {
           config={config}
           orders={eligibleOrders}
           configLoading={configQuery.isLoading}
-          configError={
-            configQuery.isError || configQuery.data?.success === false
-          }
+          configError={configQuery.isError || configQuery.data?.success === false}
           ordersLoading={eligibleOrdersQuery.isLoading}
           ordersError={
             eligibleOrdersQuery.isError ||
@@ -402,8 +341,8 @@ export function Invoices() {
         onReview={(request) => reviewMutation.mutate(request)}
         onPay={(method) => paymentMutation.mutate(method)}
         onUpload={(file) => uploadMutation.mutate(file)}
-        onDownload={() => void handleDownload()}
+        onSend={() => detailsTarget && sendMutation.mutate(detailsTarget)}
       />
-    </SectionPageLayout>
+    </>
   )
 }

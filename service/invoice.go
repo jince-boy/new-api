@@ -3,8 +3,10 @@ package service
 import (
 	"errors"
 	"fmt"
+	"html"
 	"math"
 	"net/http"
+	"net/mail"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -28,6 +30,131 @@ var invoiceFileContentTypes = map[string]string{
 	"image/png":       ".png",
 }
 
+var invoiceEmailSender = common.SendEmailWithAttachments
+
+type invoiceLocalizedCopy struct {
+	EmailSubject                string
+	EmailAttached               string
+	EmailTitle                  string
+	EmailItem                   string
+	EmailSentBy                 string
+	SupplementPaymentName       string
+	SupplementPaymentLogContent string
+}
+
+var invoiceLocalizedCopies = map[string]invoiceLocalizedCopy{
+	"en": {
+		EmailSubject:                "Invoice #%d",
+		EmailAttached:               "Your invoice is attached.",
+		EmailTitle:                  "Invoice title",
+		EmailItem:                   "Invoice item",
+		EmailSentBy:                 "This email was sent by %s.",
+		SupplementPaymentName:       "Invoice tax supplement #%d",
+		SupplementPaymentLogContent: "Invoice supplement payment completed: application #%d, amount %s %s.",
+	},
+	"zh": {
+		EmailSubject:                "发票 #%d",
+		EmailAttached:               "您的发票已随邮件附上。",
+		EmailTitle:                  "发票抬头",
+		EmailItem:                   "发票项目",
+		EmailSentBy:                 "此邮件由 %s 发送。",
+		SupplementPaymentName:       "发票补税 #%d",
+		SupplementPaymentLogContent: "发票补税支付成功：申请 #%d，金额 %s %s。",
+	},
+	"zh-TW": {
+		EmailSubject:                "發票 #%d",
+		EmailAttached:               "您的發票已隨郵件附上。",
+		EmailTitle:                  "發票抬頭",
+		EmailItem:                   "發票項目",
+		EmailSentBy:                 "此郵件由 %s 傳送。",
+		SupplementPaymentName:       "發票補稅 #%d",
+		SupplementPaymentLogContent: "發票補稅付款成功：申請 #%d，金額 %s %s。",
+	},
+	"fr": {
+		EmailSubject:                "Facture n° %d",
+		EmailAttached:               "Votre facture est jointe à cet e-mail.",
+		EmailTitle:                  "Intitulé de la facture",
+		EmailItem:                   "Prestation facturée",
+		EmailSentBy:                 "Cet e-mail a été envoyé par %s.",
+		SupplementPaymentName:       "Complément de taxe de facture n° %d",
+		SupplementPaymentLogContent: "Paiement du complément de taxe effectué : demande n° %d, montant %s %s.",
+	},
+	"ja": {
+		EmailSubject:                "請求書 #%d",
+		EmailAttached:               "請求書を添付しました。",
+		EmailTitle:                  "請求書の宛名",
+		EmailItem:                   "請求項目",
+		EmailSentBy:                 "このメールは %s から送信されました。",
+		SupplementPaymentName:       "請求書の追加税額 #%d",
+		SupplementPaymentLogContent: "請求書の税額追加分を支払いました：申請 #%d、金額 %s %s。",
+	},
+	"ru": {
+		EmailSubject:                "Счёт-фактура №%d",
+		EmailAttached:               "Счёт-фактура прикреплён к письму.",
+		EmailTitle:                  "Наименование покупателя",
+		EmailItem:                   "Предмет счёта",
+		EmailSentBy:                 "Письмо отправлено системой %s.",
+		SupplementPaymentName:       "Доплата налога по счёту №%d",
+		SupplementPaymentLogContent: "Доплата налога по счёту выполнена: заявка №%d, сумма %s %s.",
+	},
+	"vi": {
+		EmailSubject:                "Hóa đơn #%d",
+		EmailAttached:               "Hóa đơn của bạn được đính kèm trong email này.",
+		EmailTitle:                  "Tên trên hóa đơn",
+		EmailItem:                   "Hạng mục hóa đơn",
+		EmailSentBy:                 "Email này được gửi bởi %s.",
+		SupplementPaymentName:       "Thuế bổ sung hóa đơn #%d",
+		SupplementPaymentLogContent: "Đã thanh toán phần thuế bổ sung của hóa đơn: đơn #%d, số tiền %s %s.",
+	},
+}
+
+func normalizeInvoiceLanguage(language string) string {
+	normalized := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(language), "_", "-"))
+	switch {
+	case normalized == "zh-tw", normalized == "zh-hk", normalized == "zh-hant":
+		return "zh-TW"
+	case normalized == "en" || strings.HasPrefix(normalized, "en-"):
+		return "en"
+	case normalized == "fr" || strings.HasPrefix(normalized, "fr-"):
+		return "fr"
+	case normalized == "ja" || strings.HasPrefix(normalized, "ja-"):
+		return "ja"
+	case normalized == "ru" || strings.HasPrefix(normalized, "ru-"):
+		return "ru"
+	case normalized == "vi" || strings.HasPrefix(normalized, "vi-"):
+		return "vi"
+	default:
+		return "zh"
+	}
+}
+
+func normalizeInvoiceApplicationItemName(application *model.InvoiceApplication) {
+	if application != nil && application.Status != model.InvoiceStatusIssued && application.InvoiceItemName == "技术服务费" {
+		application.InvoiceItemName = "AI Agent服务"
+	}
+}
+
+func invoiceEmailMessage(language string, application *model.InvoiceApplication) (string, string) {
+	copy := invoiceLocalizedCopies[normalizeInvoiceLanguage(language)]
+	normalizeInvoiceApplicationItemName(application)
+	subject := fmt.Sprintf(copy.EmailSubject, application.Id)
+	content := fmt.Sprintf(
+		"<p>%s</p><p>%s: %s</p><p>%s: %s</p><p>%s</p>",
+		copy.EmailAttached,
+		copy.EmailTitle,
+		html.EscapeString(application.InvoiceTitle),
+		copy.EmailItem,
+		html.EscapeString(application.InvoiceItemName),
+		fmt.Sprintf(copy.EmailSentBy, html.EscapeString(common.SystemName)),
+	)
+	return subject, content
+}
+
+func InvoiceSupplementPaymentName(userId int, applicationId int) string {
+	copy := invoiceLocalizedCopies[normalizeInvoiceLanguage(model.GetUserLanguage(userId))]
+	return fmt.Sprintf(copy.SupplementPaymentName, applicationId)
+}
+
 type InvoiceTaxEstimate struct {
 	OrderAmountCents                 int64  `json:"order_amount_cents"`
 	TaxableSalesCents                int64  `json:"taxable_sales_cents"`
@@ -47,78 +174,65 @@ type InvoiceTaxEstimate struct {
 }
 
 type InvoicePublicConfig struct {
-	Enabled                            bool    `json:"enabled"`
-	PriceIncludesTax                   bool    `json:"price_includes_tax"`
-	TaxBurdenMode                      string  `json:"tax_burden_mode"`
-	MinimumAmount                      float64 `json:"minimum_amount"`
-	ApplicationWindowDays              int     `json:"application_window_days"`
-	Currency                           string  `json:"currency"`
-	InvoiceItemName                    string  `json:"invoice_item_name"`
-	VATPeriodMode                      string  `json:"vat_period_mode"`
-	VATThresholdCents                  int64   `json:"vat_threshold_cents"`
-	VATRateBasisPoints                 int     `json:"vat_rate_basis_points"`
-	VATStandardRateBasisPoints         int     `json:"vat_standard_rate_basis_points"`
-	VATPreferentialEndDate             string  `json:"vat_preferential_end_date"`
-	UrbanMaintenanceTaxRateBasisPoints int     `json:"urban_maintenance_tax_rate_basis_points"`
-	EducationSurchargeRateBasisPoints  int     `json:"education_surcharge_rate_basis_points"`
-	LocalEducationRateBasisPoints      int     `json:"local_education_rate_basis_points"`
-	SurchargeReliefBasisPoints         int     `json:"surcharge_relief_basis_points"`
-	PITWithholdingEnabled              bool    `json:"pit_withholding_enabled"`
-	PolicyEffectiveDate                string  `json:"policy_effective_date"`
-	PolicyNotice                       string  `json:"policy_notice"`
-	PolicySourceURLs                   string  `json:"policy_source_urls"`
+	Enabled               bool    `json:"enabled"`
+	MinimumAmount         float64 `json:"minimum_amount"`
+	ApplicationWindowDays int     `json:"application_window_days"`
+	Currency              string  `json:"currency"`
+	InvoiceItemName       string  `json:"invoice_item_name"`
 }
 
 type CreateInvoiceApplicationInput struct {
 	TopUpIds       []int
 	InvoiceTitle   string
 	TaxNumber      string
-	CompanyAddress string
-	CompanyPhone   string
-	BankName       string
-	BankAccount    string
 	RecipientEmail string
 	ApplicantNote  string
-}
-
-type InvoiceDownload struct {
-	Path        string
-	FileName    string
-	ContentType string
 }
 
 func GetInvoiceConfig() InvoicePublicConfig {
 	setting := invoice_setting.GetInvoiceSetting()
 	return InvoicePublicConfig{
-		Enabled:                            setting.Enabled,
-		PriceIncludesTax:                   setting.PriceIncludesTax,
-		TaxBurdenMode:                      setting.TaxBurdenMode,
-		MinimumAmount:                      setting.MinimumAmount,
-		ApplicationWindowDays:              setting.ApplicationWindowDays,
-		Currency:                           setting.Currency,
-		InvoiceItemName:                    setting.InvoiceItemName,
-		VATPeriodMode:                      setting.VATPeriodMode,
-		VATThresholdCents:                  setting.VATThresholdCents,
-		VATRateBasisPoints:                 setting.VATRateBasisPoints,
-		VATStandardRateBasisPoints:         setting.VATStandardRateBasisPoints,
-		VATPreferentialEndDate:             setting.VATPreferentialEndDate,
-		UrbanMaintenanceTaxRateBasisPoints: setting.UrbanMaintenanceTaxRateBasisPoints,
-		EducationSurchargeRateBasisPoints:  setting.EducationSurchargeRateBasisPoints,
-		LocalEducationRateBasisPoints:      setting.LocalEducationRateBasisPoints,
-		SurchargeReliefBasisPoints:         setting.SurchargeReliefBasisPoints,
-		PITWithholdingEnabled:              setting.PITWithholdingEnabled,
-		PolicyEffectiveDate:                setting.PolicyEffectiveDate,
-		PolicyNotice:                       setting.PolicyNotice,
-		PolicySourceURLs:                   setting.PolicySourceURLs,
+		Enabled:               setting.Enabled,
+		MinimumAmount:         setting.MinimumAmount,
+		ApplicationWindowDays: setting.ApplicationWindowDays,
+		Currency:              setting.Currency,
+		InvoiceItemName:       setting.InvoiceItemName,
 	}
 }
 
 func ListInvoiceApplications(userId int, status string, keyword string, pageInfo *common.PageInfo) ([]*model.InvoiceApplication, int64, error) {
-	return model.ListInvoiceApplications(userId, status, keyword, pageInfo)
+	applications, total, err := model.ListInvoiceApplications(userId, status, keyword, pageInfo)
+	if err != nil {
+		return nil, 0, err
+	}
+	for _, application := range applications {
+		normalizeInvoiceApplicationItemName(application)
+	}
+	return applications, total, nil
 }
 
 func GetInvoiceApplication(applicationId int, userId int) (*model.InvoiceApplication, error) {
-	return model.GetInvoiceApplication(applicationId, userId)
+	application, err := model.GetInvoiceApplication(applicationId, userId)
+	if err != nil {
+		return nil, err
+	}
+	normalizeInvoiceApplicationItemName(application)
+	return application, nil
+}
+
+func validateInvoiceRecipientEmail(value string) (string, error) {
+	recipient := strings.TrimSpace(value)
+	if recipient == "" {
+		return "", errors.New("invoice recipient email is required")
+	}
+	if len(recipient) > 255 {
+		return "", errors.New("invoice recipient email is too long")
+	}
+	address, err := mail.ParseAddress(recipient)
+	if err != nil || !strings.EqualFold(address.Address, recipient) {
+		return "", errors.New("invoice recipient email is invalid")
+	}
+	return recipient, nil
 }
 
 func validateInvoiceSetting(setting *invoice_setting.InvoiceSetting) error {
@@ -208,45 +322,10 @@ func CalculateInvoiceTax(orderAmountCents int64, setting invoice_setting.Invoice
 		}
 	}
 
-	reliefMultiplier := 10_000 - setting.SurchargeReliefBasisPoints
-	urban := roundBasisPoints(roundBasisPoints(vat, setting.UrbanMaintenanceTaxRateBasisPoints), reliefMultiplier)
-	education := roundBasisPoints(roundBasisPoints(vat, setting.EducationSurchargeRateBasisPoints), reliefMultiplier)
-	localEducation := roundBasisPoints(roundBasisPoints(vat, setting.LocalEducationRateBasisPoints), reliefMultiplier)
-
-	pit := int64(0)
-	if setting.PITWithholdingEnabled {
-		pitIncome := orderAmountCents
-		if setting.PriceIncludesTax {
-			pitIncome -= vat
-		}
-		taxableIncome := int64(0)
-		if pitIncome <= 400_000 {
-			taxableIncome = pitIncome - 80_000
-			if taxableIncome < 0 {
-				taxableIncome = 0
-			}
-		} else {
-			taxableIncome = roundBasisPoints(pitIncome, 8_000)
-		}
-		switch {
-		case taxableIncome <= 2_000_000:
-			pit = roundBasisPoints(taxableIncome, 2_000)
-		case taxableIncome <= 5_000_000:
-			pit = roundBasisPoints(taxableIncome, 3_000) - 200_000
-		default:
-			pit = roundBasisPoints(taxableIncome, 4_000) - 700_000
-		}
-		if pit < 0 {
-			pit = 0
-		}
-	}
-
-	estimatedTotal := vat + urban + education + localEducation + pit
+	estimatedTotal := vat
 	suggestedSupplement := int64(0)
 	if !setting.PriceIncludesTax && setting.TaxBurdenMode == invoice_setting.TaxBurdenSupplement {
-		// PIT is a withholding estimate for the individual and is deliberately
-		// excluded here: grossing it up changes the taxable income recursively.
-		suggestedSupplement = vat + urban + education + localEducation
+		suggestedSupplement = vat
 	}
 
 	return InvoiceTaxEstimate{
@@ -256,10 +335,10 @@ func CalculateInvoiceTax(orderAmountCents int64, setting invoice_setting.Invoice
 		VATRateBasisPoints:               vatRate,
 		VATExemptByThreshold:             vatExempt,
 		EstimatedVATCents:                vat,
-		EstimatedUrbanTaxCents:           urban,
-		EstimatedEducationSurchargeCents: education,
-		EstimatedLocalEducationCents:     localEducation,
-		EstimatedPITWithholdingCents:     pit,
+		EstimatedUrbanTaxCents:           0,
+		EstimatedEducationSurchargeCents: 0,
+		EstimatedLocalEducationCents:     0,
+		EstimatedPITWithholdingCents:     0,
 		EstimatedTotalTaxCents:           estimatedTotal,
 		SuggestedSupplementCents:         suggestedSupplement,
 		PITIncludedInSuggestedSupplement: false,
@@ -324,6 +403,10 @@ func CreateInvoiceApplication(userId int, input CreateInvoiceApplicationInput) (
 	if len([]rune(applicantNote)) > 2000 {
 		return nil, errors.New("invoice application note must be 2000 characters or fewer")
 	}
+	recipientEmail, err := validateInvoiceRecipientEmail(input.RecipientEmail)
+	if err != nil {
+		return nil, err
+	}
 
 	uniqueIds := make([]int, 0, len(input.TopUpIds))
 	seen := make(map[int]struct{}, len(input.TopUpIds))
@@ -339,7 +422,7 @@ func CreateInvoiceApplication(userId int, input CreateInvoiceApplicationInput) (
 	}
 
 	var created model.InvoiceApplication
-	err := model.DB.Transaction(func(tx *gorm.DB) error {
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
 		var topUps []model.TopUp
 		if err := tx.Where("id IN ? AND user_id = ? AND status = ? AND money > ?", uniqueIds, userId, common.TopUpStatusSuccess, 0).
 			Order("id asc").Find(&topUps).Error; err != nil {
@@ -367,7 +450,7 @@ func CreateInvoiceApplication(userId int, input CreateInvoiceApplicationInput) (
 			return err
 		}
 		if existing > 0 {
-			return errors.New("one or more paid orders already have an invoice application")
+			return model.ErrInvoiceOrderAlreadyApplied
 		}
 
 		var totalCents int64
@@ -398,46 +481,28 @@ func CreateInvoiceApplication(userId int, input CreateInvoiceApplicationInput) (
 		if totalCents < minimumCents {
 			return errors.New("selected paid orders do not meet the minimum invoice amount")
 		}
-		estimate, err := CalculateInvoiceTax(totalCents, *setting, time.Now())
-		if err != nil {
-			return err
-		}
 		snapshotBytes, err := common.Marshal(setting)
-		if err != nil {
-			return err
-		}
-		breakdownBytes, err := common.Marshal(estimate)
 		if err != nil {
 			return err
 		}
 		now := time.Now().Unix()
 		created = model.InvoiceApplication{
-			UserId:                       userId,
-			Status:                       model.InvoiceStatusPendingReview,
-			PaymentStatus:                model.InvoicePaymentNotRequired,
-			InvoiceTitle:                 strings.TrimSpace(input.InvoiceTitle),
-			TaxNumber:                    strings.TrimSpace(input.TaxNumber),
-			CompanyAddress:               strings.TrimSpace(input.CompanyAddress),
-			CompanyPhone:                 strings.TrimSpace(input.CompanyPhone),
-			BankName:                     strings.TrimSpace(input.BankName),
-			BankAccount:                  strings.TrimSpace(input.BankAccount),
-			RecipientEmail:               strings.TrimSpace(input.RecipientEmail),
-			ApplicantNote:                applicantNote,
-			InvoiceItemName:              strings.TrimSpace(setting.InvoiceItemName),
-			Currency:                     strings.ToUpper(strings.TrimSpace(setting.Currency)),
-			OrderAmountCents:             totalCents,
-			InvoiceAmountCents:           totalCents,
-			EstimatedVATCents:            estimate.EstimatedVATCents,
-			EstimatedUrbanTaxCents:       estimate.EstimatedUrbanTaxCents,
-			EstimatedEducationCents:      estimate.EstimatedEducationSurchargeCents,
-			EstimatedLocalEducationCents: estimate.EstimatedLocalEducationCents,
-			EstimatedPITCents:            estimate.EstimatedPITWithholdingCents,
-			EstimatedTotalTaxCents:       estimate.EstimatedTotalTaxCents,
-			SuggestedSupplementCents:     estimate.SuggestedSupplementCents,
-			TaxBreakdown:                 string(breakdownBytes),
-			RuleSnapshot:                 string(snapshotBytes),
-			CreatedAt:                    now,
-			UpdatedAt:                    now,
+			UserId:                   userId,
+			Status:                   model.InvoiceStatusPendingReview,
+			PaymentStatus:            model.InvoicePaymentNotRequired,
+			InvoiceTitle:             strings.TrimSpace(input.InvoiceTitle),
+			TaxNumber:                strings.TrimSpace(input.TaxNumber),
+			RecipientEmail:           recipientEmail,
+			ApplicantNote:            applicantNote,
+			InvoiceItemName:          strings.TrimSpace(setting.InvoiceItemName),
+			Currency:                 strings.ToUpper(strings.TrimSpace(setting.Currency)),
+			OrderAmountCents:         totalCents,
+			InvoiceAmountCents:       totalCents,
+			TaxBreakdown:             "{}",
+			RuleSnapshot:             string(snapshotBytes),
+			SuggestedSupplementCents: 0,
+			CreatedAt:                now,
+			UpdatedAt:                now,
 		}
 		if err := tx.Create(&created).Error; err != nil {
 			return err
@@ -452,6 +517,11 @@ func CreateInvoiceApplication(userId int, input CreateInvoiceApplicationInput) (
 		return nil
 	})
 	if err != nil {
+		var conflictCount int64
+		conflictErr := model.DB.Model(&model.InvoiceOrder{}).Where("top_up_id IN ?", uniqueIds).Count(&conflictCount).Error
+		if conflictErr == nil && conflictCount > 0 {
+			return nil, model.ErrInvoiceOrderAlreadyApplied
+		}
 		return nil, err
 	}
 	return &created, nil
@@ -484,9 +554,6 @@ func ReviewInvoiceApplication(applicationId int, reviewerId int, approve bool, f
 		if finalAmount < 0 || finalAmount > maxInvoiceAmountCents || application.OrderAmountCents > maxInvoiceAmountCents-finalAmount {
 			return errors.New("final tax supplement amount is invalid")
 		}
-		if finalAmount != application.SuggestedSupplementCents && strings.TrimSpace(adjustmentReason) == "" {
-			return errors.New("tax adjustment reason is required when the final amount differs from the system estimate")
-		}
 		status := model.InvoiceStatusApproved
 		paymentStatus := model.InvoicePaymentNotRequired
 		if finalAmount > 0 {
@@ -497,6 +564,7 @@ func ReviewInvoiceApplication(applicationId int, reviewerId int, approve bool, f
 			"status":                 status,
 			"payment_status":         paymentStatus,
 			"final_supplement_cents": finalAmount,
+			"invoice_amount_cents":   application.OrderAmountCents + finalAmount,
 			"tax_adjustment_reason":  strings.TrimSpace(adjustmentReason),
 			"reviewer_id":            reviewerId,
 			"reviewed_at":            now,
@@ -542,11 +610,15 @@ func FailInvoicePaymentOrder(tradeNo string) {
 }
 
 func CompleteInvoicePaymentOrder(tradeNo string, providerPayload string, expectedProvider string, actualPaymentMethod string) error {
-	return model.UpdateInvoicePaymentOrder(tradeNo, func(tx *gorm.DB, order *model.InvoicePaymentOrder) error {
+	var completedOrder model.InvoicePaymentOrder
+	needsUsageLog := false
+	err := model.UpdateInvoicePaymentOrder(tradeNo, func(tx *gorm.DB, order *model.InvoicePaymentOrder) error {
 		if expectedProvider != "" && order.PaymentProvider != expectedProvider {
 			return model.ErrInvoicePaymentMethodMismatch
 		}
 		if order.Status == model.InvoicePaymentOrderPaid {
+			completedOrder = *order
+			needsUsageLog = order.UsageLogRecordedAt == 0
 			return nil
 		}
 		if order.Status != model.InvoicePaymentOrderPending {
@@ -585,8 +657,42 @@ func CompleteInvoicePaymentOrder(tradeNo string, providerPayload string, expecte
 		if actualPaymentMethod != "" {
 			order.PaymentMethod = actualPaymentMethod
 		}
-		return tx.Save(order).Error
+		if err := tx.Save(order).Error; err != nil {
+			return err
+		}
+		completedOrder = *order
+		needsUsageLog = true
+		return nil
 	})
+	if err != nil || !needsUsageLog {
+		return err
+	}
+
+	language := model.GetUserLanguage(completedOrder.UserId)
+	copy := invoiceLocalizedCopies[normalizeInvoiceLanguage(language)]
+	amount := decimal.NewFromInt(completedOrder.AmountCents).Shift(-2).StringFixed(2)
+	content := fmt.Sprintf(
+		copy.SupplementPaymentLogContent,
+		completedOrder.ApplicationId,
+		amount,
+		completedOrder.Currency,
+	)
+	if err := model.RecordInvoiceSupplementLog(
+		completedOrder.UserId,
+		completedOrder.ApplicationId,
+		completedOrder.TradeNo,
+		completedOrder.AmountCents,
+		completedOrder.Currency,
+		completedOrder.PaymentMethod,
+		completedOrder.PaymentProvider,
+		content,
+	); err != nil {
+		return err
+	}
+
+	return model.DB.Model(&model.InvoicePaymentOrder{}).
+		Where("trade_no = ? AND usage_log_recorded_at = ?", completedOrder.TradeNo, 0).
+		Update("usage_log_recorded_at", time.Now().Unix()).Error
 }
 
 func UploadInvoiceFile(applicationId int, originalName string, data []byte) (*model.InvoiceApplication, error) {
@@ -630,18 +736,15 @@ func UploadInvoiceFile(applicationId int, originalName string, data []byte) (*mo
 	if displayName == "." || displayName == "" {
 		displayName = fileName
 	}
-	now := time.Now().Unix()
 	err = model.UpdateInvoiceApplication(applicationId, func(tx *gorm.DB, current *model.InvoiceApplication) error {
 		if current.Status != model.InvoiceStatusApproved && current.Status != model.InvoiceStatusIssued {
 			return model.ErrInvoiceStatusInvalid
 		}
 		return tx.Model(current).Updates(map[string]interface{}{
-			"status":                    model.InvoiceStatusIssued,
 			"invoice_file_name":         displayName,
 			"invoice_file_path":         targetPath,
 			"invoice_file_content_type": contentType,
-			"issued_at":                 now,
-			"updated_at":                now,
+			"updated_at":                time.Now().Unix(),
 		}).Error
 	})
 	if err != nil {
@@ -654,28 +757,96 @@ func UploadInvoiceFile(applicationId int, originalName string, data []byte) (*mo
 			_ = os.Remove(oldPath)
 		}
 	}
-	return model.GetInvoiceApplication(applicationId, 0)
+	stored, err := model.GetInvoiceApplication(applicationId, 0)
+	if err != nil {
+		return nil, err
+	}
+	sent, err := SendInvoiceEmail(applicationId, 0)
+	if err != nil {
+		return stored, fmt.Errorf("invoice file was saved but email delivery failed: %w", err)
+	}
+	return sent, nil
 }
 
-func GetInvoiceDownload(applicationId int, userId int) (InvoiceDownload, error) {
+func SendInvoiceEmail(applicationId int, userId int) (*model.InvoiceApplication, error) {
 	application, err := model.GetInvoiceApplication(applicationId, userId)
 	if err != nil {
-		return InvoiceDownload{}, err
+		return nil, err
 	}
-	if application.Status != model.InvoiceStatusIssued || application.InvoiceFilePath == "" {
-		return InvoiceDownload{}, errors.New("invoice file is not available")
+	if userId > 0 && application.Status != model.InvoiceStatusIssued {
+		return nil, model.ErrInvoiceStatusInvalid
+	}
+	if userId == 0 && application.Status != model.InvoiceStatusApproved && application.Status != model.InvoiceStatusIssued {
+		return nil, model.ErrInvoiceStatusInvalid
+	}
+	recipient, err := validateInvoiceRecipientEmail(application.RecipientEmail)
+	if err != nil {
+		return nil, err
+	}
+	if application.InvoiceFilePath == "" {
+		return nil, errors.New("invoice file is not available")
 	}
 	target, err := resolveInvoiceFilePath(application.InvoiceFilePath)
 	if err != nil {
-		return InvoiceDownload{}, err
+		return nil, err
 	}
-	if _, err = os.Stat(target); err != nil {
+	fileInfo, err := os.Stat(target)
+	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return InvoiceDownload{}, errors.New("invoice file is not available")
+			return nil, errors.New("invoice file is not available")
 		}
-		return InvoiceDownload{}, err
+		return nil, err
 	}
-	return InvoiceDownload{Path: target, FileName: application.InvoiceFileName, ContentType: application.InvoiceFileContentType}, nil
+	if fileInfo.Size() <= 0 || fileInfo.Size() > InvoiceFileMaxBytes {
+		return nil, errors.New("invoice file is not available")
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		return nil, err
+	}
+	subject, content := invoiceEmailMessage(model.GetUserLanguage(application.UserId), application)
+	if err = invoiceEmailSender(
+		subject,
+		recipient,
+		content,
+		[]common.EmailAttachment{{
+			FileName:    application.InvoiceFileName,
+			ContentType: application.InvoiceFileContentType,
+			Data:        data,
+		}},
+	); err != nil {
+		return nil, err
+	}
+
+	now := time.Now().Unix()
+	err = model.UpdateInvoiceApplication(applicationId, func(tx *gorm.DB, current *model.InvoiceApplication) error {
+		if userId > 0 && current.UserId != userId {
+			return model.ErrInvoiceNotFound
+		}
+		if userId > 0 && current.Status != model.InvoiceStatusIssued {
+			return model.ErrInvoiceStatusInvalid
+		}
+		if userId == 0 && current.Status != model.InvoiceStatusApproved && current.Status != model.InvoiceStatusIssued {
+			return model.ErrInvoiceStatusInvalid
+		}
+		if current.InvoiceFilePath != application.InvoiceFilePath {
+			return errors.New("invoice file changed while email was being sent")
+		}
+		updates := map[string]interface{}{
+			"status":                   model.InvoiceStatusIssued,
+			"invoice_email_sent_at":    now,
+			"invoice_email_send_count": gorm.Expr("invoice_email_send_count + ?", 1),
+			"updated_at":               now,
+		}
+		if current.IssuedAt == 0 {
+			updates["issued_at"] = now
+		}
+		return tx.Model(current).Updates(updates).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	return model.GetInvoiceApplication(applicationId, userId)
 }
 
 func resolveInvoiceFilePath(storedPath string) (string, error) {

@@ -104,19 +104,11 @@ export async function uploadInvoiceFile(
   return response.data
 }
 
-export async function downloadInvoiceFile(
-  application: InvoiceApplication
-): Promise<void> {
-  const response = await api.get(
-    `/api/invoice/applications/${application.id}/download`,
-    { responseType: 'blob' }
+export async function sendInvoiceEmail(
+  applicationId: number
+): Promise<InvoiceApiResponse<InvoiceApplication>> {
+  const response = await api.post(
+    `/api/invoice/applications/${applicationId}/send`
   )
-  const objectUrl = URL.createObjectURL(response.data as Blob)
-  const anchor = document.createElement('a')
-  anchor.href = objectUrl
-  anchor.download = application.invoice_file_name || `invoice-${application.id}`
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
-  URL.revokeObjectURL(objectUrl)
+  return response.data
 }

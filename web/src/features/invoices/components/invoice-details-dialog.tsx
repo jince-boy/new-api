@@ -7,11 +7,7 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 
-import {
-  Download01Icon,
-  Payment01Icon,
-  Upload01Icon,
-} from '@hugeicons/core-free-icons'
+import { Payment01Icon, Upload01Icon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -36,10 +32,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 
 import { formatInvoiceDate, formatInvoiceMoney } from '../lib/format'
+import { getInvoiceEmailAction } from '../lib/invoice-email-action'
 import type {
   InvoiceApplication,
   InvoicePaymentMethod,
@@ -56,13 +52,12 @@ type InvoiceDetailsDialogProps = {
   onReview: (request: ReviewInvoiceApplicationRequest) => void
   onPay: (paymentMethod: string) => void
   onUpload: (file: File) => void
-  onDownload: () => void
+  onSend: () => void
 }
 
 export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
   const { t } = useTranslation()
   const [finalSupplement, setFinalSupplement] = useState('0.00')
-  const [adjustmentReason, setAdjustmentReason] = useState('')
   const [rejectReason, setRejectReason] = useState('')
   const [note, setNote] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<string | null>(null)
@@ -72,9 +67,11 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
     const application = props.application
     if (!application) return
     setFinalSupplement(
-      (application.suggested_supplement_cents / 100).toFixed(2)
+      (
+        (application.final_supplement_cents ||
+          application.suggested_supplement_cents) / 100
+      ).toFixed(2)
     )
-    setAdjustmentReason(application.tax_adjustment_reason || '')
     setRejectReason('')
     setNote(application.admin_note || '')
     setPaymentMethod(props.paymentMethods[0]?.type ?? null)
@@ -87,12 +84,10 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
   const finalSupplementCents = Math.round(Number(finalSupplement) * 100)
   const validFinalSupplement =
     Number.isFinite(finalSupplementCents) && finalSupplementCents >= 0
-  const changedEstimate =
-    validFinalSupplement &&
-    finalSupplementCents !== application.suggested_supplement_cents
   const canUpload =
     props.isAdmin &&
     (application.status === 'approved' || application.status === 'issued')
+  const emailAction = getInvoiceEmailAction(application, props.isAdmin)
 
   return (
     <Dialog open onOpenChange={props.onOpenChange}>
@@ -108,7 +103,7 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
         </DialogHeader>
 
         <div className='grid gap-4 md:grid-cols-2'>
-          <section className='space-y-3 rounded-lg border p-4'>
+          <section className='flex flex-col gap-3 rounded-lg border p-4'>
             <div className='flex items-center justify-between gap-3'>
               <h3 className='font-medium'>{t('Application information')}</h3>
               <InvoiceStatusBadge status={application.status} />
@@ -116,22 +111,14 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
             <dl className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm'>
               <dt className='text-muted-foreground'>{t('User')}</dt>
               <dd>{application.user_id}</dd>
+              <dt className='text-muted-foreground'>{t('Invoice title')}</dt>
+              <dd>{application.invoice_title}</dd>
               <dt className='text-muted-foreground'>{t('Tax number')}</dt>
               <dd className='break-all'>{application.tax_number}</dd>
-              <dt className='text-muted-foreground'>{t('Invoice item')}</dt>
-              <dd>{application.invoice_item_name}</dd>
               <dt className='text-muted-foreground'>{t('Recipient email')}</dt>
               <dd className='break-all'>
                 {application.recipient_email || '-'}
               </dd>
-              <dt className='text-muted-foreground'>{t('Company address')}</dt>
-              <dd>{application.company_address || '-'}</dd>
-              <dt className='text-muted-foreground'>{t('Company phone')}</dt>
-              <dd>{application.company_phone || '-'}</dd>
-              <dt className='text-muted-foreground'>{t('Bank name')}</dt>
-              <dd>{application.bank_name || '-'}</dd>
-              <dt className='text-muted-foreground'>{t('Bank account')}</dt>
-              <dd className='break-all'>{application.bank_account || '-'}</dd>
               <dt className='text-muted-foreground'>{t('Application note')}</dt>
               <dd className='whitespace-pre-wrap'>
                 {application.applicant_note || '-'}
@@ -141,9 +128,11 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
             </dl>
           </section>
 
-          <section className='space-y-3 rounded-lg border p-4'>
-            <h3 className='font-medium'>{t('System tax estimate')}</h3>
+          <section className='flex flex-col gap-3 rounded-lg border p-4'>
+            <h3 className='font-medium'>{t('Invoice information')}</h3>
             <dl className='grid grid-cols-[1fr_auto] gap-x-3 gap-y-2 text-sm'>
+              <dt className='text-muted-foreground'>{t('Invoice item')}</dt>
+              <dd>{application.invoice_item_name}</dd>
               <dt className='text-muted-foreground'>
                 {t('Paid order amount')}
               </dt>
@@ -153,52 +142,19 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
                   application.currency
                 )}
               </dd>
-              <dt className='text-muted-foreground'>{t('Estimated VAT')}</dt>
-              <dd>
-                {formatInvoiceMoney(
-                  application.estimated_vat_cents,
-                  application.currency
-                )}
-              </dd>
               <dt className='text-muted-foreground'>
-                {t('Urban maintenance and construction tax')}
+                {t('Tax supplement amount')}
               </dt>
               <dd>
                 {formatInvoiceMoney(
-                  application.estimated_urban_tax_cents,
+                  application.final_supplement_cents,
                   application.currency
                 )}
               </dd>
-              <dt className='text-muted-foreground'>
-                {t('Education surcharges')}
-              </dt>
-              <dd>
-                {formatInvoiceMoney(
-                  application.estimated_education_surcharge_cents +
-                    application.estimated_local_education_surcharge_cents,
-                  application.currency
-                )}
-              </dd>
-              <dt className='text-muted-foreground'>
-                {t('Estimated individual income tax withholding')}
-              </dt>
-              <dd>
-                {formatInvoiceMoney(
-                  application.estimated_pit_withholding_cents,
-                  application.currency
-                )}
-              </dd>
-              <dt className='font-medium'>{t('Estimated total tax')}</dt>
+              <dt className='font-medium'>{t('Final invoice amount')}</dt>
               <dd className='font-medium'>
                 {formatInvoiceMoney(
-                  application.estimated_total_tax_cents,
-                  application.currency
-                )}
-              </dd>
-              <dt className='font-medium'>{t('Suggested tax supplement')}</dt>
-              <dd className='font-medium'>
-                {formatInvoiceMoney(
-                  application.suggested_supplement_cents,
+                  application.invoice_amount_cents,
                   application.currency
                 )}
               </dd>
@@ -206,24 +162,13 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
           </section>
         </div>
 
-        <Alert>
-          <AlertTitle>
-            {t('Tax estimate requires administrator verification')}
-          </AlertTitle>
-          <AlertDescription>
-            {t(
-              'Individual income tax is shown as a withholding estimate and is not automatically included in the customer supplement. The final amount must follow the competent tax authority, withholding declaration, and tax payment certificate.'
-            )}
-          </AlertDescription>
-        </Alert>
-
         {props.isAdmin && application.status === 'pending_review' ? (
-          <section className='space-y-4 rounded-lg border p-4'>
-            <h3 className='font-medium'>{t('Review and final amount')}</h3>
+          <section className='flex flex-col gap-4 rounded-lg border p-4'>
+            <h3 className='font-medium'>{t('Review invoice application')}</h3>
             <div className='grid gap-4 md:grid-cols-2'>
               <Field data-invalid={!validFinalSupplement}>
                 <FieldLabel htmlFor='invoice-final-supplement'>
-                  {t('Final tax supplement amount')}
+                  {t('Tax supplement amount')}
                 </FieldLabel>
                 <Input
                   id='invoice-final-supplement'
@@ -234,40 +179,24 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
                   aria-invalid={!validFinalSupplement}
                   onChange={(event) => setFinalSupplement(event.target.value)}
                 />
-              </Field>
-              <Field
-                data-invalid={changedEstimate && adjustmentReason.trim() === ''}
-              >
-                <FieldLabel htmlFor='invoice-adjustment-reason'>
-                  {t('Tax adjustment reason')}
-                </FieldLabel>
-                <Input
-                  id='invoice-adjustment-reason'
-                  value={adjustmentReason}
-                  maxLength={2000}
-                  aria-invalid={
-                    changedEstimate && adjustmentReason.trim() === ''
-                  }
-                  onChange={(event) => setAdjustmentReason(event.target.value)}
-                />
                 <FieldDescription>
                   {t(
-                    'Required when the final amount differs from the system estimate.'
+                    'Enter the actual supplement confirmed for this invoice, or 0 when none is required.'
                   )}
                 </FieldDescription>
               </Field>
+              <Field>
+                <FieldLabel htmlFor='invoice-admin-note'>
+                  {t('Admin note')}
+                </FieldLabel>
+                <Textarea
+                  id='invoice-admin-note'
+                  value={note}
+                  maxLength={2000}
+                  onChange={(event) => setNote(event.target.value)}
+                />
+              </Field>
             </div>
-            <Field>
-              <FieldLabel htmlFor='invoice-admin-note'>
-                {t('Admin note')}
-              </FieldLabel>
-              <Textarea
-                id='invoice-admin-note'
-                value={note}
-                maxLength={2000}
-                onChange={(event) => setNote(event.target.value)}
-              />
-            </Field>
             <Field>
               <FieldLabel htmlFor='invoice-reject-reason'>
                 {t('Rejection reason')}
@@ -287,7 +216,6 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
                 onClick={() =>
                   props.onReview({
                     action: 'reject',
-                    tax_adjustment_reason: '',
                     reason: rejectReason,
                     note,
                   })
@@ -296,16 +224,11 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
                 {t('Reject')}
               </Button>
               <Button
-                disabled={
-                  props.busy ||
-                  !validFinalSupplement ||
-                  (changedEstimate && adjustmentReason.trim() === '')
-                }
+                disabled={props.busy || !validFinalSupplement}
                 onClick={() =>
                   props.onReview({
                     action: 'approve',
                     final_supplement_amount_cents: finalSupplementCents,
-                    tax_adjustment_reason: adjustmentReason,
                     reason: '',
                     note,
                   })
@@ -318,7 +241,7 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
         ) : null}
 
         {!props.isAdmin && application.status === 'pending_payment' ? (
-          <section className='space-y-4 rounded-lg border p-4'>
+          <section className='flex flex-col gap-4 rounded-lg border p-4'>
             <h3 className='font-medium'>{t('Pay tax supplement')}</h3>
             <p className='text-muted-foreground text-sm'>
               {t('Amount due')}:{' '}
@@ -378,50 +301,59 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
         ) : null}
 
         {canUpload ? (
-          <section className='space-y-3 rounded-lg border p-4'>
+          <section className='flex flex-col gap-3 rounded-lg border p-4'>
             <h3 className='font-medium'>
               {application.status === 'issued'
-                ? t('Replace invoice file')
-                : t('Upload invoice')}
+                ? t('Replace and send invoice')
+                : t('Upload and send invoice')}
             </h3>
-            <div className='flex flex-col gap-3 sm:flex-row sm:items-end'>
-              <Field className='flex-1'>
-                <FieldLabel htmlFor='invoice-file'>
-                  {t('Invoice file')}
-                </FieldLabel>
-                <Input
-                  id='invoice-file'
-                  type='file'
-                  accept='application/pdf,image/png,image/jpeg'
-                  onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-                />
-                <FieldDescription>
-                  {t('PDF, PNG, or JPEG. Maximum file size: 20 MB.')}
-                </FieldDescription>
-              </Field>
+            <Field>
+              <FieldLabel htmlFor='invoice-file'>{t('Invoice file')}</FieldLabel>
+              <Input
+                id='invoice-file'
+                type='file'
+                accept='application/pdf,image/png,image/jpeg'
+                onChange={(event) => setFile(event.target.files?.[0] ?? null)}
+              />
+              <FieldDescription>
+                {t('PDF, PNG, or JPEG. Maximum file size: 20 MB.')}
+              </FieldDescription>
+            </Field>
+            <div className='flex justify-end'>
               <Button
                 disabled={props.busy || !file}
                 onClick={() => file && props.onUpload(file)}
               >
                 <HugeiconsIcon icon={Upload01Icon} data-icon='inline-start' />
-                {t('Upload invoice')}
+                {t('Upload and send invoice')}
               </Button>
             </div>
           </section>
         ) : null}
 
-        {application.status === 'issued' ? (
-          <>
-            <Separator />
-            <Button
-              variant='outline'
-              disabled={props.busy}
-              onClick={props.onDownload}
-            >
-              <HugeiconsIcon icon={Download01Icon} data-icon='inline-start' />
-              {t('Download invoice')}
-            </Button>
-          </>
+        {application.invoice_file_name ? (
+          <section className='flex flex-col gap-3 rounded-lg border p-4'>
+            <h3 className='font-medium'>{t('Email delivery')}</h3>
+            <dl className='grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-sm'>
+              <dt className='text-muted-foreground'>{t('Invoice file')}</dt>
+              <dd className='break-all'>{application.invoice_file_name}</dd>
+              <dt className='text-muted-foreground'>{t('Last sent at')}</dt>
+              <dd>
+                {application.invoice_email_sent_at
+                  ? formatInvoiceDate(application.invoice_email_sent_at)
+                  : t('Not sent')}
+              </dd>
+              <dt className='text-muted-foreground'>{t('Send count')}</dt>
+              <dd>{application.invoice_email_send_count}</dd>
+            </dl>
+            {emailAction ? (
+              <Button disabled={props.busy} onClick={props.onSend}>
+                {emailAction === 'send'
+                  ? t('Send invoice')
+                  : t('Resend invoice')}
+              </Button>
+            ) : null}
+          </section>
         ) : null}
 
         <DialogFooter>

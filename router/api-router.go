@@ -203,7 +203,7 @@ func SetApiRouter(router *gin.Engine) {
 			invoiceRoute.POST("/applications", middleware.CriticalRateLimit(), controller.CreateInvoiceApplication)
 			invoiceRoute.GET("/applications/:id", controller.GetInvoiceApplication)
 			invoiceRoute.POST("/applications/:id/pay", middleware.CriticalRateLimit(), controller.RequestInvoiceSupplementPayment)
-			invoiceRoute.GET("/applications/:id/download", middleware.DownloadRateLimit(), controller.DownloadInvoiceFile)
+			invoiceRoute.POST("/applications/:id/send", middleware.CriticalRateLimit(), controller.SendInvoiceEmail)
 		}
 		invoiceAdminRoute := apiRouter.Group("/invoice/admin")
 		invoiceAdminRoute.Use(middleware.AdminAuth())

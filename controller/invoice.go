@@ -24,10 +24,6 @@ type createInvoiceApplicationRequest struct {
 	TopUpIds       []int  `json:"top_up_ids"`
 	InvoiceTitle   string `json:"invoice_title"`
 	TaxNumber      string `json:"tax_number"`
-	CompanyAddress string `json:"company_address"`
-	CompanyPhone   string `json:"company_phone"`
-	BankName       string `json:"bank_name"`
-	BankAccount    string `json:"bank_account"`
 	RecipientEmail string `json:"recipient_email"`
 	ApplicantNote  string `json:"applicant_note"`
 }
@@ -92,19 +88,13 @@ func CreateInvoiceApplication(c *gin.Context) {
 		common.ApiErrorMsg(c, "tax number is required and must be 64 characters or fewer")
 		return
 	}
-	if len(request.RecipientEmail) > 255 {
-		common.ApiErrorMsg(c, "recipient email is too long")
+	if request.RecipientEmail == "" || len(request.RecipientEmail) > 255 {
+		common.ApiErrorMsg(c, "recipient email is required and must be 255 characters or fewer")
 		return
 	}
-	if request.RecipientEmail != "" {
-		address, err := mail.ParseAddress(request.RecipientEmail)
-		if err != nil || !strings.EqualFold(address.Address, request.RecipientEmail) {
-			common.ApiErrorMsg(c, "recipient email is invalid")
-			return
-		}
-	}
-	if len(request.CompanyAddress) > 255 || len(request.CompanyPhone) > 64 || len(request.BankName) > 255 || len(request.BankAccount) > 128 {
-		common.ApiErrorMsg(c, "invoice recipient information is too long")
+	address, err := mail.ParseAddress(request.RecipientEmail)
+	if err != nil || !strings.EqualFold(address.Address, request.RecipientEmail) {
+		common.ApiErrorMsg(c, "recipient email is invalid")
 		return
 	}
 	if len([]rune(request.ApplicantNote)) > 2000 {
@@ -116,10 +106,6 @@ func CreateInvoiceApplication(c *gin.Context) {
 		TopUpIds:       request.TopUpIds,
 		InvoiceTitle:   request.InvoiceTitle,
 		TaxNumber:      request.TaxNumber,
-		CompanyAddress: request.CompanyAddress,
-		CompanyPhone:   request.CompanyPhone,
-		BankName:       request.BankName,
-		BankAccount:    request.BankAccount,
 		RecipientEmail: request.RecipientEmail,
 		ApplicantNote:  request.ApplicantNote,
 	})
@@ -249,7 +235,7 @@ func RequestInvoiceSupplementPayment(c *gin.Context) {
 	uri, params, err := client.Purchase(&epay.PurchaseArgs{
 		Type:           request.PaymentMethod,
 		ServiceTradeNo: tradeNo,
-		Name:           fmt.Sprintf("Invoice tax supplement #%d", id),
+		Name:           service.InvoiceSupplementPaymentName(userId, id),
 		Money:          amount,
 		Device:         epay.PC,
 		NotifyUrl:      notifyURL,
@@ -367,15 +353,17 @@ func AdminUploadInvoiceFile(c *gin.Context) {
 		return
 	}
 	application, err := service.UploadInvoiceFile(id, header.Filename, data)
+	if application != nil {
+		recordManageAuditFor(c, application.UserId, "invoice.file.upload", map[string]interface{}{"invoice_application_id": id})
+	}
 	if err != nil {
 		common.ApiErrorMsg(c, err.Error())
 		return
 	}
-	recordManageAuditFor(c, application.UserId, "invoice.file.upload", map[string]interface{}{"invoice_application_id": id})
 	common.ApiSuccess(c, nil)
 }
 
-func DownloadInvoiceFile(c *gin.Context) {
+func SendInvoiceEmail(c *gin.Context) {
 	id, ok := invoiceApplicationId(c)
 	if !ok {
 		return
@@ -384,12 +372,13 @@ func DownloadInvoiceFile(c *gin.Context) {
 	if c.GetInt("role") >= common.RoleAdminUser {
 		userId = 0
 	}
-	download, err := service.GetInvoiceDownload(id, userId)
+	application, err := service.SendInvoiceEmail(id, userId)
 	if err != nil {
 		common.ApiErrorMsg(c, err.Error())
 		return
 	}
-	c.Header("Cache-Control", "private, no-store")
-	c.Header("Content-Type", download.ContentType)
-	c.FileAttachment(download.Path, download.FileName)
+	if userId == 0 {
+		recordManageAuditFor(c, application.UserId, "invoice.email.send", map[string]interface{}{"invoice_application_id": id})
+	}
+	common.ApiSuccess(c, application)
 }
