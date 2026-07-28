@@ -96,6 +96,7 @@ import type {
   AdvancedCustomConverter,
   AdvancedCustomRoute,
 } from '../../types'
+import { AdvancedCustomTaskEditor } from './advanced-custom-task-editor'
 
 type AdvancedCustomEditorDialogProps = {
   open: boolean
@@ -1323,6 +1324,10 @@ function RouteEditor({
             <span className='hidden lg:block' aria-hidden='true' />
           </div>
         </>
+      ) : null}
+
+      {!isModelListRoute ? (
+        <AdvancedCustomTaskEditor route={route} onChange={onChange} />
       ) : null}
     </div>
   )

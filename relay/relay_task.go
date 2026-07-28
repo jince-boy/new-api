@@ -18,8 +18,10 @@ import (
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
+	relaykitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/sjson"
 )
 
 type TaskSubmitResult struct {
@@ -27,6 +29,7 @@ type TaskSubmitResult struct {
 	TaskData       []byte
 	Platform       constant.TaskPlatform
 	Quota          int
+	TaskRoute      *relaykitdto.AdvancedCustomRoute
 	//PerCallPrice   types.PriceData
 }
 
@@ -222,7 +225,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if err != nil {
 		return nil, service.TaskErrorWrapper(err, "do_request_failed", http.StatusInternalServerError)
 	}
-	if resp != nil && resp.StatusCode != http.StatusOK {
+	if resp != nil && (resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices) {
 		responseBody, _ := io.ReadAll(resp.Body)
 		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
 	}
@@ -252,11 +255,26 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		}
 	}
 
+	var taskRoute *relaykitdto.AdvancedCustomRoute
+	if provider, ok := adaptor.(channel.TaskRouteSnapshotProvider); ok {
+		taskRoute = provider.TaskRouteSnapshot()
+	}
+	storedTaskData := taskData
+	if taskRoute != nil && taskRoute.Task != nil {
+		taskIDPath := strings.TrimSpace(taskRoute.Task.SubmitResponse.TaskIDPath)
+		if taskIDPath != "" {
+			if redacted, redactErr := sjson.DeleteBytes(storedTaskData, taskIDPath); redactErr == nil {
+				storedTaskData = redacted
+			}
+		}
+	}
+
 	return &TaskSubmitResult{
 		UpstreamTaskID: upstreamTaskID,
-		TaskData:       taskData,
+		TaskData:       storedTaskData,
 		Platform:       platform,
 		Quota:          finalQuota,
+		TaskRoute:      taskRoute,
 	}, nil
 }
 
@@ -500,7 +518,7 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 		"metadata": nil,
 		"status":   mapTaskStatusToSimple(task.Status),
 		"task_id":  task.TaskID,
-		"url":      task.GetResultURL(),
+		"url":      task.GetPublicVideoURL(),
 	}
 	respBody, _ := common.Marshal(dto.TaskResponse[any]{
 		Code: "success",
@@ -549,6 +567,10 @@ func mapTaskStatusToSimple(status model.TaskStatus) string {
 }
 
 func TaskModel2Dto(task *model.Task) *dto.TaskDto {
+	resultURL := task.GetResultURL()
+	if task.Platform != constant.TaskPlatformSuno && task.Status == model.TaskStatusSuccess {
+		resultURL = task.GetPublicVideoURL()
+	}
 	return &dto.TaskDto{
 		ID:         task.ID,
 		CreatedAt:  task.CreatedAt,
@@ -562,7 +584,7 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		Action:     task.Action,
 		Status:     string(task.Status),
 		FailReason: task.FailReason,
-		ResultURL:  task.GetResultURL(),
+		ResultURL:  resultURL,
 		SubmitTime: task.SubmitTime,
 		StartTime:  task.StartTime,
 		FinishTime: task.FinishTime,

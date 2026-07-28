@@ -82,3 +82,10 @@ type TaskAdaptor interface {
 type OpenAIVideoConverter interface {
 	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
 }
+
+// TaskRouteSnapshotProvider exposes the exact advanced-custom route selected
+// for a submitted task. Persisting this snapshot keeps in-flight tasks
+// pollable even when the channel configuration is edited later.
+type TaskRouteSnapshotProvider interface {
+	TaskRouteSnapshot() *dto.AdvancedCustomRoute
+}

@@ -1,0 +1,6 @@
+name = "new-api-video-worker"
+main = "worker.js"
+compatibility_date = "2026-07-01"
+
+# Configure the matching secret with:
+# wrangler secret put VIDEO_WORKER_SECRET

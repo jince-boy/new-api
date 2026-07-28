@@ -584,6 +584,7 @@ func RelayTask(c *gin.Context) {
 		task := model.InitTask(result.Platform, relayInfo)
 		task.Ip = c.ClientIP()
 		task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
+		task.PrivateData.TaskRoute = result.TaskRoute
 		task.PrivateData.BillingSource = relayInfo.BillingSource
 		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 		task.PrivateData.TokenId = relayInfo.TokenId

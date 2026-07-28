@@ -1248,7 +1248,7 @@ export const apiEndpoints: ApiEndpoint[] = [
     title: 'Download video content',
     summary: 'Read the generated video after the task has completed.',
     description:
-      'The gateway may stream bytes directly or proxy the upstream asset. API Key authentication and an authenticated dashboard session are both accepted for this route.',
+      'API Key authentication and an authenticated dashboard session are both accepted. When Cloudflare video delivery is enabled, the gateway returns a 307 redirect with a short-lived encrypted token; the Worker streams the upstream bytes without exposing the upstream URL or credentials. Clients must follow redirects and preserve Range headers for resumable downloads.',
     method: 'GET',
     path: '/v1/videos/{task_id}/content',
     auth: 'bearer',
@@ -1261,7 +1261,14 @@ export const apiEndpoints: ApiEndpoint[] = [
     responseExample: 'Binary video data (video/mp4)',
     responseLanguage: 'text',
     responseDescription:
-      'Write the body to a file or media stream. Redirect handling depends on the HTTP client and deployment storage configuration.',
+      'Write the body to a file or media stream and enable redirect following. A HEAD request is also supported for content metadata and range probing.',
+    relatedEndpoints: [
+      {
+        method: 'HEAD',
+        path: '/v1/videos/{task_id}/content',
+        description: 'Read content headers without downloading the body.',
+      },
+    ],
   },
   {
     kind: 'endpoint',

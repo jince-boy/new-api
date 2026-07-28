@@ -1,7 +1,9 @@
 package dto
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
@@ -116,17 +118,68 @@ type AdvancedCustomConfig struct {
 }
 
 type AdvancedCustomRoute struct {
-	IncomingPath string                   `json:"incoming_path,omitempty"`
-	UpstreamPath string                   `json:"upstream_path,omitempty"`
-	Converter    string                   `json:"converter,omitempty"`
-	Models       []string                 `json:"models,omitempty"`
-	Auth         *AdvancedCustomRouteAuth `json:"auth,omitempty"`
+	IncomingPath         string                   `json:"incoming_path,omitempty"`
+	UpstreamPath         string                   `json:"upstream_path,omitempty"`
+	Method               string                   `json:"method,omitempty"`
+	Converter            string                   `json:"converter,omitempty"`
+	Models               []string                 `json:"models,omitempty"`
+	Auth                 *AdvancedCustomRouteAuth `json:"auth,omitempty"`
+	Headers              map[string]string        `json:"headers,omitempty"`
+	RequestBodyTemplate  json.RawMessage          `json:"request_body_template,omitempty"`
+	ResponseBodyTemplate json.RawMessage          `json:"response_body_template,omitempty"`
+	Task                 *AdvancedCustomTask      `json:"task,omitempty"`
 }
 
 type AdvancedCustomRouteAuth struct {
 	Type  string `json:"type,omitempty"`
 	Name  string `json:"name,omitempty"`
 	Value string `json:"value,omitempty"`
+}
+
+const (
+	AdvancedCustomTaskRequestModePassthrough = "passthrough"
+	AdvancedCustomTaskRequestModeTemplate    = "template"
+)
+
+// AdvancedCustomTask turns an Advanced Custom route into a configurable
+// asynchronous task protocol. The route's UpstreamPath/Auth/Headers describe
+// submission; Poll describes subsequent status requests.
+type AdvancedCustomTask struct {
+	SubmitMethod   string                      `json:"submit_method,omitempty"`
+	RequestMode    string                      `json:"request_mode,omitempty"`
+	BodyTemplate   json.RawMessage             `json:"body_template,omitempty"`
+	SubmitResponse AdvancedCustomTaskResponse  `json:"submit_response"`
+	Poll           AdvancedCustomTaskPoll      `json:"poll"`
+	Download       *AdvancedCustomTaskDownload `json:"download,omitempty"`
+}
+
+type AdvancedCustomTaskPoll struct {
+	Method       string                     `json:"method,omitempty"`
+	UpstreamPath string                     `json:"upstream_path"`
+	Auth         *AdvancedCustomRouteAuth   `json:"auth,omitempty"`
+	Headers      map[string]string          `json:"headers,omitempty"`
+	BodyTemplate json.RawMessage            `json:"body_template,omitempty"`
+	Response     AdvancedCustomTaskResponse `json:"response"`
+}
+
+// AdvancedCustomTaskDownload describes credentials that the media delivery
+// worker must use when fetching the result URL. Nil means the result URL is
+// already directly downloadable (for example, a presigned CDN URL).
+type AdvancedCustomTaskDownload struct {
+	Auth    *AdvancedCustomRouteAuth `json:"auth,omitempty"`
+	Headers map[string]string        `json:"headers,omitempty"`
+}
+
+// AdvancedCustomTaskResponse uses gjson-compatible paths. StatusMap values
+// are the gateway's stable task states: SUBMITTED, QUEUED, IN_PROGRESS,
+// SUCCESS, or FAILURE.
+type AdvancedCustomTaskResponse struct {
+	TaskIDPath    string            `json:"task_id_path,omitempty"`
+	StatusPath    string            `json:"status_path,omitempty"`
+	ProgressPath  string            `json:"progress_path,omitempty"`
+	ResultURLPath string            `json:"result_url_path,omitempty"`
+	ErrorPath     string            `json:"error_path,omitempty"`
+	StatusMap     map[string]string `json:"status_map,omitempty"`
 }
 
 const (
@@ -173,6 +226,38 @@ func (c *AdvancedCustomConfig) MatchPathForModel(requestPath string, model strin
 	for _, route := range c.Routes {
 		if matchAdvancedCustomIncomingPath(strings.TrimSpace(route.IncomingPath), requestPath) &&
 			matchAdvancedCustomRouteModel(route.Models, model) {
+			return route, true
+		}
+	}
+	return AdvancedCustomRoute{}, false
+}
+
+// MatchTaskPathForModel returns a configured asynchronous-task route for the
+// incoming public path and model.
+func (c *AdvancedCustomConfig) MatchTaskPathForModel(requestPath string, model string) (AdvancedCustomRoute, bool) {
+	if c == nil {
+		return AdvancedCustomRoute{}, false
+	}
+	model = strings.TrimSpace(model)
+	for _, route := range c.Routes {
+		if route.Task != nil &&
+			matchAdvancedCustomIncomingPath(strings.TrimSpace(route.IncomingPath), requestPath) &&
+			matchAdvancedCustomRouteModel(route.Models, model) {
+			return route, true
+		}
+	}
+	return AdvancedCustomRoute{}, false
+}
+
+// MatchTaskForModel is the legacy-task fallback when a task row predates route
+// snapshots. New tasks should poll with the exact route saved at submission.
+func (c *AdvancedCustomConfig) MatchTaskForModel(model string) (AdvancedCustomRoute, bool) {
+	if c == nil {
+		return AdvancedCustomRoute{}, false
+	}
+	model = strings.TrimSpace(model)
+	for _, route := range c.Routes {
+		if route.Task != nil && matchAdvancedCustomRouteModel(route.Models, model) {
 			return route, true
 		}
 	}
@@ -247,6 +332,8 @@ func advancedCustomEndpointTypeFromIncomingPath(incomingPath string) (types.Endp
 		return types.EndpointTypeImageGeneration, true
 	case advancedCustomEndpointPathEmbeddings:
 		return types.EndpointTypeEmbeddings, true
+	case "/v1/videos", "/v1/video/generations":
+		return types.EndpointTypeOpenAIVideo, true
 	default:
 		if isAdvancedCustomGeminiIncomingPath(incomingPath) {
 			return types.EndpointTypeGemini, true
@@ -403,7 +490,31 @@ func (c *AdvancedCustomConfig) Validate() error {
 		if err := validateAdvancedCustomUpstreamTarget(i, upstreamPath); err != nil {
 			return err
 		}
+		if method := strings.ToUpper(strings.TrimSpace(route.Method)); method != "" && !isAdvancedCustomTaskMethodAllowed(method) {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].method is invalid: %s", i, route.Method)
+		}
+		if route.IncomingPath == AdvancedCustomModelListPath && route.Method != "" && !strings.EqualFold(route.Method, http.MethodGet) {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].method must be GET for /v1/models", i)
+		}
 
+		if route.Task != nil && route.Converter != advancedCustomConverterNone {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].converter must be none for task routes", i)
+		}
+		if route.Task != nil && strings.TrimSpace(route.Method) != "" {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].method is not used for task routes; use task.submit_method", i)
+		}
+		if (len(route.RequestBodyTemplate) > 0 || len(route.ResponseBodyTemplate) > 0) && route.Converter != advancedCustomConverterNone {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].converter must be none for JSON template routes", i)
+		}
+		if len(route.RequestBodyTemplate) > 0 && !json.Valid(route.RequestBodyTemplate) {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].request_body_template must be valid JSON", i)
+		}
+		if len(route.ResponseBodyTemplate) > 0 && !json.Valid(route.ResponseBodyTemplate) {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].response_body_template must be valid JSON", i)
+		}
+		if route.Task != nil && (len(route.RequestBodyTemplate) > 0 || len(route.ResponseBodyTemplate) > 0) {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d] cannot combine synchronous JSON templates with a task protocol", i)
+		}
 		if !IsAdvancedCustomConverterAllowed(route.Converter) {
 			return fmt.Errorf("advanced_custom.advanced_routes[%d].converter is not registered: %s", i, route.Converter)
 		}
@@ -413,8 +524,150 @@ func (c *AdvancedCustomConfig) Validate() error {
 		if err := validateAdvancedCustomRouteAuth(i, route.Auth); err != nil {
 			return err
 		}
+		if err := validateAdvancedCustomHeaders(i, "headers", route.Headers); err != nil {
+			return err
+		}
+		if route.Task != nil {
+			if err := validateAdvancedCustomTask(i, route.Task); err != nil {
+				return err
+			}
+		}
 	}
 
+	return nil
+}
+
+func validateAdvancedCustomTask(index int, task *AdvancedCustomTask) error {
+	if task == nil {
+		return nil
+	}
+	submitMethod := strings.ToUpper(strings.TrimSpace(task.SubmitMethod))
+	if submitMethod == "" {
+		submitMethod = http.MethodPost
+	}
+	if !isAdvancedCustomTaskMethodAllowed(submitMethod) {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.submit_method is invalid: %s", index, task.SubmitMethod)
+	}
+
+	requestMode := strings.ToLower(strings.TrimSpace(task.RequestMode))
+	if requestMode == "" {
+		requestMode = AdvancedCustomTaskRequestModePassthrough
+	}
+	switch requestMode {
+	case AdvancedCustomTaskRequestModePassthrough:
+		if len(task.BodyTemplate) > 0 {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].task.body_template requires request_mode template", index)
+		}
+	case AdvancedCustomTaskRequestModeTemplate:
+		if len(task.BodyTemplate) == 0 || !json.Valid(task.BodyTemplate) {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].task.body_template must be valid JSON", index)
+		}
+	default:
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.request_mode is invalid: %s", index, task.RequestMode)
+	}
+
+	if strings.TrimSpace(task.SubmitResponse.TaskIDPath) == "" {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.submit_response.task_id_path is required", index)
+	}
+
+	pollMethod := strings.ToUpper(strings.TrimSpace(task.Poll.Method))
+	if pollMethod == "" {
+		pollMethod = http.MethodGet
+	}
+	if !isAdvancedCustomTaskMethodAllowed(pollMethod) {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.method is invalid: %s", index, task.Poll.Method)
+	}
+	pollPath := strings.TrimSpace(task.Poll.UpstreamPath)
+	if pollPath == "" {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.upstream_path is required", index)
+	}
+	if !strings.Contains(pollPath, "{task_id}") {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.upstream_path must contain {task_id}", index)
+	}
+	if err := validateAdvancedCustomTaskTarget(index, pollPath); err != nil {
+		return err
+	}
+	if len(task.Poll.BodyTemplate) > 0 && !json.Valid(task.Poll.BodyTemplate) {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.body_template must be valid JSON", index)
+	}
+	if pollMethod == http.MethodGet && len(task.Poll.BodyTemplate) > 0 {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.body_template is not allowed for GET", index)
+	}
+	if err := validateAdvancedCustomRouteAuth(index, task.Poll.Auth); err != nil {
+		return err
+	}
+	if err := validateAdvancedCustomHeaders(index, "task.poll.headers", task.Poll.Headers); err != nil {
+		return err
+	}
+	if task.Download != nil {
+		if err := validateAdvancedCustomRouteAuth(index, task.Download.Auth); err != nil {
+			return err
+		}
+		if err := validateAdvancedCustomHeaders(index, "task.download.headers", task.Download.Headers); err != nil {
+			return err
+		}
+	}
+
+	response := task.Poll.Response
+	if strings.TrimSpace(response.StatusPath) == "" {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.status_path is required", index)
+	}
+	if strings.TrimSpace(response.ResultURLPath) == "" {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.result_url_path is required", index)
+	}
+	if len(response.StatusMap) == 0 {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.status_map is required", index)
+	}
+	for upstream, canonical := range response.StatusMap {
+		if strings.TrimSpace(upstream) == "" {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.status_map contains an empty upstream status", index)
+		}
+		switch strings.ToUpper(strings.TrimSpace(canonical)) {
+		case "SUBMITTED", "QUEUED", "IN_PROGRESS", "SUCCESS", "FAILURE":
+		default:
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.status_map has invalid target status: %s", index, canonical)
+		}
+	}
+	return nil
+}
+
+func isAdvancedCustomTaskMethodAllowed(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateAdvancedCustomTaskTarget(index int, upstreamPath string) error {
+	probe := strings.ReplaceAll(upstreamPath, "{task_id}", "task-id")
+	probe = strings.ReplaceAll(probe, advancedCustomModelPlaceholder, "model")
+	if strings.HasPrefix(probe, "/") {
+		if strings.HasPrefix(probe, "//") {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.upstream_path must be a full URL or a path starting with /", index)
+		}
+		return nil
+	}
+	parsedURL, err := url.Parse(probe)
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.upstream_path must be a full URL or a path starting with /", index)
+	}
+	if !strings.EqualFold(parsedURL.Scheme, "http") && !strings.EqualFold(parsedURL.Scheme, "https") {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.upstream_path must use http or https", index)
+	}
+	return nil
+}
+
+func validateAdvancedCustomHeaders(index int, field string, headers map[string]string) error {
+	for name, value := range headers {
+		if strings.TrimSpace(name) == "" {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].%s contains an empty header name", index, field)
+		}
+		if strings.ContainsAny(name, "\r\n") || strings.ContainsAny(value, "\r\n") {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].%s contains an invalid header", index, field)
+		}
+	}
 	return nil
 }
 
@@ -554,11 +807,17 @@ func validateAdvancedCustomRouteAuth(index int, auth *AdvancedCustomRouteAuth) e
 	case AdvancedCustomAuthTypeNone:
 		return nil
 	case AdvancedCustomAuthTypeHeader, AdvancedCustomAuthTypeQuery:
-		if strings.TrimSpace(auth.Name) == "" {
+		name := strings.TrimSpace(auth.Name)
+		value := strings.TrimSpace(auth.Value)
+		if name == "" {
 			return fmt.Errorf("advanced_custom.advanced_routes[%d].auth.name is required", index)
 		}
-		if strings.TrimSpace(auth.Value) == "" {
+		if value == "" {
 			return fmt.Errorf("advanced_custom.advanced_routes[%d].auth.value is required", index)
+		}
+		if strings.ContainsAny(name, "\r\n") || strings.ContainsAny(value, "\r\n") ||
+			(authType == AdvancedCustomAuthTypeHeader && strings.Contains(name, ":")) {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].auth contains an invalid name or value", index)
 		}
 		return nil
 	default:

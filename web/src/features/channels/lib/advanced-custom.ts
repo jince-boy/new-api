@@ -22,6 +22,7 @@ import type {
   AdvancedCustomConverter,
   AdvancedCustomRoute,
   AdvancedCustomRouteAuth,
+  AdvancedCustomTask,
 } from '../types'
 
 export const CHANNEL_TYPE_ADVANCED_CUSTOM = 58
@@ -126,6 +127,14 @@ export const ADVANCED_CUSTOM_INCOMING_PATH_OPTIONS: AdvancedCustomIncomingPathOp
     {
       value: '/v1/images/edits',
       label: 'OpenAI Image Edits',
+    },
+    {
+      value: '/v1/videos',
+      label: 'OpenAI Videos',
+    },
+    {
+      value: '/v1/video/generations',
+      label: 'Video Generations',
     },
     {
       value: '/v1/completions',
@@ -358,6 +367,33 @@ export function createAdvancedCustomRoute(): AdvancedCustomRoute {
     incoming_path: openAIChatPath,
     upstream_path: openAIChatPath,
     converter: 'none',
+  }
+}
+
+export function createAdvancedCustomTask(): AdvancedCustomTask {
+  return {
+    submit_method: 'POST',
+    request_mode: 'passthrough',
+    submit_response: {
+      task_id_path: 'data.task_id',
+      status_path: 'data.status',
+    },
+    poll: {
+      method: 'GET',
+      upstream_path: '/v1/videos/tasks/{task_id}',
+      response: {
+        status_path: 'data.status',
+        progress_path: 'data.progress',
+        result_url_path: 'data.url',
+        error_path: 'data.error',
+        status_map: {
+          pending: 'QUEUED',
+          processing: 'IN_PROGRESS',
+          completed: 'SUCCESS',
+          failed: 'FAILURE',
+        },
+      },
+    },
   }
 }
 
@@ -618,6 +654,18 @@ export function validateAdvancedCustomConfig(
     if (!isAdvancedCustomConverter(converter)) {
       return { routeIndex: index, message: 'Converter is not registered' }
     }
+    if (
+      route.method &&
+      !['GET', 'POST', 'PUT', 'PATCH'].includes(route.method.toUpperCase())
+    ) {
+      return { routeIndex: index, message: 'Upstream HTTP method is invalid' }
+    }
+    if (route.task && route.method) {
+      return {
+        routeIndex: index,
+        message: 'Task routes must use the submit method setting',
+      }
+    }
     if (!isConverterPathAllowed(incomingPath, converter)) {
       return {
         routeIndex: index,
@@ -628,6 +676,37 @@ export function validateAdvancedCustomConfig(
     const authError = validateRouteAuth(route.auth)
     if (authError) {
       return { routeIndex: index, message: authError }
+    }
+    const headersError = validateHeaders(route.headers)
+    if (headersError) {
+      return { routeIndex: index, message: headersError }
+    }
+    if (route.task) {
+      const taskError = validateAdvancedCustomTask(route.task, converter)
+      if (taskError) {
+        return { routeIndex: index, message: taskError }
+      }
+    }
+    if (
+      (route.request_body_template !== undefined ||
+        route.response_body_template !== undefined) &&
+      converter !== 'none'
+    ) {
+      return {
+        routeIndex: index,
+        message: 'JSON template routes must use native forwarding',
+      }
+    }
+    if (
+      route.task &&
+      (route.request_body_template !== undefined ||
+        route.response_body_template !== undefined)
+    ) {
+      return {
+        routeIndex: index,
+        message:
+          'Synchronous JSON templates cannot be combined with an async task protocol',
+      }
     }
   }
 
@@ -716,6 +795,9 @@ function normalizeAdvancedCustomRoute(
     upstream_path: getAdvancedCustomRouteUpstreamPath(route),
     converter: route.converter || 'none',
   }
+  if (route.method) {
+    nextRoute.method = route.method
+  }
   const models = normalizeAdvancedCustomRouteModels(route.models)
   if (models.length > 0) {
     nextRoute.models = models
@@ -727,7 +809,108 @@ function normalizeAdvancedCustomRoute(
       value: route.auth.value || '',
     }
   }
+  if (route.headers && Object.keys(route.headers).length > 0) {
+    nextRoute.headers = { ...route.headers }
+  }
+  if (route.task) {
+    nextRoute.task = JSON.parse(JSON.stringify(route.task))
+  }
+  if (route.request_body_template !== undefined) {
+    nextRoute.request_body_template = JSON.parse(
+      JSON.stringify(route.request_body_template)
+    )
+  }
+  if (route.response_body_template !== undefined) {
+    nextRoute.response_body_template = JSON.parse(
+      JSON.stringify(route.response_body_template)
+    )
+  }
   return nextRoute
+}
+
+function validateAdvancedCustomTask(
+  task: AdvancedCustomTask,
+  converter: AdvancedCustomConverter
+): string | null {
+  if (converter !== 'none') {
+    return 'Async task routes must use native forwarding'
+  }
+
+  const methods = new Set(['GET', 'POST', 'PUT', 'PATCH'])
+  const submitMethod = (task.submit_method || 'POST').toUpperCase()
+  if (!methods.has(submitMethod)) return 'Submit method is invalid'
+
+  const requestMode = task.request_mode || 'passthrough'
+  if (requestMode !== 'passthrough' && requestMode !== 'template') {
+    return 'Task request mode is invalid'
+  }
+  if (requestMode === 'template' && task.body_template === undefined) {
+    return 'Task body template is required in template mode'
+  }
+  if (requestMode === 'passthrough' && task.body_template !== undefined) {
+    return 'Task body template requires template mode'
+  }
+  if (!task.submit_response?.task_id_path?.trim()) {
+    return 'Submit task ID path is required'
+  }
+
+  const pollMethod = (task.poll?.method || 'GET').toUpperCase()
+  if (!methods.has(pollMethod)) return 'Poll method is invalid'
+  const pollPath = task.poll?.upstream_path?.trim() || ''
+  if (!pollPath) return 'Poll upstream path is required'
+  if (!pollPath.includes('{task_id}')) {
+    return 'Poll upstream path must contain {task_id}'
+  }
+  if (!isFullHttpURLOrAbsolutePath(pollPath.replace('{task_id}', 'task-id'))) {
+    return 'Poll upstream path must be a full URL or a path starting with /'
+  }
+  if (pollMethod === 'GET' && task.poll.body_template !== undefined) {
+    return 'GET poll requests cannot include a body template'
+  }
+  const pollAuthError = validateRouteAuth(task.poll.auth)
+  if (pollAuthError) return pollAuthError
+  const pollHeadersError = validateHeaders(task.poll.headers)
+  if (pollHeadersError) return pollHeadersError
+
+  const response = task.poll.response
+  if (!response?.status_path?.trim()) return 'Poll status path is required'
+  if (!response.result_url_path?.trim()) {
+    return 'Poll result URL path is required'
+  }
+  const statusMap = response.status_map || {}
+  if (Object.keys(statusMap).length === 0) return 'Poll status map is required'
+  const canonicalStatuses = new Set([
+    'SUBMITTED',
+    'QUEUED',
+    'IN_PROGRESS',
+    'SUCCESS',
+    'FAILURE',
+  ])
+  if (
+    Object.entries(statusMap).some(
+      ([upstream, canonical]) =>
+        !upstream.trim() || !canonicalStatuses.has(canonical)
+    )
+  ) {
+    return 'Poll status map contains an invalid status'
+  }
+
+  const downloadAuthError = validateRouteAuth(task.download?.auth)
+  if (downloadAuthError) return downloadAuthError
+  return validateHeaders(task.download?.headers)
+}
+
+function validateHeaders(
+  headers: Record<string, string> | undefined
+): string | null {
+  if (!headers) return null
+  for (const [name, value] of Object.entries(headers)) {
+    if (!name.trim()) return 'Header name is required'
+    if (/[:\r\n]/.test(name) || /[\r\n]/.test(value)) {
+      return 'Header name or value is invalid'
+    }
+  }
+  return null
 }
 
 function normalizeAdvancedCustomRouteModels(
@@ -874,6 +1057,13 @@ function validateRouteAuth(
   }
   if (!auth.value?.trim()) {
     return 'Auth value is required'
+  }
+  if (
+    /[\r\n]/.test(auth.name) ||
+    /[\r\n]/.test(auth.value) ||
+    (auth.type === 'header' && auth.name.includes(':'))
+  ) {
+    return 'Header name or value is invalid'
   }
   return null
 }

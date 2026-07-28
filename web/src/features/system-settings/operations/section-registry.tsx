@@ -88,6 +88,8 @@ const OPERATIONS_SECTIONS = [
           WorkerValidKey: settings.WorkerValidKey,
           WorkerAllowHttpImageRequestEnabled:
             settings.WorkerAllowHttpImageRequestEnabled,
+          VideoWorkerUrl: settings.VideoWorkerUrl,
+          VideoWorkerSecret: settings.VideoWorkerSecret,
         }}
       />
     ),

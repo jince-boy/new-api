@@ -44,16 +44,40 @@ import { useResetForm } from '../hooks/use-reset-form'
 import { useUpdateOption } from '../hooks/use-update-option'
 import { removeTrailingSlash } from './utils'
 
-const createWorkerSchema = (t: (key: string) => string) =>
-  z.object({
-    WorkerUrl: z.string().refine((value) => {
-      const trimmed = value.trim()
-      if (!trimmed) return true
-      return /^https?:\/\//.test(trimmed)
-    }, t('Provide a valid URL starting with http:// or https://')),
-    WorkerValidKey: z.string(),
-    WorkerAllowHttpImageRequestEnabled: z.boolean(),
-  })
+const createWorkerSchema = (
+  t: (key: string) => string,
+  hasExistingVideoWorker = false
+) =>
+  z
+    .object({
+      WorkerUrl: z.string().refine((value) => {
+        const trimmed = value.trim()
+        if (!trimmed) return true
+        return /^https?:\/\//.test(trimmed)
+      }, t('Provide a valid URL starting with http:// or https://')),
+      WorkerValidKey: z.string(),
+      WorkerAllowHttpImageRequestEnabled: z.boolean(),
+      VideoWorkerUrl: z.string().refine((value) => {
+        const trimmed = value.trim()
+        if (!trimmed) return true
+        return /^https?:\/\//.test(trimmed)
+      }, t('Provide a valid URL starting with http:// or https://')),
+      VideoWorkerSecret: z.string(),
+    })
+    .superRefine((values, context) => {
+      const secretLength = values.VideoWorkerSecret.trim().length
+      if (
+        values.VideoWorkerUrl.trim() &&
+        ((secretLength > 0 && secretLength < 32) ||
+          (secretLength === 0 && !hasExistingVideoWorker))
+      ) {
+        context.addIssue({
+          code: 'custom',
+          path: ['VideoWorkerSecret'],
+          message: t('Video Worker secret must be at least 32 characters'),
+        })
+      }
+    })
 
 type WorkerFormValues = z.infer<ReturnType<typeof createWorkerSchema>>
 
@@ -66,7 +90,10 @@ export function WorkerSettingsSection({
 }: WorkerSettingsSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
-  const workerSchema = createWorkerSchema(t)
+  const workerSchema = createWorkerSchema(
+    t,
+    Boolean(defaultValues.VideoWorkerUrl.trim())
+  )
 
   const form = useForm<WorkerFormValues>({
     resolver: zodResolver(workerSchema),
@@ -80,6 +107,10 @@ export function WorkerSettingsSection({
     const sanitizedKey = values.WorkerValidKey.trim()
     const initialUrl = removeTrailingSlash(defaultValues.WorkerUrl)
     const initialKey = defaultValues.WorkerValidKey.trim()
+    const sanitizedVideoUrl = removeTrailingSlash(values.VideoWorkerUrl)
+    const sanitizedVideoSecret = values.VideoWorkerSecret.trim()
+    const initialVideoUrl = removeTrailingSlash(defaultValues.VideoWorkerUrl)
+    const initialVideoSecret = defaultValues.VideoWorkerSecret.trim()
 
     const updates: Array<{ key: string; value: string | boolean }> = []
 
@@ -99,6 +130,18 @@ export function WorkerSettingsSection({
         key: 'WorkerAllowHttpImageRequestEnabled',
         value: values.WorkerAllowHttpImageRequestEnabled,
       })
+    }
+
+    if (sanitizedVideoUrl !== initialVideoUrl) {
+      updates.push({ key: 'VideoWorkerUrl', value: sanitizedVideoUrl })
+    }
+
+    if (
+      (sanitizedVideoSecret !== '' &&
+        sanitizedVideoSecret !== initialVideoSecret) ||
+      sanitizedVideoUrl === ''
+    ) {
+      updates.push({ key: 'VideoWorkerSecret', value: sanitizedVideoSecret })
     }
 
     for (const update of updates) {
@@ -140,6 +183,70 @@ export function WorkerSettingsSection({
               </FormItem>
             )}
           />
+
+          <div className='border-border space-y-4 border-t pt-5'>
+            <div>
+              <h3 className='text-sm font-semibold'>
+                {t('Video delivery Worker')}
+              </h3>
+              <p className='text-muted-foreground mt-1 text-sm'>
+                {t(
+                  'Streams video bytes through Cloudflare while encrypted links hide upstream URLs and credentials.'
+                )}
+              </p>
+            </div>
+
+            <FormField
+              control={form.control}
+              name='VideoWorkerUrl'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Video Worker URL')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='url'
+                      inputMode='url'
+                      placeholder='https://video-worker.example.workers.dev'
+                      autoComplete='off'
+                      {...field}
+                      onChange={(event) => field.onChange(event.target.value)}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'The gateway redirects completed video downloads to this Worker instead of proxying video bytes.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='VideoWorkerSecret'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Video Worker secret')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='password'
+                      placeholder={t('Enter new secret to update')}
+                      autoComplete='new-password'
+                      {...field}
+                      onChange={(event) => field.onChange(event.target.value)}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Must match VIDEO_WORKER_SECRET in Cloudflare. Use at least 32 random characters; leave blank to keep the existing secret.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
 
           <FormField
             control={form.control}

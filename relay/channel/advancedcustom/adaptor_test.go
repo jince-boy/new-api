@@ -51,6 +51,123 @@ func TestAdaptorUsesExactRouteAndQueryAuth(t *testing.T) {
 	assert.Equal(t, "sk-test", parsedURL.Query().Get("api_key"))
 }
 
+func TestAdvancedCustomJSONTemplateMapsArbitraryRequestFields(t *testing.T) {
+	template := []byte(`{
+  "engine": "{model}",
+  "text": "{request.prompt}",
+  "duration_seconds": "{request.seconds}",
+  "reference_images": "{request.images}",
+  "optional": "{request.missing}"
+}`)
+
+	mapped, err := applyAdvancedCustomTemplate(template, advancedCustomTemplateValues{
+		model:       "private-video-v3",
+		requestBody: []byte(`{"prompt":"sunrise","seconds":8,"images":["a.png"]}`),
+	})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{
+  "engine":"private-video-v3",
+  "text":"sunrise",
+  "duration_seconds":8,
+  "reference_images":["a.png"]
+}`, string(mapped))
+}
+
+func TestAdvancedCustomDownloadCredentialsSupportHeaderAndQueryAuth(t *testing.T) {
+	header := http.Header{}
+	download := &dto.AdvancedCustomTaskDownload{
+		Auth: &dto.AdvancedCustomRouteAuth{
+			Type:  dto.AdvancedCustomAuthTypeHeader,
+			Name:  "X-Download-Key",
+			Value: "key-{api_key}",
+		},
+		Headers: map[string]string{"X-Task": "{task_id}", "X-Model": "{model}"},
+	}
+
+	err := ApplyTaskDownloadHeaders(header, download, "secret", "video-v2", "task-123")
+	require.NoError(t, err)
+	assert.Equal(t, "key-secret", header.Get("X-Download-Key"))
+	assert.Equal(t, "task-123", header.Get("X-Task"))
+	assert.Equal(t, "video-v2", header.Get("X-Model"))
+
+	download.Auth.Type = dto.AdvancedCustomAuthTypeQuery
+	download.Auth.Name = "token"
+	download.Auth.Value = "{api_key}"
+	downloadURL, err := ApplyTaskDownloadURL("https://cdn.example.com/video.mp4?part=1", download, "secret")
+	require.NoError(t, err)
+	parsedURL, err := url.Parse(downloadURL)
+	require.NoError(t, err)
+	assert.Equal(t, "secret", parsedURL.Query().Get("token"))
+	assert.Equal(t, "1", parsedURL.Query().Get("part"))
+}
+
+func TestAdvancedCustomRouteCanOverrideUpstreamHTTPMethod(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodPatch, r.Method)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	config := &dto.AdvancedCustomConfig{Routes: []dto.AdvancedCustomRoute{
+		{
+			IncomingPath: "/v1/images/generations",
+			UpstreamPath: server.URL + "/generate",
+			Method:       http.MethodPatch,
+			Converter:    relayconvert.ConverterNone,
+		},
+	}}
+	info := advancedCustomRelayInfo(config)
+	info.RequestURLPath = "/v1/images/generations"
+	context := advancedCustomGinContext("/v1/images/generations")
+	adaptor := &Adaptor{}
+	adaptor.Init(info)
+
+	responseValue, err := adaptor.DoRequest(context, info, bytes.NewBufferString(`{"prompt":"test"}`))
+	require.NoError(t, err)
+	response, ok := responseValue.(*http.Response)
+	require.True(t, ok)
+	defer response.Body.Close()
+	assert.Equal(t, http.StatusOK, response.StatusCode)
+}
+
+func TestAdaptorMapsArbitraryJSONResponseToClientContract(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	adaptor := &Adaptor{
+		resolved:  true,
+		converter: relayconvert.ConverterNone,
+		route: dto.AdvancedCustomRoute{
+			ResponseBodyTemplate: []byte(`{
+  "id":"{response.result.request_id}",
+  "object":"chat.completion",
+  "model":"{model}",
+  "choices":[{"index":0,"message":{"role":"assistant","content":"{response.result.answer}"}}]
+}`),
+		},
+	}
+	response := &http.Response{
+		StatusCode: http.StatusCreated,
+		Body: io.NopCloser(bytes.NewBufferString(
+			`{"result":{"request_id":"req-1","answer":"hello"}}`,
+		)),
+	}
+	info := &relaycommon.RelayInfo{OriginModelName: "custom-chat"}
+
+	usage, apiErr := adaptor.DoResponse(context, response, info)
+
+	assert.Nil(t, usage)
+	require.Nil(t, apiErr)
+	assert.Equal(t, http.StatusCreated, recorder.Code)
+	assert.JSONEq(t, `{
+  "id":"req-1",
+  "object":"chat.completion",
+  "model":"custom-chat",
+  "choices":[{"index":0,"message":{"role":"assistant","content":"hello"}}]
+}`, recorder.Body.String())
+}
+
 func TestAdaptorJoinsUpstreamPathWithChannelBaseURL(t *testing.T) {
 	adaptor := &Adaptor{}
 	info := advancedCustomRelayInfo(&dto.AdvancedCustomConfig{

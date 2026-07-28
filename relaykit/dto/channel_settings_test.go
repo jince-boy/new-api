@@ -2,6 +2,7 @@ package dto
 
 import (
 	"encoding/json"
+	"net/http"
 	"regexp"
 	"testing"
 
@@ -55,6 +56,128 @@ func TestAdvancedCustomValidateResponsesToChatConverterPath(t *testing.T) {
 			err := config.Validate()
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "converter does not match incoming_path")
+		})
+	}
+}
+
+func TestAdvancedCustomValidateConfigurableTaskProtocol(t *testing.T) {
+	valid := &AdvancedCustomConfig{Routes: []AdvancedCustomRoute{{
+		IncomingPath: "/v1/videos",
+		UpstreamPath: "/v1/videos/generations",
+		Converter:    advancedCustomConverterNone,
+		Auth: &AdvancedCustomRouteAuth{
+			Type:  AdvancedCustomAuthTypeHeader,
+			Name:  "Authorization",
+			Value: "Bearer {api_key}",
+		},
+		Task: &AdvancedCustomTask{
+			SubmitMethod: http.MethodPost,
+			RequestMode:  AdvancedCustomTaskRequestModeTemplate,
+			BodyTemplate: json.RawMessage(`{"model":"{model}","prompt":"{request.prompt}","duration":"{request.duration}"}`),
+			SubmitResponse: AdvancedCustomTaskResponse{
+				TaskIDPath: "data.task_id",
+			},
+			Poll: AdvancedCustomTaskPoll{
+				Method:       http.MethodGet,
+				UpstreamPath: "/v1/videos/tasks/{task_id}",
+				Response: AdvancedCustomTaskResponse{
+					StatusPath:    "data.status",
+					ResultURLPath: "data.video_url",
+					StatusMap: map[string]string{
+						"pending": "QUEUED",
+						"running": "IN_PROGRESS",
+						"done":    "SUCCESS",
+						"failed":  "FAILURE",
+					},
+				},
+			},
+			Download: &AdvancedCustomTaskDownload{Headers: map[string]string{
+				"X-Download-Key": "{api_key}",
+			}},
+		},
+	}}}
+
+	require.NoError(t, valid.Validate())
+}
+
+func TestAdvancedCustomValidateRejectsUnsafeOrIncompleteTaskProtocol(t *testing.T) {
+	validTask := func() *AdvancedCustomTask {
+		return &AdvancedCustomTask{
+			SubmitMethod: http.MethodPost,
+			RequestMode:  AdvancedCustomTaskRequestModePassthrough,
+			SubmitResponse: AdvancedCustomTaskResponse{
+				TaskIDPath: "data.task_id",
+			},
+			Poll: AdvancedCustomTaskPoll{
+				Method:       http.MethodGet,
+				UpstreamPath: "/tasks/{task_id}",
+				Response: AdvancedCustomTaskResponse{
+					StatusPath:    "data.status",
+					ResultURLPath: "data.url",
+					StatusMap:     map[string]string{"done": "SUCCESS"},
+				},
+			},
+		}
+	}
+	configFor := func(task *AdvancedCustomTask, auth *AdvancedCustomRouteAuth) *AdvancedCustomConfig {
+		return &AdvancedCustomConfig{Routes: []AdvancedCustomRoute{{
+			IncomingPath: "/v1/videos",
+			UpstreamPath: "/submit",
+			Converter:    advancedCustomConverterNone,
+			Auth:         auth,
+			Task:         task,
+		}}}
+	}
+
+	tests := []struct {
+		name      string
+		mutate    func(*AdvancedCustomTask) *AdvancedCustomRouteAuth
+		wantError string
+	}{
+		{
+			name: "missing submit task id path",
+			mutate: func(task *AdvancedCustomTask) *AdvancedCustomRouteAuth {
+				task.SubmitResponse.TaskIDPath = ""
+				return nil
+			},
+			wantError: "task.submit_response.task_id_path is required",
+		},
+		{
+			name: "poll path cannot receive task id",
+			mutate: func(task *AdvancedCustomTask) *AdvancedCustomRouteAuth {
+				task.Poll.UpstreamPath = "/tasks/status"
+				return nil
+			},
+			wantError: "task.poll.upstream_path must contain {task_id}",
+		},
+		{
+			name: "unknown canonical status",
+			mutate: func(task *AdvancedCustomTask) *AdvancedCustomRouteAuth {
+				task.Poll.Response.StatusMap = map[string]string{"done": "COMPLETED"}
+				return nil
+			},
+			wantError: "status_map has invalid target status",
+		},
+		{
+			name: "header auth rejects response splitting",
+			mutate: func(_ *AdvancedCustomTask) *AdvancedCustomRouteAuth {
+				return &AdvancedCustomRouteAuth{
+					Type:  AdvancedCustomAuthTypeHeader,
+					Name:  "Authorization",
+					Value: "Bearer {api_key}\r\nX-Injected: true",
+				}
+			},
+			wantError: "auth contains an invalid name or value",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			task := validTask()
+			auth := test.mutate(task)
+			err := configFor(task, auth).Validate()
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), test.wantError)
 		})
 	}
 }

@@ -1,6 +1,8 @@
 package model
 
 import (
+	"fmt"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -80,6 +82,8 @@ func InitOptionMap() {
 	common.OptionMap["WorkerUrl"] = system_setting.WorkerUrl
 	common.OptionMap["WorkerValidKey"] = system_setting.WorkerValidKey
 	common.OptionMap["WorkerAllowHttpImageRequestEnabled"] = strconv.FormatBool(system_setting.WorkerAllowHttpImageRequestEnabled)
+	common.OptionMap["VideoWorkerUrl"] = system_setting.VideoWorkerUrl
+	common.OptionMap["VideoWorkerSecret"] = system_setting.VideoWorkerSecret
 	common.OptionMap["PayAddress"] = ""
 	common.OptionMap["CustomCallbackAddress"] = ""
 	common.OptionMap["EpayId"] = ""
@@ -216,6 +220,8 @@ func normalizeOptionValueForStorage(key string, value string) (string, error) {
 	switch key {
 	case TokenDefaultKeyPurposesOptionKey:
 		return NormalizeTokenDefaultPurposeDefinitionsJSONString(value)
+	case "VideoWorkerUrl", "VideoWorkerSecret":
+		return strings.TrimSpace(value), nil
 	default:
 		return value, nil
 	}
@@ -224,6 +230,15 @@ func normalizeOptionValueForStorage(key string, value string) (string, error) {
 func validateOptionValue(key string, value string) error {
 	if key == operation_setting.ToolPriceOptionKey {
 		return operation_setting.ValidateToolPricesJSON(value)
+	}
+	if key == "VideoWorkerSecret" && value != "" && len(value) < 32 {
+		return fmt.Errorf("video worker secret must be at least 32 characters")
+	}
+	if key == "VideoWorkerUrl" && value != "" {
+		parsedURL, err := url.Parse(value)
+		if err != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+			return fmt.Errorf("video worker URL must use http or https")
+		}
 	}
 	return nil
 }
@@ -439,6 +454,10 @@ func updateOptionMap(key string, value string) (err error) {
 		system_setting.WorkerUrl = value
 	case "WorkerValidKey":
 		system_setting.WorkerValidKey = value
+	case "VideoWorkerUrl":
+		system_setting.VideoWorkerUrl = value
+	case "VideoWorkerSecret":
+		system_setting.VideoWorkerSecret = value
 	case "PayAddress":
 		operation_setting.PayAddress = value
 	case "Chats":

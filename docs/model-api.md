@@ -107,6 +107,7 @@ Gemini 的 `{action}` 当前请求解析覆盖 `generateContent`、`streamGenera
 | `POST` | `/v1/videos` | OpenAI/Sora 兼容视频任务 |
 | `GET` | `/v1/videos/{task_id}` | 查询 OpenAI/Sora 视频任务 |
 | `GET` | `/v1/videos/{task_id}/content` | 获取或代理视频内容 |
+| `HEAD` | `/v1/videos/{task_id}/content` | 获取视频内容响应头，支持断点下载探测 |
 | `POST` | `/v1/videos/{video_id}/remix` | 基于既有视频创建 remix |
 | `POST` | `/v1/video/generations` | 通用视频生成任务 |
 | `GET` | `/v1/video/generations/{task_id}` | 查询通用视频任务 |
@@ -645,7 +646,7 @@ curl -L "${BASE_URL}/v1/videos/${TASK_ID}/content" \
   --output result.mp4
 ```
 
-`/content` 允许 API Key，也允许已登录面板会话访问。服务端可能直接返回媒体流，也可能代理上游内容。
+`/content` 允许 API Key，也允许已登录面板会话访问。启用视频 Cloudflare Worker 后，网关只完成鉴权并返回 `307 Temporary Redirect`；视频字节由 Worker 直接从上游流式传给客户端，不经过网关。重定向地址使用 15 分钟有效的加密令牌，上游 URL 和下载凭据不会暴露给客户端。客户端必须跟随重定向，并应保留 `Range`、`If-Range` 等请求头以支持断点续传。未启用 Worker 时，网关保持兼容并直接代理媒体流。`HEAD` 与 `GET` 使用相同的鉴权和重定向规则。
 
 ### 13.2 通用视频任务
 

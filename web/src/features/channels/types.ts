@@ -119,9 +119,14 @@ export interface AdvancedCustomConfig {
 export interface AdvancedCustomRoute {
   incoming_path?: string
   upstream_path?: string
+  method?: AdvancedCustomTaskMethod
   converter?: AdvancedCustomConverter
   models?: string[]
   auth?: AdvancedCustomRouteAuth
+  headers?: Record<string, string>
+  request_body_template?: unknown
+  response_body_template?: unknown
+  task?: AdvancedCustomTask
 }
 
 export interface AdvancedCustomRouteAuth {
@@ -129,6 +134,48 @@ export interface AdvancedCustomRouteAuth {
   name?: string
   value?: string
 }
+
+export type AdvancedCustomTaskRequestMode = 'passthrough' | 'template'
+export type AdvancedCustomTaskMethod = 'GET' | 'POST' | 'PUT' | 'PATCH'
+
+export interface AdvancedCustomTask {
+  submit_method?: AdvancedCustomTaskMethod
+  request_mode?: AdvancedCustomTaskRequestMode
+  body_template?: unknown
+  submit_response: AdvancedCustomTaskResponse
+  poll: AdvancedCustomTaskPoll
+  download?: AdvancedCustomTaskDownload
+}
+
+export interface AdvancedCustomTaskPoll {
+  method?: AdvancedCustomTaskMethod
+  upstream_path: string
+  auth?: AdvancedCustomRouteAuth
+  headers?: Record<string, string>
+  body_template?: unknown
+  response: AdvancedCustomTaskResponse
+}
+
+export interface AdvancedCustomTaskDownload {
+  auth?: AdvancedCustomRouteAuth
+  headers?: Record<string, string>
+}
+
+export interface AdvancedCustomTaskResponse {
+  task_id_path?: string
+  status_path?: string
+  progress_path?: string
+  result_url_path?: string
+  error_path?: string
+  status_map?: Record<string, AdvancedCustomCanonicalTaskStatus>
+}
+
+export type AdvancedCustomCanonicalTaskStatus =
+  | 'SUBMITTED'
+  | 'QUEUED'
+  | 'IN_PROGRESS'
+  | 'SUCCESS'
+  | 'FAILURE'
 
 export type AdvancedCustomConverter =
   | 'none'

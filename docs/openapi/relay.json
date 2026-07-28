@@ -789,7 +789,7 @@
       "get": {
         "summary": "获取视频内容",
         "deprecated": false,
-        "description": "获取已完成视频任务的视频文件内容。\n\n此接口会代理返回视频文件流。\n",
+        "description": "获取已完成视频任务的视频文件内容。启用视频 Cloudflare Worker 后返回 307 临时重定向，重定向令牌不会暴露上游 URL 或凭据；客户端应跟随重定向并保留 Range 请求头。未启用 Worker 时由网关直接代理媒体流。",
         "operationId": "getVideoContent",
         "tags": [
           "视频生成/Sora兼容格式"
@@ -819,6 +819,29 @@
             },
             "headers": {}
           },
+          "206": {
+            "description": "成功返回部分视频内容",
+            "content": {
+              "video/mp4": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "307": {
+            "description": "重定向到视频 Cloudflare Worker",
+            "headers": {
+              "Location": {
+                "description": "带短期加密令牌的 Worker URL",
+                "schema": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              }
+            }
+          },
           "404": {
             "description": "视频不存在或未完成",
             "content": {
@@ -829,6 +852,48 @@
               }
             },
             "headers": {}
+          }
+        },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ]
+      },
+      "head": {
+        "summary": "获取视频内容响应头",
+        "description": "与 GET 使用相同的鉴权和 Cloudflare Worker 重定向规则，但不返回响应体。",
+        "operationId": "headVideoContent",
+        "tags": [
+          "视频生成/Sora兼容格式"
+        ],
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "视频内容响应头"
+          },
+          "307": {
+            "description": "重定向到视频 Cloudflare Worker",
+            "headers": {
+              "Location": {
+                "schema": {
+                  "type": "string",
+                  "format": "uri"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "视频不存在或未完成"
           }
         },
         "security": [

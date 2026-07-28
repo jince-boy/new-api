@@ -1,6 +1,7 @@
 package advancedcustom
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -8,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/relay/channel/claude"
@@ -50,6 +52,9 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 		return nil, err
 	}
 	if converter == relayconvert.ConverterNone {
+		if len(a.route.RequestBodyTemplate) > 0 {
+			return a.convertTemplatedJSONRequest(c, info)
+		}
 		return a.convertOpenAICompatibleRequest(c, info, request)
 	}
 
@@ -75,6 +80,9 @@ func (a *Adaptor) ConvertClaudeRequest(c *gin.Context, info *relaycommon.RelayIn
 
 	switch converter {
 	case relayconvert.ConverterNone:
+		if len(a.route.RequestBodyTemplate) > 0 {
+			return a.convertTemplatedJSONRequest(c, info)
+		}
 		return a.claudeAdaptor.ConvertClaudeRequest(c, info, request)
 	case relayconvert.ConverterClaudeMessagesToOpenAIChat:
 		result, err := service.ConvertRequestByID(c, info, converter, request)
@@ -99,6 +107,9 @@ func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayIn
 
 	switch converter {
 	case relayconvert.ConverterNone:
+		if len(a.route.RequestBodyTemplate) > 0 {
+			return a.convertTemplatedJSONRequest(c, info)
+		}
 		return a.geminiAdaptor.ConvertGeminiRequest(c, info, request)
 	case relayconvert.ConverterGeminiContentToOpenAIChat:
 		result, err := service.ConvertRequestByID(c, info, converter, request)
@@ -122,6 +133,9 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 	}
 	switch converter {
 	case relayconvert.ConverterNone:
+		if len(a.route.RequestBodyTemplate) > 0 {
+			return a.convertTemplatedJSONRequest(c, info)
+		}
 		return a.convertOpenAICompatibleResponsesRequest(c, info, request)
 	case relayconvert.ConverterOpenAIResponsesToOpenAIChat:
 		result, err := service.ConvertRequestByID(c, info, converter, request)
@@ -156,6 +170,9 @@ func (a *Adaptor) ConvertEmbeddingRequest(c *gin.Context, info *relaycommon.Rela
 	if converter != relayconvert.ConverterNone {
 		return nil, fmt.Errorf("converter %q does not support embedding requests", converter)
 	}
+	if len(a.route.RequestBodyTemplate) > 0 {
+		return a.convertTemplatedJSONRequest(c, info)
+	}
 	return a.convertOpenAICompatibleEmbeddingRequest(c, info, request)
 }
 
@@ -167,6 +184,16 @@ func (a *Adaptor) ConvertAudioRequest(c *gin.Context, info *relaycommon.RelayInf
 	if converter != relayconvert.ConverterNone {
 		return nil, fmt.Errorf("converter %q does not support audio requests", converter)
 	}
+	if len(a.route.RequestBodyTemplate) > 0 {
+		if !isJSONRequest(c) {
+			return nil, fmt.Errorf("advanced custom JSON request templates require application/json")
+		}
+		body, err := a.buildTemplatedJSONRequest(c, info)
+		if err != nil {
+			return nil, err
+		}
+		return bytes.NewReader(body), nil
+	}
 	return a.convertOpenAICompatibleAudioRequest(c, info, request)
 }
 
@@ -177,6 +204,12 @@ func (a *Adaptor) ConvertImageRequest(c *gin.Context, info *relaycommon.RelayInf
 	}
 	if converter != relayconvert.ConverterNone {
 		return nil, fmt.Errorf("converter %q does not support image requests", converter)
+	}
+	if len(a.route.RequestBodyTemplate) > 0 {
+		if !isJSONRequest(c) {
+			return nil, fmt.Errorf("advanced custom JSON request templates require application/json")
+		}
+		return a.convertTemplatedJSONRequest(c, info)
 	}
 	return a.convertOpenAICompatibleImageRequest(c, info, request)
 }
@@ -261,6 +294,7 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, header *http.Header, info *
 	if shouldApplyClaudeHeaders(a.converter, info) {
 		applyClaudeHeaders(c, header, info)
 	}
+	applyConfiguredHeaders(*header, a.route.Headers, info.ApiKey, info.UpstreamModelName, "")
 
 	return nil
 }
@@ -269,24 +303,34 @@ func (a *Adaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, request
 	if err := a.resolve(c, info); err != nil {
 		return nil, err
 	}
+	if info.IsStream && len(a.route.ResponseBodyTemplate) > 0 {
+		return nil, errors.New("advanced custom JSON response templates do not support streaming")
+	}
 	if !a.converted && a.converter != relayconvert.ConverterNone {
 		return nil, errors.New("advanced custom converter routes cannot be used with pass-through request body")
+	}
+	method := strings.ToUpper(strings.TrimSpace(a.route.Method))
+	if method == "" {
+		method = c.Request.Method
 	}
 
 	if info.RelayMode == relayconstant.RelayModeAudioTranscription ||
 		info.RelayMode == relayconstant.RelayModeAudioTranslation ||
 		(info.RelayMode == relayconstant.RelayModeImagesEdits && !isJSONRequest(c)) {
-		return channel.DoFormRequest(a, c, info, requestBody)
+		return channel.DoFormRequestWithMethod(a, c, info, method, requestBody)
 	}
 	if info.RelayMode == relayconstant.RelayModeRealtime {
 		return channel.DoWssRequest(a, c, info, requestBody)
 	}
-	return channel.DoApiRequest(a, c, info, requestBody)
+	return channel.DoApiRequestWithMethod(a, c, info, method, requestBody)
 }
 
 func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (usage any, err *types.NewAPIError) {
 	if err := a.resolve(c, info); err != nil {
 		return nil, types.NewOpenAIError(err, types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+	}
+	if len(a.route.ResponseBodyTemplate) > 0 && resp.StatusCode >= http.StatusOK && resp.StatusCode < http.StatusMultipleChoices {
+		return a.doTemplatedJSONResponse(c, resp, info)
 	}
 
 	switch a.converter {
@@ -314,6 +358,58 @@ func (a *Adaptor) DoResponse(c *gin.Context, resp *http.Response, info *relaycom
 	default:
 		return nil, types.NewOpenAIError(fmt.Errorf("unsupported advanced custom converter: %s", a.converter), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 	}
+}
+
+func (a *Adaptor) buildTemplatedJSONRequest(c *gin.Context, info *relaycommon.RelayInfo) ([]byte, error) {
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return nil, err
+	}
+	rawBody, err := storage.Bytes()
+	if err != nil {
+		return nil, err
+	}
+	return applyAdvancedCustomTemplate(a.route.RequestBodyTemplate, advancedCustomTemplateValues{
+		model:       info.UpstreamModelName,
+		requestBody: rawBody,
+	})
+}
+
+func (a *Adaptor) convertTemplatedJSONRequest(c *gin.Context, info *relaycommon.RelayInfo) (any, error) {
+	body, err := a.buildTemplatedJSONRequest(c, info)
+	if err != nil {
+		return nil, err
+	}
+	var value any
+	if err := common.Unmarshal(body, &value); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func (a *Adaptor) doTemplatedJSONResponse(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo) (any, *types.NewAPIError) {
+	if info.IsStream {
+		return nil, types.NewOpenAIError(
+			errors.New("advanced custom JSON response templates do not support streaming"),
+			types.ErrorCodeInvalidRequest,
+			http.StatusBadRequest,
+			types.ErrOptionWithSkipRetry(),
+		)
+	}
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeReadResponseBodyFailed, http.StatusInternalServerError)
+	}
+	_ = resp.Body.Close()
+	mappedBody, err := applyAdvancedCustomTemplate(a.route.ResponseBodyTemplate, advancedCustomTemplateValues{
+		model:        info.OriginModelName,
+		responseBody: responseBody,
+	})
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusBadGateway)
+	}
+	c.Data(resp.StatusCode, "application/json", mappedBody)
+	return nil, nil
 }
 
 func (a *Adaptor) GetModelList() []string {
@@ -467,6 +563,91 @@ func applyUpstreamPathTemplate(upstreamPath string, info *relaycommon.RelayInfo)
 		return upstreamPath
 	}
 	return strings.ReplaceAll(upstreamPath, advancedCustomModelPlaceholder, info.UpstreamModelName)
+}
+
+// BuildTaskRouteURL resolves an asynchronous Advanced Custom operation URL.
+// Relative paths are joined to the channel base URL; {model} and {task_id}
+// placeholders are replaced before configured query authentication is applied.
+func BuildTaskRouteURL(baseURL, upstreamPath, modelName, taskID, apiKey string, auth *dto.AdvancedCustomRouteAuth) (string, error) {
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
+		ChannelBaseUrl:    baseURL,
+		UpstreamModelName: modelName,
+		ApiKey:            apiKey,
+	}}
+	upstreamPath = strings.ReplaceAll(upstreamPath, "{task_id}", url.PathEscape(taskID))
+	parsedURL, err := resolveUpstreamTargetURL(applyUpstreamPathTemplate(strings.TrimSpace(upstreamPath), info), info)
+	if err != nil {
+		return "", err
+	}
+	if auth != nil && strings.TrimSpace(auth.Type) == dto.AdvancedCustomAuthTypeQuery {
+		query := parsedURL.Query()
+		query.Set(strings.TrimSpace(auth.Name), applyAuthTemplate(auth.Value, apiKey))
+		parsedURL.RawQuery = query.Encode()
+	}
+	return parsedURL.String(), nil
+}
+
+// ApplyTaskRouteHeaders applies default/configured authentication and custom
+// header templates for an asynchronous Advanced Custom operation.
+func ApplyTaskRouteHeaders(header http.Header, headers map[string]string, auth *dto.AdvancedCustomRouteAuth, apiKey, modelName, taskID string) error {
+	if auth == nil {
+		header.Set("Authorization", "Bearer "+apiKey)
+	} else {
+		switch strings.TrimSpace(auth.Type) {
+		case dto.AdvancedCustomAuthTypeNone, dto.AdvancedCustomAuthTypeQuery:
+		case dto.AdvancedCustomAuthTypeHeader:
+			header.Set(strings.TrimSpace(auth.Name), applyAuthTemplate(auth.Value, apiKey))
+		default:
+			return fmt.Errorf("invalid advanced custom auth type: %s", auth.Type)
+		}
+	}
+	applyConfiguredHeaders(header, headers, apiKey, modelName, taskID)
+	return nil
+}
+
+// ApplyTaskDownloadHeaders applies only explicitly configured download
+// credentials. Unlike submit and poll operations, a missing auth block does
+// not imply bearer authentication because result URLs are commonly presigned.
+func ApplyTaskDownloadHeaders(header http.Header, download *dto.AdvancedCustomTaskDownload, apiKey, modelName, taskID string) error {
+	if download == nil {
+		return nil
+	}
+	if download.Auth != nil {
+		switch strings.TrimSpace(download.Auth.Type) {
+		case dto.AdvancedCustomAuthTypeNone, dto.AdvancedCustomAuthTypeQuery:
+		case dto.AdvancedCustomAuthTypeHeader:
+			header.Set(strings.TrimSpace(download.Auth.Name), applyAuthTemplate(download.Auth.Value, apiKey))
+		default:
+			return fmt.Errorf("invalid advanced custom download auth type: %s", download.Auth.Type)
+		}
+	}
+	applyConfiguredHeaders(header, download.Headers, apiKey, modelName, taskID)
+	return nil
+}
+
+// ApplyTaskDownloadURL applies explicitly configured query authentication to
+// an upstream result URL. Result URLs must already be absolute.
+func ApplyTaskDownloadURL(rawURL string, download *dto.AdvancedCustomTaskDownload, apiKey string) (string, error) {
+	if download == nil || download.Auth == nil || strings.TrimSpace(download.Auth.Type) != dto.AdvancedCustomAuthTypeQuery {
+		return rawURL, nil
+	}
+	parsedURL, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return "", fmt.Errorf("advanced custom result URL is invalid")
+	}
+	query := parsedURL.Query()
+	query.Set(strings.TrimSpace(download.Auth.Name), applyAuthTemplate(download.Auth.Value, apiKey))
+	parsedURL.RawQuery = query.Encode()
+	return parsedURL.String(), nil
+}
+
+func applyConfiguredHeaders(header http.Header, headers map[string]string, apiKey, modelName, taskID string) {
+	for name, value := range headers {
+		value = applyAuthTemplate(value, apiKey)
+		value = strings.ReplaceAll(value, advancedCustomModelPlaceholder, modelName)
+		value = strings.ReplaceAll(value, "{task_id}", taskID)
+		header.Set(name, value)
+	}
 }
 
 func shouldUseGeminiStreamURL(converter string, info *relaycommon.RelayInfo) bool {

@@ -73,4 +73,18 @@ describe('customer API catalog', () => {
       )
     }
   })
+
+  test('documents both GET and HEAD video content delivery methods', () => {
+    const endpoint = apiEndpoints.find((item) => item.id === 'video-content')
+
+    assert.ok(endpoint)
+    assert.equal(endpoint.method, 'GET')
+    assert.ok(
+      endpoint.relatedEndpoints?.some(
+        (related) =>
+          related.method === 'HEAD' &&
+          related.path === '/v1/videos/{task_id}/content'
+      )
+    )
+  })
 })

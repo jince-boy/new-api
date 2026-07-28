@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
+	advancedcustom "github.com/QuantumNous/new-api/relay/channel/advancedcustom"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 
@@ -82,7 +83,7 @@ func VideoProxy(c *gin.Context) {
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "", nil)
+	req, err := http.NewRequestWithContext(ctx, c.Request.Method, "", nil)
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to create request: %s", err.Error()))
 		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy request")
@@ -114,6 +115,23 @@ func VideoProxy(c *gin.Context) {
 	case constant.ChannelTypeOpenAI, constant.ChannelTypeSora:
 		videoURL = fmt.Sprintf("%s/v1/videos/%s/content", baseURL, task.GetUpstreamTaskID())
 		req.Header.Set("Authorization", "Bearer "+channel.Key)
+	case constant.ChannelTypeAdvancedCustom:
+		videoURL = task.GetResultURL()
+		apiKey := task.PrivateData.Key
+		if apiKey == "" {
+			apiKey = channel.Key
+		}
+		if route := task.PrivateData.TaskRoute; route != nil && route.Task != nil {
+			videoURL, err = advancedcustom.ApplyTaskDownloadURL(videoURL, route.Task.Download, apiKey)
+			if err == nil {
+				err = advancedcustom.ApplyTaskDownloadHeaders(req.Header, route.Task.Download, apiKey, task.Properties.UpstreamModelName, task.GetUpstreamTaskID())
+			}
+			if err != nil {
+				logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to configure advanced custom video download for task %s: %s", taskID, err.Error()))
+				videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to configure video download")
+				return
+			}
+		}
 	default:
 		// Video URL is stored in PrivateData.ResultURL (fallback to FailReason for old data)
 		videoURL = task.GetResultURL()
@@ -147,11 +165,29 @@ func VideoProxy(c *gin.Context) {
 		return
 	}
 
+	if system_setting.EnableVideoWorker() {
+		workerURL, workerErr := service.BuildVideoWorkerURL(videoURL, req.Header)
+		if workerErr != nil {
+			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to build video worker URL for task %s: %s", taskID, workerErr.Error()))
+			videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create video download URL")
+			return
+		}
+		c.Header("Cache-Control", "private, no-store")
+		c.Header("Referrer-Policy", "no-referrer")
+		c.Redirect(http.StatusTemporaryRedirect, workerURL)
+		return
+	}
+
 	req.URL, err = url.Parse(videoURL)
 	if err != nil {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to parse URL %s: %s", videoURL, err.Error()))
 		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy request")
 		return
+	}
+	for _, name := range []string{"Range", "If-Range", "If-None-Match", "If-Modified-Since"} {
+		if value := c.Request.Header.Get(name); value != "" {
+			req.Header.Set(name, value)
+		}
 	}
 
 	resp, err := client.Do(req)
@@ -162,7 +198,7 @@ func VideoProxy(c *gin.Context) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusNotModified {
 		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for %s", resp.StatusCode, videoURL))
 		videoProxyError(c, http.StatusBadGateway, "server_error",
 			fmt.Sprintf("Upstream service returned status %d", resp.StatusCode))
