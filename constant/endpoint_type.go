@@ -1,24 +1,29 @@
 package constant
 
-type EndpointType string
+import "github.com/QuantumNous/new-api/relaykit/types"
+
+// EndpointType moved to types with the conversion kit; aliases keep host
+// code compiling unchanged.
+type EndpointType = types.EndpointType
 
 const (
-	EndpointTypeOpenAI                EndpointType = "openai"
+	EndpointTypeOpenAI                             = types.EndpointTypeOpenAI
 	EndpointTypeOpenAICompletions     EndpointType = "openai-completions"
-	EndpointTypeOpenAIResponse        EndpointType = "openai-response"
-	EndpointTypeOpenAIResponseCompact EndpointType = "openai-response-compact"
-	EndpointTypeAnthropic             EndpointType = "anthropic"
-	EndpointTypeGemini                EndpointType = "gemini"
-	EndpointTypeJinaRerank            EndpointType = "jina-rerank"
-	EndpointTypeImageGeneration       EndpointType = "image-generation"
+	EndpointTypeOpenAIResponse                     = types.EndpointTypeOpenAIResponse
+	EndpointTypeOpenAIResponseCompact              = types.EndpointTypeOpenAIResponseCompact
+	EndpointTypeOpenAIAlphaSearch                  = types.EndpointTypeOpenAIAlphaSearch
+	EndpointTypeAnthropic                          = types.EndpointTypeAnthropic
+	EndpointTypeGemini                             = types.EndpointTypeGemini
+	EndpointTypeJinaRerank                         = types.EndpointTypeJinaRerank
+	EndpointTypeImageGeneration                    = types.EndpointTypeImageGeneration
 	EndpointTypeImageEdits            EndpointType = "image-edits"
-	EndpointTypeEmbeddings            EndpointType = "embeddings"
+	EndpointTypeEmbeddings                         = types.EndpointTypeEmbeddings
 	EndpointTypeAudioSpeech           EndpointType = "audio-speech"
 	EndpointTypeAudioTranscriptions   EndpointType = "audio-transcriptions"
 	EndpointTypeAudioTranslations     EndpointType = "audio-translations"
 	EndpointTypeModerations           EndpointType = "moderations"
 	EndpointTypeRealtime              EndpointType = "realtime"
-	EndpointTypeOpenAIVideo           EndpointType = "openai-video"
+	EndpointTypeOpenAIVideo                        = types.EndpointTypeOpenAIVideo
 	//EndpointTypeMidjourney     EndpointType = "midjourney-proxy"
 	//EndpointTypeSuno           EndpointType = "suno-proxy"
 	//EndpointTypeKling          EndpointType = "kling"

@@ -221,12 +221,21 @@ func normalizeOptionValueForStorage(key string, value string) (string, error) {
 	}
 }
 
+func validateOptionValue(key string, value string) error {
+	if key == operation_setting.ToolPriceOptionKey {
+		return operation_setting.ValidateToolPricesJSON(value)
+	}
+	return nil
+}
+
 func UpdateOption(key string, value string) error {
 	normalizedValue, err := normalizeOptionValueForStorage(key, value)
 	if err != nil {
 		return err
 	}
-
+	if err := validateOptionValue(key, normalizedValue); err != nil {
+		return err
+	}
 	// Save to database first
 	option := Option{
 		Key: key,
@@ -255,6 +264,9 @@ func UpdateOptionsBulk(values map[string]string) error {
 	for k, v := range values {
 		normalizedValue, err := normalizeOptionValueForStorage(k, v)
 		if err != nil {
+			return err
+		}
+		if err := validateOptionValue(k, normalizedValue); err != nil {
 			return err
 		}
 		normalizedValues[k] = normalizedValue
@@ -633,6 +645,11 @@ func updateOptionMap(key string, value string) (err error) {
 
 // handleConfigUpdate 处理分层配置更新，返回是否已处理
 func handleConfigUpdate(key, value string) bool {
+	if key == operation_setting.ToolPriceOptionKey {
+		operation_setting.LoadToolPricesFromJSONString(value)
+		return true
+	}
+
 	parts := strings.SplitN(key, ".", 2)
 	if len(parts) != 2 {
 		return false // 不是分层配置
@@ -656,8 +673,6 @@ func handleConfigUpdate(key, value string) bool {
 	// 特定配置的后处理
 	if configName == "performance_setting" {
 		performance_setting.UpdateAndSync()
-	} else if configName == "tool_price_setting" {
-		operation_setting.RebuildToolPriceIndex()
 	} else if configName == "billing_setting" {
 		InvalidatePricingCache()
 		ratio_setting.InvalidateExposedDataCache()

@@ -23,6 +23,7 @@ import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import * as z from 'zod'
 
+import { JsonCodeEditor } from '@/components/json-code-editor'
 import {
   Form,
   FormControl,
@@ -280,10 +281,17 @@ export function ChatSettingsSection({
                   <FormItem>
                     <FormLabel>{t('Chat configuration JSON')}</FormLabel>
                     <FormControl>
-                      <Textarea
-                        rows={12}
-                        placeholder='[{"ChatGPT":{"url":"https://chat.openai.com","enabled":true}},{"Lobe Chat":{"url":"https://chat-preview.lobehub.com/?settings={...}","enabled":false}}]'
-                        {...field}
+                      <JsonCodeEditor
+                        value={field.value}
+                        onChange={field.onChange}
+                        name={field.name}
+                        onBlur={field.onBlur}
+                        textareaRef={field.ref}
+                        placeholder={t(
+                          '[{"ChatGPT":"https://chat.openai.com"},{"Lobe Chat":"https://chat-preview.lobehub.com/?settings={...}"}]'
+                        )}
+                        heightClassName='h-72 min-h-72 max-h-72'
+                        aria-invalid={Boolean(form.formState.errors.Chats)}
                       />
                     </FormControl>
                     <FormDescription>

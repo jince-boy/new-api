@@ -244,6 +244,7 @@ export function UsersTable() {
         className='min-h-0 flex-1'
         toolbarProps={{
           searchPlaceholder: t('Filter by username, name or email...'),
+          searchDebounceMs: 500,
           onSearch: () => undefined,
           searchLoading: isFetching,
           filters: [
