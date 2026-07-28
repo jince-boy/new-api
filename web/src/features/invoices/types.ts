@@ -19,9 +19,10 @@ export type InvoicePaymentStatus = 'not_required' | 'pending' | 'paid'
 export type InvoiceConfig = {
   enabled: boolean
   minimum_amount: number
-  application_window_days: number
   currency: string
-  invoice_item_name: string
+  vat_threshold_cents: number
+  vat_rate_basis_points: number
+  policy_notice: string
 }
 
 export type InvoicePaymentMethod = {
@@ -63,8 +64,15 @@ export type InvoiceApplication = {
   currency: string
   order_amount_cents: number
   invoice_amount_cents: number
+  estimated_vat_cents: number
+  estimated_urban_tax_cents: number
+  estimated_education_surcharge_cents: number
+  estimated_local_education_surcharge_cents: number
+  estimated_pit_withholding_cents: number
+  estimated_total_tax_cents: number
   suggested_supplement_cents: number
   final_supplement_cents: number
+  tax_adjustment_reason: string
   payment_trade_no: string
   payment_method: string
   payment_confirmed_at: number
@@ -100,6 +108,7 @@ export type CreateInvoiceApplicationRequest = {
 export type ReviewInvoiceApplicationRequest = {
   action: 'approve' | 'reject'
   final_supplement_amount_cents?: number
+  tax_adjustment_reason: string
   reason: string
   note: string
 }

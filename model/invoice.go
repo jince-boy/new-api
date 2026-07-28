@@ -60,8 +60,8 @@ type InvoiceApplication struct {
 	EstimatedTotalTaxCents       int64          `json:"estimated_total_tax_cents"`
 	SuggestedSupplementCents     int64          `json:"suggested_supplement_cents"`
 	FinalSupplementCents         int64          `json:"final_supplement_cents"`
-	TaxBreakdown                 string         `json:"tax_breakdown" gorm:"type:text"`
-	RuleSnapshot                 string         `json:"rule_snapshot" gorm:"type:text"`
+	TaxBreakdown                 string         `json:"-" gorm:"type:text"`
+	RuleSnapshot                 string         `json:"-" gorm:"type:text"`
 	TaxAdjustmentReason          string         `json:"tax_adjustment_reason" gorm:"type:text"`
 	AdminNote                    string         `json:"admin_note" gorm:"type:text"`
 	RejectReason                 string         `json:"reject_reason" gorm:"type:text"`
@@ -174,6 +174,49 @@ func GetInvoiceApplicationForUpdate(tx *gorm.DB, id int) (*InvoiceApplication, e
 		return nil, err
 	}
 	return &application, nil
+}
+
+func DeleteInvoiceApplication(id int) (*InvoiceApplication, error) {
+	var deleted InvoiceApplication
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		application, err := GetInvoiceApplicationForUpdate(tx, id)
+		if err != nil {
+			return err
+		}
+		deletable := application.Status == InvoiceStatusPendingReview || application.Status == InvoiceStatusRejected
+		if application.Status == InvoiceStatusPendingPayment && application.PaymentStatus == InvoicePaymentPending && application.PaymentConfirmedAt == 0 {
+			var activePaymentCount int64
+			if err = tx.Model(&InvoicePaymentOrder{}).
+				Where("application_id = ? AND status IN ?", id, []string{InvoicePaymentOrderPending, InvoicePaymentOrderPaid}).
+				Count(&activePaymentCount).Error; err != nil {
+				return err
+			}
+			deletable = activePaymentCount == 0
+		}
+		if !deletable {
+			return ErrInvoiceStatusInvalid
+		}
+		deleted = *application
+
+		if err = tx.Where("application_id = ?", id).Delete(&InvoicePaymentOrder{}).Error; err != nil {
+			return err
+		}
+		if err = tx.Where("application_id = ?", id).Delete(&InvoiceOrder{}).Error; err != nil {
+			return err
+		}
+		result := tx.Delete(&InvoiceApplication{}, id)
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrInvoiceNotFound
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &deleted, nil
 }
 
 func GetInvoicePaymentOrderByTradeNo(tradeNo string) (*InvoicePaymentOrder, error) {

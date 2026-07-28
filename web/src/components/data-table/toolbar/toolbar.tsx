@@ -55,6 +55,10 @@ export type DataTableToolbarProps<TData> = {
    */
   searchPlaceholder?: string
   /**
+   * Layout override for the default search input.
+   */
+  searchClassName?: string
+  /**
    * Delay committing the default search input. Defaults to immediate updates.
    */
   searchDebounceMs?: number
@@ -271,7 +275,7 @@ export function DataTableToolbar<TData>(props: DataTableToolbarProps<TData>) {
       onCompositionStart={handleSearchCompositionStart}
       onCompositionEnd={handleSearchCompositionEnd}
       onKeyDown={handleSearchKeyDown}
-      className='w-full sm:w-[200px] lg:w-[240px]'
+      className={cn('w-full sm:w-[200px] lg:w-[240px]', props.searchClassName)}
     />
   )
 

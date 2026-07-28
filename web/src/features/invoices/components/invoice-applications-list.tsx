@@ -7,7 +7,11 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 
-import { Invoice01Icon } from '@hugeicons/core-free-icons'
+import {
+  Delete02Icon,
+  Invoice01Icon,
+  RefreshIcon,
+} from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import type {
   ColumnDef,
@@ -21,8 +25,10 @@ import { useTranslation } from 'react-i18next'
 
 import { DataTablePage, useDataTable } from '@/components/data-table'
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 import { formatInvoiceDate, formatInvoiceMoney } from '../lib/format'
+import { canDeleteInvoiceApplication } from '../lib/invoice-delete-action'
 import { getInvoiceEmailAction } from '../lib/invoice-email-action'
 import type { InvoiceApplication, InvoiceStatus } from '../types'
 import { InvoiceStatusBadge } from './invoice-status-badge'
@@ -38,12 +44,16 @@ type InvoiceApplicationsListProps = {
   status?: InvoiceStatus
   isAdmin: boolean
   sendingId: number | null
+  deletingId: number | null
+  refreshing: boolean
   onPageChange: (page: number) => void
   onPageSizeChange: (pageSize: number) => void
   onKeywordChange: (keyword: string) => void
   onStatusChange: (status?: InvoiceStatus) => void
   onView: (application: InvoiceApplication) => void
   onSend: (application: InvoiceApplication) => void
+  onDelete: (application: InvoiceApplication) => void
+  onRefresh: () => void
 }
 
 function resolveUpdater<T>(updater: Updater<T>, current: T): T {
@@ -54,6 +64,12 @@ function resolveUpdater<T>(updater: Updater<T>, current: T): T {
 
 export function InvoiceApplicationsList(props: InvoiceApplicationsListProps) {
   const { t } = useTranslation()
+  const deletingId = props.deletingId
+  const isAdmin = props.isAdmin
+  const onDelete = props.onDelete
+  const onSend = props.onSend
+  const onView = props.onView
+  const sendingId = props.sendingId
   const columns = useMemo<ColumnDef<InvoiceApplication>[]>(() => {
     const result: ColumnDef<InvoiceApplication>[] = [
       {
@@ -131,7 +147,9 @@ export function InvoiceApplicationsList(props: InvoiceApplicationsListProps) {
           }
           return (
             <div className='flex min-w-36 flex-col gap-0.5'>
-              <span>{formatInvoiceDate(row.original.invoice_email_sent_at)}</span>
+              <span>
+                {formatInvoiceDate(row.original.invoice_email_sent_at)}
+              </span>
               <span className='text-muted-foreground text-xs'>
                 {t('Sent {{count}} times', {
                   count: row.original.invoice_email_send_count,
@@ -158,28 +176,36 @@ export function InvoiceApplicationsList(props: InvoiceApplicationsListProps) {
         id: 'actions',
         header: t('Actions'),
         cell: ({ row }) => {
-          const emailAction = getInvoiceEmailAction(
-            row.original,
-            props.isAdmin
-          )
+          const emailAction = getInvoiceEmailAction(row.original, isAdmin)
           return (
             <div className='flex justify-end gap-2'>
               <Button
                 size='sm'
                 variant='outline'
-                onClick={() => props.onView(row.original)}
+                onClick={() => onView(row.original)}
               >
                 {t('View details')}
               </Button>
               {emailAction ? (
                 <Button
                   size='sm'
-                  disabled={props.sendingId === row.original.id}
-                  onClick={() => props.onSend(row.original)}
+                  disabled={sendingId === row.original.id}
+                  onClick={() => onSend(row.original)}
                 >
                   {emailAction === 'send'
                     ? t('Send invoice')
                     : t('Resend invoice')}
+                </Button>
+              ) : null}
+              {canDeleteInvoiceApplication(row.original, isAdmin) ? (
+                <Button
+                  size='sm'
+                  variant='destructive'
+                  disabled={deletingId === row.original.id}
+                  onClick={() => onDelete(row.original)}
+                >
+                  <HugeiconsIcon icon={Delete02Icon} data-icon='inline-start' />
+                  {t('Delete')}
                 </Button>
               ) : null}
             </div>
@@ -191,7 +217,7 @@ export function InvoiceApplicationsList(props: InvoiceApplicationsListProps) {
       },
     ]
 
-    if (props.isAdmin) {
+    if (isAdmin) {
       result.splice(2, 0, {
         accessorKey: 'user_id',
         header: t('User'),
@@ -203,7 +229,7 @@ export function InvoiceApplicationsList(props: InvoiceApplicationsListProps) {
       })
     }
     return result
-  }, [props.isAdmin, props.onSend, props.onView, props.sendingId, t])
+  }, [deletingId, isAdmin, onDelete, onSend, onView, sendingId, t])
 
   const pagination = useMemo<PaginationState>(
     () => ({ pageIndex: props.page - 1, pageSize: props.pageSize }),
@@ -224,9 +250,8 @@ export function InvoiceApplicationsList(props: InvoiceApplicationsListProps) {
   }
   const onColumnFiltersChange: OnChangeFn<ColumnFiltersState> = (updater) => {
     const next = resolveUpdater(updater, columnFilters)
-    const statusValues = next.find((filter) => filter.id === 'status')?.value as
-      | InvoiceStatus[]
-      | undefined
+    const statusValues = next.find((filter) => filter.id === 'status')
+      ?.value as InvoiceStatus[] | undefined
     props.onStatusChange(statusValues?.[0])
     props.onPageChange(1)
   }
@@ -263,8 +288,27 @@ export function InvoiceApplicationsList(props: InvoiceApplicationsListProps) {
       skeletonKeyPrefix='invoice-applications-skeleton'
       applyHeaderSize
       toolbarProps={{
-        searchPlaceholder: t('Search by ID, invoice title, tax number, or email...'),
+        searchPlaceholder: t(
+          'Search by ID, invoice title, tax number, or email...'
+        ),
+        searchClassName: 'sm:w-[360px] lg:w-[460px]',
         searchDebounceMs: 300,
+        preActions: (
+          <Button
+            variant='outline'
+            size='icon-sm'
+            onClick={props.onRefresh}
+            disabled={props.refreshing}
+            title={t('Refresh')}
+            aria-label={t('Refresh')}
+          >
+            <HugeiconsIcon
+              icon={RefreshIcon}
+              data-icon='inline-start'
+              className={cn(props.refreshing && 'animate-spin')}
+            />
+          </Button>
+        ),
         filters: [
           {
             columnId: 'status',

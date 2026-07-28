@@ -1,8 +1,11 @@
 package controller
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -149,6 +152,38 @@ func GetInvoiceApplication(c *gin.Context) {
 	common.ApiSuccess(c, application)
 }
 
+func GetInvoiceFile(c *gin.Context) {
+	id, ok := invoiceApplicationId(c)
+	if !ok {
+		return
+	}
+	invoiceFile, err := service.GetInvoiceFileContent(id)
+	if err != nil {
+		status := http.StatusInternalServerError
+		message := "failed to read invoice file"
+		switch {
+		case errors.Is(err, model.ErrInvoiceNotFound), errors.Is(err, service.ErrInvoiceFileUnavailable):
+			status = http.StatusNotFound
+			message = err.Error()
+		case errors.Is(err, model.ErrInvoiceStatusInvalid):
+			status = http.StatusForbidden
+			message = err.Error()
+		}
+		c.JSON(status, gin.H{"success": false, "message": message})
+		return
+	}
+
+	disposition := mime.FormatMediaType("inline", map[string]string{"filename": invoiceFile.FileName})
+	if disposition == "" {
+		disposition = "inline"
+	}
+	c.Header("Content-Disposition", disposition)
+	c.Header("Content-Type", invoiceFile.ContentType)
+	c.Header("Cache-Control", "private, no-store")
+	c.Header("X-Content-Type-Options", "nosniff")
+	http.ServeContent(c.Writer, c.Request, invoiceFile.FileName, time.Time{}, bytes.NewReader(invoiceFile.Data))
+}
+
 func AdminReviewInvoiceApplication(c *gin.Context) {
 	id, ok := invoiceApplicationId(c)
 	if !ok {
@@ -189,6 +224,23 @@ func AdminReviewInvoiceApplication(c *gin.Context) {
 		"invoice_application_id": id,
 		"action":                 request.Action,
 		"final_supplement_cents": request.FinalSupplementAmountCents,
+	})
+	common.ApiSuccess(c, nil)
+}
+
+func AdminDeleteInvoiceApplication(c *gin.Context) {
+	id, ok := invoiceApplicationId(c)
+	if !ok {
+		return
+	}
+	application, err := service.DeleteInvoiceApplication(id)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	recordManageAuditFor(c, application.UserId, "invoice.delete", map[string]interface{}{
+		"invoice_application_id": id,
+		"status":                 application.Status,
 	})
 	common.ApiSuccess(c, nil)
 }

@@ -20,13 +20,11 @@ import (
 func invoiceTaxTestSetting() invoice_setting.InvoiceSetting {
 	return invoice_setting.InvoiceSetting{
 		Enabled:                            true,
-		PriceIncludesTax:                   false,
 		TaxBurdenMode:                      invoice_setting.TaxBurdenSupplement,
 		MinimumAmount:                      0,
 		ApplicationWindowDays:              30,
 		Currency:                           "CNY",
 		InvoiceItemName:                    "AI Agent服务",
-		VATPeriodMode:                      invoice_setting.VATPeriodPerTransaction,
 		VATThresholdCents:                  100_000,
 		VATRateBasisPoints:                 100,
 		VATStandardRateBasisPoints:         300,
@@ -42,13 +40,14 @@ func invoiceTaxTestSetting() invoice_setting.InvoiceSetting {
 
 func TestCalculateInvoiceTaxVATThresholdUsesFullSalesAtThreshold(t *testing.T) {
 	setting := invoiceTaxTestSetting()
+	setting.TaxBurdenMode = invoice_setting.TaxBurdenIncluded
 	calculationTime := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.Local)
 
-	below, err := CalculateInvoiceTax(99_999, setting, calculationTime)
+	below, err := CalculateInvoiceTax(100_999, setting, calculationTime)
 	require.NoError(t, err)
-	atThreshold, err := CalculateInvoiceTax(100_000, setting, calculationTime)
+	atThreshold, err := CalculateInvoiceTax(101_000, setting, calculationTime)
 	require.NoError(t, err)
-	above, err := CalculateInvoiceTax(100_001, setting, calculationTime)
+	above, err := CalculateInvoiceTax(101_001, setting, calculationTime)
 	require.NoError(t, err)
 
 	assert.True(t, below.VATExemptByThreshold)
@@ -56,27 +55,148 @@ func TestCalculateInvoiceTaxVATThresholdUsesFullSalesAtThreshold(t *testing.T) {
 	assert.False(t, atThreshold.VATExemptByThreshold)
 	assert.Equal(t, int64(1_000), atThreshold.EstimatedVATCents)
 	assert.Equal(t, int64(1_000), above.EstimatedVATCents)
-	assert.Equal(t, int64(1_000), atThreshold.SuggestedSupplementCents)
-	assert.Zero(t, atThreshold.EstimatedUrbanTaxCents)
-	assert.Zero(t, atThreshold.EstimatedEducationSurchargeCents)
-	assert.Zero(t, atThreshold.EstimatedLocalEducationCents)
-	assert.Zero(t, atThreshold.EstimatedPITWithholdingCents)
+	assert.Zero(t, atThreshold.SuggestedSupplementCents)
+	assert.Equal(t, int64(35), atThreshold.EstimatedUrbanTaxCents)
+	assert.Equal(t, int64(15), atThreshold.EstimatedEducationSurchargeCents)
+	assert.Equal(t, int64(10), atThreshold.EstimatedLocalEducationCents)
+	assert.Equal(t, int64(4_000), atThreshold.EstimatedPITWithholdingCents)
 }
 
-func TestCalculateInvoiceTaxExcludesAncillaryTaxesAndIndividualWithholding(t *testing.T) {
+func TestCalculateInvoiceTaxGrossesUpAllEnabledTaxesForSellerNetIncome(t *testing.T) {
 	setting := invoiceTaxTestSetting()
-	setting.VATThresholdCents = 0
 	calculationTime := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.Local)
 
-	estimate, err := CalculateInvoiceTax(400_000, setting, calculationTime)
+	estimate, err := CalculateInvoiceTax(200_000, setting, calculationTime)
 	require.NoError(t, err)
 
-	assert.Equal(t, estimate.EstimatedVATCents, estimate.EstimatedTotalTaxCents)
-	assert.Equal(t, estimate.EstimatedVATCents, estimate.SuggestedSupplementCents)
-	assert.Zero(t, estimate.EstimatedUrbanTaxCents)
-	assert.Zero(t, estimate.EstimatedEducationSurchargeCents)
-	assert.Zero(t, estimate.EstimatedLocalEducationCents)
-	assert.Zero(t, estimate.EstimatedPITWithholdingCents)
+	assert.Equal(t, int64(230_174), estimate.TaxableSalesCents)
+	assert.Equal(t, int64(2_302), estimate.EstimatedVATCents)
+	assert.Equal(t, int64(81), estimate.EstimatedUrbanTaxCents)
+	assert.Equal(t, int64(35), estimate.EstimatedEducationSurchargeCents)
+	assert.Equal(t, int64(23), estimate.EstimatedLocalEducationCents)
+	assert.Equal(t, int64(30_035), estimate.EstimatedPITWithholdingCents)
+	assert.Equal(t, int64(32_476), estimate.EstimatedTotalTaxCents)
+	assert.Equal(t, int64(32_476), estimate.SuggestedSupplementCents)
+	assert.Equal(t, int64(200_000), 200_000+estimate.SuggestedSupplementCents-estimate.EstimatedTotalTaxCents)
+}
+
+func TestDeleteInvoiceApplicationRemovesApplicationAndLinkedRecords(t *testing.T) {
+	require.NoError(t, model.DB.AutoMigrate(
+		&model.InvoiceApplication{},
+		&model.InvoiceOrder{},
+		&model.InvoicePaymentOrder{},
+	))
+
+	application := model.InvoiceApplication{
+		UserId:        702,
+		Status:        model.InvoiceStatusPendingPayment,
+		PaymentStatus: model.InvoicePaymentPending,
+		InvoiceTitle:  "Delete test",
+		Currency:      "CNY",
+		CreatedAt:     time.Now().Unix(),
+		UpdatedAt:     time.Now().Unix(),
+	}
+	require.NoError(t, model.DB.Create(&application).Error)
+
+	directory := filepath.Join("upload", "invoices", strconv.Itoa(application.Id))
+	require.NoError(t, os.MkdirAll(directory, 0755))
+	invoicePath := filepath.Join(directory, "invoice-delete-test.pdf")
+	require.NoError(t, os.WriteFile(invoicePath, []byte("invoice"), 0644))
+	require.NoError(t, model.DB.Model(&application).Update("invoice_file_path", invoicePath).Error)
+
+	linkedOrder := model.InvoiceOrder{
+		ApplicationId:   application.Id,
+		TopUpId:         990_000 + application.Id,
+		TradeNo:         fmt.Sprintf("invoice-delete-order-%d", application.Id),
+		PaidAmountCents: 10_000,
+	}
+	require.NoError(t, model.DB.Create(&linkedOrder).Error)
+	paymentOrder := model.InvoicePaymentOrder{
+		ApplicationId: application.Id,
+		UserId:        application.UserId,
+		TradeNo:       fmt.Sprintf("invoice-delete-payment-%d", application.Id),
+		AmountCents:   100,
+		Currency:      "CNY",
+		Status:        model.InvoicePaymentOrderFailed,
+	}
+	require.NoError(t, model.DB.Create(&paymentOrder).Error)
+	t.Cleanup(func() {
+		model.DB.Where("id = ?", application.Id).Delete(&model.InvoiceApplication{})
+		model.DB.Where("application_id = ?", application.Id).Delete(&model.InvoiceOrder{})
+		model.DB.Where("application_id = ?", application.Id).Delete(&model.InvoicePaymentOrder{})
+		_ = os.Remove(invoicePath)
+		_ = os.Remove(directory)
+	})
+
+	deleted, err := DeleteInvoiceApplication(application.Id)
+	require.NoError(t, err)
+	assert.Equal(t, application.Id, deleted.Id)
+
+	var applicationCount int64
+	require.NoError(t, model.DB.Model(&model.InvoiceApplication{}).Where("id = ?", application.Id).Count(&applicationCount).Error)
+	assert.Zero(t, applicationCount)
+	var orderCount int64
+	require.NoError(t, model.DB.Model(&model.InvoiceOrder{}).Where("application_id = ?", application.Id).Count(&orderCount).Error)
+	assert.Zero(t, orderCount)
+	var paymentCount int64
+	require.NoError(t, model.DB.Model(&model.InvoicePaymentOrder{}).Where("application_id = ?", application.Id).Count(&paymentCount).Error)
+	assert.Zero(t, paymentCount)
+	_, statErr := os.Stat(invoicePath)
+	assert.ErrorIs(t, statErr, os.ErrNotExist)
+}
+
+func TestDeleteInvoiceApplicationProtectsIssuedRecords(t *testing.T) {
+	application := model.InvoiceApplication{
+		UserId:        703,
+		Status:        model.InvoiceStatusIssued,
+		PaymentStatus: model.InvoicePaymentPaid,
+		InvoiceTitle:  "Issued invoice",
+		Currency:      "CNY",
+		CreatedAt:     time.Now().Unix(),
+		UpdatedAt:     time.Now().Unix(),
+	}
+	require.NoError(t, model.DB.Create(&application).Error)
+	t.Cleanup(func() {
+		model.DB.Where("id = ?", application.Id).Delete(&model.InvoiceApplication{})
+	})
+
+	deleted, err := DeleteInvoiceApplication(application.Id)
+	assert.ErrorIs(t, err, model.ErrInvoiceStatusInvalid)
+	assert.Nil(t, deleted)
+
+	var applicationCount int64
+	require.NoError(t, model.DB.Model(&model.InvoiceApplication{}).Where("id = ?", application.Id).Count(&applicationCount).Error)
+	assert.Equal(t, int64(1), applicationCount)
+}
+
+func TestDeleteInvoiceApplicationProtectsActiveSupplementPayments(t *testing.T) {
+	application := model.InvoiceApplication{
+		UserId:        704,
+		Status:        model.InvoiceStatusPendingPayment,
+		PaymentStatus: model.InvoicePaymentPending,
+		InvoiceTitle:  "Pending supplement",
+		Currency:      "CNY",
+		CreatedAt:     time.Now().Unix(),
+		UpdatedAt:     time.Now().Unix(),
+	}
+	require.NoError(t, model.DB.Create(&application).Error)
+	paymentOrder := model.InvoicePaymentOrder{
+		ApplicationId: application.Id,
+		UserId:        application.UserId,
+		TradeNo:       fmt.Sprintf("invoice-active-payment-%d", application.Id),
+		AmountCents:   100,
+		Currency:      "CNY",
+		Status:        model.InvoicePaymentOrderPending,
+	}
+	require.NoError(t, model.DB.Create(&paymentOrder).Error)
+	t.Cleanup(func() {
+		model.DB.Where("application_id = ?", application.Id).Delete(&model.InvoicePaymentOrder{})
+		model.DB.Where("id = ?", application.Id).Delete(&model.InvoiceApplication{})
+	})
+
+	deleted, err := DeleteInvoiceApplication(application.Id)
+	assert.ErrorIs(t, err, model.ErrInvoiceStatusInvalid)
+	assert.Nil(t, deleted)
 }
 
 func TestInvoiceReviewThenOnlinePaymentCompletesWithoutCreatingTopUp(t *testing.T) {
@@ -114,18 +234,24 @@ func TestInvoiceReviewThenOnlinePaymentCompletesWithoutCreatingTopUp(t *testing.
 	})
 	require.NoError(t, err)
 	assert.Equal(t, model.InvoiceStatusPendingReview, application.Status)
-	assert.Zero(t, application.SuggestedSupplementCents)
-	assert.Zero(t, application.EstimatedPITCents)
+	assert.Equal(t, int64(6_131), application.SuggestedSupplementCents)
+	assert.Equal(t, int64(5_016), application.EstimatedPITCents)
+	assert.Equal(t, application.SuggestedSupplementCents, application.EstimatedTotalTaxCents)
+	assert.NotEqual(t, "{}", application.TaxBreakdown)
 	assert.Equal(t, "AI Agent服务", application.InvoiceItemName)
 	assert.Equal(t, "Please include the project name.", application.ApplicantNote)
 
-	finalAmount := int64(1_060)
+	adjustedAmount := application.SuggestedSupplementCents + 1
+	err = ReviewInvoiceApplication(application.Id, 1, true, &adjustedAmount, "", "", "reviewed")
+	require.ErrorContains(t, err, "adjustment reason")
+
+	finalAmount := application.SuggestedSupplementCents
 	require.NoError(t, ReviewInvoiceApplication(application.Id, 1, true, &finalAmount, "", "", "reviewed"))
 	reviewed, err := model.GetInvoiceApplication(application.Id, 701)
 	require.NoError(t, err)
 	assert.Equal(t, model.InvoiceStatusPendingPayment, reviewed.Status)
 	assert.Equal(t, model.InvoicePaymentPending, reviewed.PaymentStatus)
-	assert.Equal(t, int64(101_060), reviewed.InvoiceAmountCents)
+	assert.Equal(t, application.OrderAmountCents+finalAmount, reviewed.InvoiceAmountCents)
 
 	paymentOrder, err := CreateInvoicePaymentOrder(application.Id, 701, "invoice-payment-test", "alipay", model.PaymentProviderEpay)
 	require.NoError(t, err)
@@ -176,7 +302,6 @@ func TestInvoiceApplicationRejectsMinimumAndExpiredOrders(t *testing.T) {
 	setting := invoice_setting.GetInvoiceSetting()
 	original := *setting
 	rules := invoiceTaxTestSetting()
-	rules.PriceIncludesTax = true
 	rules.TaxBurdenMode = invoice_setting.TaxBurdenIncluded
 	rules.MinimumAmount = 100
 	*setting = rules
@@ -256,7 +381,7 @@ func TestSendInvoiceEmailEnforcesOwnershipAndTracksResends(t *testing.T) {
 	directory := filepath.Join("upload", "invoices", "service-email-test")
 	require.NoError(t, os.MkdirAll(directory, 0755))
 	filePath := filepath.Join(directory, "invoice.pdf")
-	payload := []byte("invoice-content")
+	payload := []byte("%PDF-1.4\n%invoice-content\n")
 	require.NoError(t, os.WriteFile(filePath, payload, 0600))
 	t.Cleanup(func() {
 		_ = os.RemoveAll(directory)
@@ -392,6 +517,11 @@ func TestUploadInvoiceFileKeepsFileWhenInitialEmailFails(t *testing.T) {
 	assert.Equal(t, "invoice.pdf", stored.InvoiceFileName)
 	_, statErr := os.Stat(stored.InvoiceFilePath)
 	require.NoError(t, statErr)
+	adminFile, err := GetInvoiceFileContent(application.Id)
+	require.NoError(t, err)
+	assert.Equal(t, "invoice.pdf", adminFile.FileName)
+	assert.Equal(t, "application/pdf", adminFile.ContentType)
+	assert.Equal(t, []byte("%PDF-1.4\n%test invoice\n"), adminFile.Data)
 
 	invoiceEmailSender = func(_ string, _ string, _ string, _ []common.EmailAttachment) error {
 		return nil
@@ -400,4 +530,7 @@ func TestUploadInvoiceFileKeepsFileWhenInitialEmailFails(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, model.InvoiceStatusIssued, issued.Status)
 	assert.Equal(t, 1, issued.InvoiceEmailSendCount)
+	issuedFile, err := GetInvoiceFileContent(application.Id)
+	require.NoError(t, err)
+	assert.Equal(t, adminFile.Data, issuedFile.Data)
 }

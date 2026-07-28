@@ -7,26 +7,28 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 
-import { AddInvoiceIcon, RefreshIcon } from '@hugeicons/core-free-icons'
+import { AddInvoiceIcon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { ConfirmDialog } from '@/components/confirm-dialog'
 import { SectionPageLayout } from '@/components/layout'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { submitPaymentForm } from '@/features/wallet/lib'
 import { ROLE } from '@/lib/roles'
-import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
   createInvoiceApplication,
+  deleteInvoiceApplication,
   getEligibleInvoiceOrders,
   getInvoiceApplications,
   getInvoiceConfig,
+  getInvoiceFile,
   getInvoicePaymentMethods,
   requestInvoiceSupplementPayment,
   reviewInvoiceApplication,
@@ -61,6 +63,10 @@ export function Invoices() {
   const [detailsTarget, setDetailsTarget] = useState<InvoiceApplication | null>(
     null
   )
+  const [deleteTarget, setDeleteTarget] = useState<InvoiceApplication | null>(
+    null
+  )
+  const [fileActionPending, setFileActionPending] = useState(false)
 
   const configQuery = useQuery({
     queryKey: ['invoices', 'config'],
@@ -154,6 +160,23 @@ export function Invoices() {
     onError: () => toast.error(t('Failed to review invoice application.')),
   })
 
+  const deleteMutation = useMutation({
+    mutationFn: async (applicationId: number) => {
+      const response = await deleteInvoiceApplication(applicationId)
+      if (!response.success) throw new Error(response.message)
+      return response
+    },
+    onSuccess: async () => {
+      toast.success(t('Deleted successfully'))
+      if (detailsTarget?.id === deleteTarget?.id) {
+        setDetailsTarget(null)
+      }
+      setDeleteTarget(null)
+      await refreshApplications()
+    },
+    onError: () => toast.error(t('Delete failed')),
+  })
+
   const paymentMutation = useMutation({
     mutationFn: async (paymentMethod: string) => {
       if (!detailsTarget) {
@@ -219,6 +242,28 @@ export function Invoices() {
     void Promise.all([configQuery.refetch(), eligibleOrdersQuery.refetch()])
   }
 
+  const handleViewInvoiceFile = async () => {
+    if (!detailsTarget) return
+    const previewWindow = window.open('about:blank', '_blank')
+    if (!previewWindow) {
+      toast.error(t('Failed to download invoice.'))
+      return
+    }
+    previewWindow.opener = null
+    setFileActionPending(true)
+    try {
+      const blob = await getInvoiceFile(detailsTarget.id)
+      const objectUrl = URL.createObjectURL(blob)
+      previewWindow.location.href = objectUrl
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
+    } catch {
+      previewWindow.close()
+      toast.error(t('Failed to download invoice.'))
+    } finally {
+      setFileActionPending(false)
+    }
+  }
+
   const config = configQuery.data?.data
   const applications = applicationsQuery.data?.data
   const eligibleOrders = eligibleOrdersQuery.data?.data ?? EMPTY_ORDERS
@@ -227,7 +272,9 @@ export function Invoices() {
     reviewMutation.isPending ||
     paymentMutation.isPending ||
     uploadMutation.isPending ||
-    sendMutation.isPending
+    sendMutation.isPending ||
+    deleteMutation.isPending ||
+    fileActionPending
   const refreshing =
     configQuery.isFetching ||
     applicationsQuery.isFetching ||
@@ -240,22 +287,8 @@ export function Invoices() {
         <SectionPageLayout.Title>
           {isAdmin ? t('Invoice review') : t('Invoice applications')}
         </SectionPageLayout.Title>
-        <SectionPageLayout.Actions>
-          <Button
-            variant='outline'
-            size='icon-sm'
-            onClick={() => void handleRefresh()}
-            disabled={refreshing}
-            title={t('Refresh')}
-            aria-label={t('Refresh')}
-          >
-            <HugeiconsIcon
-              icon={RefreshIcon}
-              data-icon='inline-start'
-              className={cn(refreshing && 'animate-spin')}
-            />
-          </Button>
-          {!isAdmin ? (
+        {!isAdmin ? (
+          <SectionPageLayout.Actions>
             <Button
               onClick={handleOpenApplicationDialog}
               disabled={config?.enabled === false}
@@ -263,8 +296,8 @@ export function Invoices() {
               <HugeiconsIcon icon={AddInvoiceIcon} data-icon='inline-start' />
               {t('Apply for an invoice')}
             </Button>
-          ) : null}
-        </SectionPageLayout.Actions>
+          </SectionPageLayout.Actions>
+        ) : null}
         <SectionPageLayout.Content>
           <div className='flex h-full min-h-0 flex-col gap-3'>
             {config && !config.enabled ? (
@@ -294,12 +327,18 @@ export function Invoices() {
                     ? (sendMutation.variables?.id ?? null)
                     : null
                 }
+                deletingId={
+                  deleteMutation.isPending ? deleteMutation.variables : null
+                }
+                refreshing={refreshing}
                 onPageChange={setPage}
                 onPageSizeChange={setPageSize}
                 onKeywordChange={setKeyword}
                 onStatusChange={setStatus}
                 onView={setDetailsTarget}
                 onSend={(application) => sendMutation.mutate(application)}
+                onDelete={setDeleteTarget}
+                onRefresh={() => void handleRefresh()}
               />
             </div>
           </div>
@@ -313,7 +352,9 @@ export function Invoices() {
           config={config}
           orders={eligibleOrders}
           configLoading={configQuery.isLoading}
-          configError={configQuery.isError || configQuery.data?.success === false}
+          configError={
+            configQuery.isError || configQuery.data?.success === false
+          }
           ordersLoading={eligibleOrdersQuery.isLoading}
           ordersError={
             eligibleOrdersQuery.isError ||
@@ -341,7 +382,28 @@ export function Invoices() {
         onReview={(request) => reviewMutation.mutate(request)}
         onPay={(method) => paymentMutation.mutate(method)}
         onUpload={(file) => uploadMutation.mutate(file)}
+        onViewFile={() => void handleViewInvoiceFile()}
         onSend={() => detailsTarget && sendMutation.mutate(detailsTarget)}
+      />
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={t('Confirm delete')}
+        desc={
+          <div className='flex flex-col gap-2'>
+            <span className='text-foreground font-medium'>
+              #{deleteTarget?.id} {deleteTarget?.invoice_title}
+            </span>
+            <span>{t('This action cannot be undone.')}</span>
+          </div>
+        }
+        destructive
+        confirmText={t('Delete')}
+        isLoading={deleteMutation.isPending}
+        handleConfirm={() => {
+          if (deleteTarget) deleteMutation.mutate(deleteTarget.id)
+        }}
       />
     </>
   )

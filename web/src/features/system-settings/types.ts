@@ -352,13 +352,11 @@ export type BillingSettings = {
   'checkin_setting.min_quota': number
   'checkin_setting.max_quota': number
   'invoice_setting.enabled': boolean
-  'invoice_setting.price_includes_tax': boolean
   'invoice_setting.tax_burden_mode': 'included' | 'supplement_by_customer'
   'invoice_setting.minimum_amount': number
   'invoice_setting.application_window_days': number
   'invoice_setting.currency': 'CNY'
   'invoice_setting.invoice_item_name': string
-  'invoice_setting.vat_period_mode': 'per_transaction' | 'monthly_special_case'
   'invoice_setting.vat_threshold_cents': number
   'invoice_setting.vat_rate_basis_points': number
   'invoice_setting.vat_standard_rate_basis_points': number
@@ -370,7 +368,6 @@ export type BillingSettings = {
   'invoice_setting.pit_withholding_enabled': boolean
   'invoice_setting.policy_effective_date': string
   'invoice_setting.policy_notice': string
-  'invoice_setting.policy_source_urls': string
 }
 
 export type OperationsSettings = {

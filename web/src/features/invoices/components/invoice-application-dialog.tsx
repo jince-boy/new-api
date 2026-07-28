@@ -288,13 +288,17 @@ export function InvoiceApplicationDialog(props: InvoiceApplicationDialogProps) {
                     id='invoice-recipient-email'
                     type='email'
                     autoComplete='email'
-                    aria-invalid={Boolean(form.formState.errors.recipient_email)}
+                    aria-invalid={Boolean(
+                      form.formState.errors.recipient_email
+                    )}
                     {...form.register('recipient_email')}
                   />
                   <FieldDescription>
                     {t('The invoice will be sent to this email address.')}
                   </FieldDescription>
-                  <FieldError errors={[form.formState.errors.recipient_email]} />
+                  <FieldError
+                    errors={[form.formState.errors.recipient_email]}
+                  />
                 </Field>
                 <Field
                   data-invalid={Boolean(form.formState.errors.applicant_note)}
@@ -315,6 +319,38 @@ export function InvoiceApplicationDialog(props: InvoiceApplicationDialogProps) {
             </FieldSet>
           </div>
 
+          {props.config ? (
+            <Alert className='mt-6'>
+              <AlertTitle>{t('Policy notice')}</AlertTitle>
+              <AlertDescription>
+                <div className='flex flex-col gap-2'>
+                  <p>{props.config.policy_notice}</p>
+                  <p>
+                    {t('Minimum invoice amount')}:{' '}
+                    {formatInvoiceMoney(
+                      Math.round(props.config.minimum_amount * 100),
+                      props.config.currency
+                    )}
+                    {' · '}
+                    {t('VAT threshold')}:{' '}
+                    {formatInvoiceMoney(
+                      props.config.vat_threshold_cents,
+                      props.config.currency
+                    )}
+                    {' · '}
+                    {t('Current estimated VAT rate')}:{' '}
+                    {props.config.vat_rate_basis_points / 100}%
+                  </p>
+                  <p>
+                    {t(
+                      'The system will estimate VAT, surcharges, and individual income tax withholding after submission. An administrator must verify the estimate and confirm any final tax supplement before payment.'
+                    )}
+                  </p>
+                </div>
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           <DialogFooter className='mt-6'>
             <Button
               type='button'
@@ -327,10 +363,7 @@ export function InvoiceApplicationDialog(props: InvoiceApplicationDialogProps) {
               {props.submitting ? (
                 <Spinner data-icon='inline-start' />
               ) : (
-                <HugeiconsIcon
-                  icon={AddInvoiceIcon}
-                  data-icon='inline-start'
-                />
+                <HugeiconsIcon icon={AddInvoiceIcon} data-icon='inline-start' />
               )}
               {t('Submit application')}
             </Button>

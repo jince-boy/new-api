@@ -18,17 +18,41 @@ const t = ((key: string) => key) as TFunction
 
 const baseRules = {
   enabled: true,
+  taxBurdenMode: 'supplement_by_customer',
   minimumAmount: 0,
   applicationWindowDays: 365,
   currency: 'CNY',
   invoiceItemName: 'AI Agent服务',
+  vatThresholdAmount: 1000,
+  vatRatePercent: 1,
+  vatStandardRatePercent: 3,
+  vatPreferentialEndDate: '2027-12-31',
+  urbanMaintenanceTaxRatePercent: 7,
+  educationSurchargeRatePercent: 3,
+  localEducationRatePercent: 2,
+  surchargeReliefPercent: 50,
+  pitWithholdingEnabled: true,
+  policyEffectiveDate: '2026-01-01',
+  policyNotice: '',
 }
 
 describe('invoice rule validation', () => {
-  test('accepts the invoice application settings required by the workflow', () => {
+  test('accepts a complete individual-service tax policy', () => {
     const result = createInvoiceRuleSchema(t).safeParse(baseRules)
 
     assert.equal(result.success, true)
+  })
+
+  test('rejects a tax rate above one hundred percent', () => {
+    const result = createInvoiceRuleSchema(t).safeParse({
+      ...baseRules,
+      vatRatePercent: 101,
+    })
+
+    assert.equal(result.success, false)
+    if (!result.success) {
+      assert.deepEqual(result.error.issues[0]?.path, ['vatRatePercent'])
+    }
   })
 
   test('rejects a non-CNY invoice currency', () => {

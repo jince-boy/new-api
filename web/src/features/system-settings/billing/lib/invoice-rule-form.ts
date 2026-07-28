@@ -11,8 +11,14 @@ import type { TFunction } from 'i18next'
 import { z } from 'zod'
 
 export function createInvoiceRuleSchema(t: TFunction) {
+  const rate = z.coerce
+    .number()
+    .min(0, t('Tax rate cannot be negative.'))
+    .max(100, t('Tax rate cannot exceed 100%.'))
+
   return z.object({
     enabled: z.boolean(),
+    taxBurdenMode: z.enum(['included', 'supplement_by_customer']),
     minimumAmount: z.coerce
       .number()
       .min(0, t('Minimum invoice amount cannot be negative.')),
@@ -27,13 +33,24 @@ export function createInvoiceRuleSchema(t: TFunction) {
       .toUpperCase()
       .refine(
         (value) => value === 'CNY',
-        t('Currency must be CNY.')
+        t('Currency must be CNY for mainland China tax estimates.')
       ),
     invoiceItemName: z
       .string()
       .trim()
       .min(1, t('Invoice item name is required.'))
       .max(255),
+    vatThresholdAmount: z.coerce.number().min(0),
+    vatRatePercent: rate,
+    vatStandardRatePercent: rate,
+    vatPreferentialEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    urbanMaintenanceTaxRatePercent: rate,
+    educationSurchargeRatePercent: rate,
+    localEducationRatePercent: rate,
+    surchargeReliefPercent: rate,
+    pitWithholdingEnabled: z.boolean(),
+    policyEffectiveDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    policyNotice: z.string().trim().max(4000),
   })
 }
 

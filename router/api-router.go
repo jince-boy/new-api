@@ -210,6 +210,8 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			invoiceAdminRoute.POST("/applications/:id/review", middleware.CriticalRateLimit(), controller.AdminReviewInvoiceApplication)
 			invoiceAdminRoute.POST("/applications/:id/file", middleware.UploadRateLimit(), controller.AdminUploadInvoiceFile)
+			invoiceAdminRoute.GET("/applications/:id/file", controller.GetInvoiceFile)
+			invoiceAdminRoute.DELETE("/applications/:id", middleware.CriticalRateLimit(), controller.AdminDeleteInvoiceApplication)
 		}
 		apiRouter.POST("/invoice/epay/notify", anonymousRequestBodyLimit, controller.InvoiceEpayNotify)
 		apiRouter.GET("/invoice/epay/notify", controller.InvoiceEpayNotify)

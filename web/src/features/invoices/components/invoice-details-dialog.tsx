@@ -7,7 +7,11 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 
-import { Payment01Icon, Upload01Icon } from '@hugeicons/core-free-icons'
+import {
+  Payment01Icon,
+  Upload01Icon,
+  ViewIcon,
+} from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -52,12 +56,30 @@ type InvoiceDetailsDialogProps = {
   onReview: (request: ReviewInvoiceApplicationRequest) => void
   onPay: (paymentMethod: string) => void
   onUpload: (file: File) => void
+  onViewFile: () => void
   onSend: () => void
+}
+
+type InvoiceFileActionProps = {
+  busy: boolean
+  onView: () => void
+}
+
+export function InvoiceFileAction(props: InvoiceFileActionProps) {
+  const { t } = useTranslation()
+
+  return (
+    <Button variant='outline' disabled={props.busy} onClick={props.onView}>
+      <HugeiconsIcon icon={ViewIcon} data-icon='inline-start' />
+      {t('View document')}
+    </Button>
+  )
 }
 
 export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
   const { t } = useTranslation()
   const [finalSupplement, setFinalSupplement] = useState('0.00')
+  const [adjustmentReason, setAdjustmentReason] = useState('')
   const [rejectReason, setRejectReason] = useState('')
   const [note, setNote] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<string | null>(null)
@@ -72,6 +94,7 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
           application.suggested_supplement_cents) / 100
       ).toFixed(2)
     )
+    setAdjustmentReason(application.tax_adjustment_reason || '')
     setRejectReason('')
     setNote(application.admin_note || '')
     setPaymentMethod(props.paymentMethods[0]?.type ?? null)
@@ -84,6 +107,9 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
   const finalSupplementCents = Math.round(Number(finalSupplement) * 100)
   const validFinalSupplement =
     Number.isFinite(finalSupplementCents) && finalSupplementCents >= 0
+  const changedEstimate =
+    validFinalSupplement &&
+    finalSupplementCents !== application.suggested_supplement_cents
   const canUpload =
     props.isAdmin &&
     (application.status === 'approved' || application.status === 'issued')
@@ -142,10 +168,59 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
                   application.currency
                 )}
               </dd>
+              <dt className='text-muted-foreground'>{t('Estimated VAT')}</dt>
+              <dd>
+                {formatInvoiceMoney(
+                  application.estimated_vat_cents,
+                  application.currency
+                )}
+              </dd>
               <dt className='text-muted-foreground'>
-                {t('Tax supplement amount')}
+                {t('Urban maintenance and construction tax')}
               </dt>
               <dd>
+                {formatInvoiceMoney(
+                  application.estimated_urban_tax_cents,
+                  application.currency
+                )}
+              </dd>
+              <dt className='text-muted-foreground'>
+                {t('Education surcharges')}
+              </dt>
+              <dd>
+                {formatInvoiceMoney(
+                  application.estimated_education_surcharge_cents +
+                    application.estimated_local_education_surcharge_cents,
+                  application.currency
+                )}
+              </dd>
+              <dt className='text-muted-foreground'>
+                {t('Estimated individual income tax withholding')}
+              </dt>
+              <dd>
+                {formatInvoiceMoney(
+                  application.estimated_pit_withholding_cents,
+                  application.currency
+                )}
+              </dd>
+              <dt className='font-medium'>{t('Estimated total tax')}</dt>
+              <dd className='font-medium'>
+                {formatInvoiceMoney(
+                  application.estimated_total_tax_cents,
+                  application.currency
+                )}
+              </dd>
+              <dt className='font-medium'>{t('Suggested tax supplement')}</dt>
+              <dd className='font-medium'>
+                {formatInvoiceMoney(
+                  application.suggested_supplement_cents,
+                  application.currency
+                )}
+              </dd>
+              <dt className='font-medium'>
+                {t('Final tax supplement amount')}
+              </dt>
+              <dd className='font-medium'>
                 {formatInvoiceMoney(
                   application.final_supplement_cents,
                   application.currency
@@ -162,13 +237,24 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
           </section>
         </div>
 
+        <Alert>
+          <AlertTitle>
+            {t('Tax estimate requires administrator verification')}
+          </AlertTitle>
+          <AlertDescription>
+            {t(
+              'In customer-borne mode, all enabled estimated taxes are grossed up into the customer supplement. The final amount must follow the competent tax authority, withholding declaration, and tax payment certificate.'
+            )}
+          </AlertDescription>
+        </Alert>
+
         {props.isAdmin && application.status === 'pending_review' ? (
           <section className='flex flex-col gap-4 rounded-lg border p-4'>
             <h3 className='font-medium'>{t('Review invoice application')}</h3>
             <div className='grid gap-4 md:grid-cols-2'>
               <Field data-invalid={!validFinalSupplement}>
                 <FieldLabel htmlFor='invoice-final-supplement'>
-                  {t('Tax supplement amount')}
+                  {t('Final tax supplement amount')}
                 </FieldLabel>
                 <Input
                   id='invoice-final-supplement'
@@ -185,7 +271,28 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
                   )}
                 </FieldDescription>
               </Field>
-              <Field>
+              <Field
+                data-invalid={changedEstimate && adjustmentReason.trim() === ''}
+              >
+                <FieldLabel htmlFor='invoice-adjustment-reason'>
+                  {t('Tax adjustment reason')}
+                </FieldLabel>
+                <Input
+                  id='invoice-adjustment-reason'
+                  value={adjustmentReason}
+                  maxLength={2000}
+                  aria-invalid={
+                    changedEstimate && adjustmentReason.trim() === ''
+                  }
+                  onChange={(event) => setAdjustmentReason(event.target.value)}
+                />
+                <FieldDescription>
+                  {t(
+                    'Required when the final amount differs from the system estimate.'
+                  )}
+                </FieldDescription>
+              </Field>
+              <Field className='md:col-span-2'>
                 <FieldLabel htmlFor='invoice-admin-note'>
                   {t('Admin note')}
                 </FieldLabel>
@@ -216,6 +323,7 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
                 onClick={() =>
                   props.onReview({
                     action: 'reject',
+                    tax_adjustment_reason: '',
                     reason: rejectReason,
                     note,
                   })
@@ -224,11 +332,16 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
                 {t('Reject')}
               </Button>
               <Button
-                disabled={props.busy || !validFinalSupplement}
+                disabled={
+                  props.busy ||
+                  !validFinalSupplement ||
+                  (changedEstimate && adjustmentReason.trim() === '')
+                }
                 onClick={() =>
                   props.onReview({
                     action: 'approve',
                     final_supplement_amount_cents: finalSupplementCents,
+                    tax_adjustment_reason: adjustmentReason,
                     reason: '',
                     note,
                   })
@@ -308,7 +421,9 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
                 : t('Upload and send invoice')}
             </h3>
             <Field>
-              <FieldLabel htmlFor='invoice-file'>{t('Invoice file')}</FieldLabel>
+              <FieldLabel htmlFor='invoice-file'>
+                {t('Invoice file')}
+              </FieldLabel>
               <Input
                 id='invoice-file'
                 type='file'
@@ -346,13 +461,21 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
               <dt className='text-muted-foreground'>{t('Send count')}</dt>
               <dd>{application.invoice_email_send_count}</dd>
             </dl>
-            {emailAction ? (
-              <Button disabled={props.busy} onClick={props.onSend}>
-                {emailAction === 'send'
-                  ? t('Send invoice')
-                  : t('Resend invoice')}
-              </Button>
-            ) : null}
+            <div className='flex flex-wrap gap-2'>
+              {props.isAdmin ? (
+                <InvoiceFileAction
+                  busy={props.busy}
+                  onView={props.onViewFile}
+                />
+              ) : null}
+              {emailAction ? (
+                <Button disabled={props.busy} onClick={props.onSend}>
+                  {emailAction === 'send'
+                    ? t('Send invoice')
+                    : t('Resend invoice')}
+                </Button>
+              ) : null}
+            </div>
           </section>
         ) : null}
 

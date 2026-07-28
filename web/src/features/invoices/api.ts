@@ -91,6 +91,15 @@ export async function reviewInvoiceApplication(
   return response.data
 }
 
+export async function deleteInvoiceApplication(
+  applicationId: number
+): Promise<InvoiceApiResponse<null>> {
+  const response = await api.delete(
+    `/api/invoice/admin/applications/${applicationId}`
+  )
+  return response.data
+}
+
 export async function uploadInvoiceFile(
   applicationId: number,
   file: File
@@ -100,6 +109,16 @@ export async function uploadInvoiceFile(
   const response = await api.post(
     `/api/invoice/admin/applications/${applicationId}/file`,
     body
+  )
+  return response.data
+}
+
+export async function getInvoiceFile(applicationId: number): Promise<Blob> {
+  const response = await api.get(
+    `/api/invoice/admin/applications/${applicationId}/file`,
+    {
+      responseType: 'blob',
+    }
   )
   return response.data
 }
