@@ -94,7 +94,7 @@ func initModelListColumnNames(t *testing.T) {
 	}
 }
 
-func withTieredBillingConfig(t *testing.T, modes map[string]string, exprs map[string]string) {
+func withBillingConfig(t *testing.T, modes map[string]string, exprs map[string]string) {
 	t.Helper()
 
 	saved := map[string]string{}
@@ -267,7 +267,7 @@ func TestGetUserModelsExpandsAutoGroupsInConfiguredOrder(t *testing.T) {
 
 func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 	withSelfUseModeDisabled(t)
-	withTieredBillingConfig(t, map[string]string{
+	withBillingConfig(t, map[string]string{
 		"zz-tiered-visible-model":      "tiered_expr",
 		"zz-tiered-empty-expr-model":   "tiered_expr",
 		"zz-tiered-missing-expr-model": "tiered_expr",
@@ -319,6 +319,49 @@ func TestListModelsIncludesTieredBillingModel(t *testing.T) {
 	require.True(t, ok)
 	require.Empty(t, missingExprPricing.BillingMode)
 	require.Empty(t, missingExprPricing.BillingExpr)
+}
+
+func TestListModelsIncludesPerSecondBillingModel(t *testing.T) {
+	withSelfUseModeDisabled(t)
+	withBillingConfig(t, map[string]string{
+		"zz-per-second-model": "per_second",
+	}, nil)
+
+	savedModelPrices := ratio_setting.ModelPrice2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(savedModelPrices))
+		model.InvalidatePricingCache()
+	})
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"zz-per-second-model":0.02}`))
+	model.InvalidatePricingCache()
+
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&model.User{
+		Id:       1002,
+		Username: "per-second-model-list-user",
+		Password: "password",
+		Group:    "default",
+		Status:   common.UserStatusEnabled,
+	}).Error)
+	require.NoError(t, db.Create(&model.Ability{
+		Group: "default", Model: "zz-per-second-model", ChannelId: 1, Enabled: true,
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	context.Set("id", 1002)
+
+	ListModels(context, constant.ChannelTypeOpenAI)
+
+	ids := decodeListModelsResponse(t, recorder)
+	require.Contains(t, ids, "zz-per-second-model")
+
+	pricing, ok := pricingByModelName(model.GetPricing())["zz-per-second-model"]
+	require.True(t, ok)
+	assert.Equal(t, "per_second", pricing.BillingMode)
+	assert.Equal(t, 0.02, pricing.ModelPrice)
+	assert.Equal(t, 1, pricing.QuotaType)
 }
 
 func TestListModelsUsesAdvancedCustomEndpointTypesFromPricingCache(t *testing.T) {
@@ -394,7 +437,7 @@ func TestListModelsUsesAdvancedCustomEndpointTypesFromPricingCache(t *testing.T)
 
 func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
 	withSelfUseModeDisabled(t)
-	withTieredBillingConfig(t, map[string]string{
+	withBillingConfig(t, map[string]string{
 		"zz-token-tiered-visible-model":      "tiered_expr",
 		"zz-token-tiered-empty-expr-model":   "tiered_expr",
 		"zz-token-tiered-missing-expr-model": "tiered_expr",

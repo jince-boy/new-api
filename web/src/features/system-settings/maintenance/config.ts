@@ -196,7 +196,6 @@ export function parseHeaderNavModules(
         result.docs = parseDocsModule(raw, base.docs)
         return
       }
-
       if (typeof raw === 'boolean') {
         result[key] = raw
         return

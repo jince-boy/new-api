@@ -209,6 +209,8 @@ curl "${BASE_URL}/v1/models" \
 | `openai-video-content` | `/v1/videos/{task_id}/content` |
 | `openai-video-remix` | `/v1/videos/{video_id}/remix` |
 
+模型广场另外通过 `GET /api/pricing` 返回的模型级 `supported_endpoints` 显示实际配置的请求路径和 HTTP 方法。该字段不属于 `GET /v1/models` 响应；模型元数据中配置的自定义路径只覆盖对应模型，不会影响其他模型的接口文档。
+
 ### 3.2 Claude 格式模型列表
 
 同时提供 `x-api-key` 和 `anthropic-version` 时，`GET /v1/models` 返回 Claude 模型列表格式：

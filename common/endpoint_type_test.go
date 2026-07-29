@@ -21,6 +21,7 @@ func TestDefaultEndpointInfoIncludesAllModelConfigurableRoutes(t *testing.T) {
 		{name: "audio translations", endpointType: constant.EndpointTypeAudioTranslations, path: "/v1/audio/translations", method: "POST"},
 		{name: "moderations", endpointType: constant.EndpointTypeModerations, path: "/v1/moderations", method: "POST"},
 		{name: "realtime", endpointType: constant.EndpointTypeRealtime, path: "/v1/realtime", method: "GET"},
+		{name: "OpenAI video", endpointType: constant.EndpointTypeOpenAIVideo, path: "/v1/videos", method: "POST"},
 	}
 
 	for _, tt := range tests {

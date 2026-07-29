@@ -27,7 +27,7 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/models", middleware.UserAuth(), controller.DashboardListModels)
 		apiRouter.GET("/status/test", middleware.AdminAuth(), controller.TestStatus)
 		apiRouter.GET("/notice", controller.GetNotice)
-		apiRouter.GET("/group-chat-qrcode", middleware.DownloadRateLimit(), controller.GetGroupChatQRCode)
+		apiRouter.GET("/group-chat-qrcode", middleware.UserAuth(), middleware.DownloadRateLimit(), controller.GetGroupChatQRCode)
 		apiRouter.GET("/logo", middleware.DownloadRateLimit(), controller.GetLogo)
 		apiRouter.GET("/user-agreement", controller.GetUserAgreement)
 		apiRouter.GET("/privacy-policy", controller.GetPrivacyPolicy)

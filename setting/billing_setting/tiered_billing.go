@@ -10,21 +10,26 @@ import (
 
 const (
 	BillingModeRatio      = "ratio"
+	BillingModePerSecond  = "per_second"
 	BillingModeTieredExpr = "tiered_expr"
 	BillingModeField      = "billing_mode"
 	BillingExprField      = "billing_expr"
+	PerSecondRulesField   = "per_second_rules"
 )
 
 // BillingSetting is managed by config.GlobalConfig.Register.
-// DB keys: billing_setting.billing_mode, billing_setting.billing_expr
+// DB keys: billing_setting.billing_mode, billing_setting.billing_expr,
+// billing_setting.per_second_rules
 type BillingSetting struct {
-	BillingMode map[string]string `json:"billing_mode"`
-	BillingExpr map[string]string `json:"billing_expr"`
+	BillingMode    map[string]string          `json:"billing_mode"`
+	BillingExpr    map[string]string          `json:"billing_expr"`
+	PerSecondRules map[string][]PerSecondRule `json:"per_second_rules"`
 }
 
 var billingSetting = BillingSetting{
-	BillingMode: make(map[string]string),
-	BillingExpr: make(map[string]string),
+	BillingMode:    make(map[string]string),
+	BillingExpr:    make(map[string]string),
+	PerSecondRules: make(map[string][]PerSecondRule),
 }
 
 func init() {

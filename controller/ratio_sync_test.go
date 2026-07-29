@@ -1,14 +1,60 @@
 package controller
 
 import (
+	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
-	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestFetchUpstreamRatiosPreservesPerSecondPricingMode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"success":true,"data":[{"model_name":"video-model","quota_type":1,"model_price":0.02,"billing_mode":"per_second"}]}`))
+	}))
+	t.Cleanup(upstream.Close)
+
+	requestBody, err := common.Marshal(dto.UpstreamRequest{
+		Upstreams: []dto.UpstreamDTO{{
+			Name:    "media-upstream",
+			BaseURL: upstream.URL,
+		}},
+		Timeout:     2,
+		CatalogOnly: true,
+	})
+	require.NoError(t, err)
+
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	context.Request = httptest.NewRequest(http.MethodPost, "/api/ratio_sync/fetch", bytes.NewReader(requestBody))
+	context.Request.Header.Set("Content-Type", "application/json")
+
+	FetchUpstreamRatios(context)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Items []dto.UpstreamPricingItem `json:"items"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+	require.True(t, response.Success)
+	require.Len(t, response.Data.Items, 1)
+	assert.Equal(t, "video-model", response.Data.Items[0].ModelName)
+	assert.Equal(t, billing_setting.BillingModePerSecond, response.Data.Items[0].BillingMode)
+	assert.Equal(t, billing_setting.BillingModePerSecond, response.Data.Items[0].SyncValues[billing_setting.BillingModeField])
+	assert.Equal(t, 0.02, response.Data.Items[0].SyncValues["model_price"])
+}
 
 func TestConvertModelsDevToRatioDataIncludesRichPricing(t *testing.T) {
 	raw := `{

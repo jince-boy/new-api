@@ -76,6 +76,7 @@ import { formatFixedPrice, formatGroupPrice } from '../lib/price'
 import type {
   ModelCapability,
   PriceType,
+  PricingEndpointInfo,
   PricingModel,
   TokenUnit,
 } from '../types'
@@ -717,12 +718,16 @@ function PriceSection(props: {
   }
 
   if (!isTokenBased) {
+    const fixedPriceLabel =
+      props.model.billing_mode === 'per_second'
+        ? t('Per second')
+        : t('Per request')
     return (
       <section>
         <SectionTitle>{priceSectionTitle}</SectionTitle>
         <div className='flex items-baseline justify-between'>
           <span className='text-muted-foreground text-sm'>
-            {t('Per request')}
+            {fixedPriceLabel}
           </span>
           <span className='text-foreground font-mono text-sm font-semibold tabular-nums'>
             {formatFixedPrice(
@@ -1108,7 +1113,10 @@ function GroupPricingSection(props: {
             : [
                 {
                   id: 'price',
-                  header: t('Price'),
+                  header:
+                    props.model.billing_mode === 'per_second'
+                      ? t('Price per second')
+                      : t('Price'),
                   className: `${thClass} text-right`,
                   cellClassName: 'py-2.5 text-right font-mono',
                   cell: renderFixedGroupPrice,
@@ -1143,7 +1151,7 @@ export interface ModelDetailsContentProps {
   model: PricingModel
   groupRatio: Record<string, number>
   usableGroup: Record<string, { desc: string; ratio: number }>
-  endpointMap: Record<string, { path?: string; method?: string }>
+  endpointMap: Record<string, PricingEndpointInfo>
   autoGroups: string[]
   priceRate: number
   usdExchangeRate: number
@@ -1354,12 +1362,7 @@ export function ModelDetails() {
           usdExchangeRate={usdExchangeRate ?? 1}
           tokenUnit={tokenUnit}
           showRechargePrice={search.rechargePrice ?? false}
-          endpointMap={
-            (endpointMap as Record<
-              string,
-              { path?: string; method?: string }
-            >) || {}
-          }
+          endpointMap={endpointMap || {}}
         />
       </div>
     </PublicLayout>

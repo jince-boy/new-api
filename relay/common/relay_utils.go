@@ -2,6 +2,7 @@ package common
 
 import (
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -131,6 +132,60 @@ func GetTaskRequest(c *gin.Context) (TaskSubmitReq, error) {
 		return TaskSubmitReq{}, fmt.Errorf("invalid task request type")
 	}
 	return req, nil
+}
+
+// ResolveTaskDurationSeconds returns the validated duration used by per-second
+// task billing. Standard duration fields take precedence, followed by common
+// metadata aliases used by provider-native video APIs.
+func ResolveTaskDurationSeconds(c *gin.Context) (float64, error) {
+	req, err := GetTaskRequest(c)
+	if err != nil {
+		return 0, fmt.Errorf("per-second billing requires a standard media task request: %w", err)
+	}
+
+	candidates := []any{req.Duration, req.Seconds}
+	if req.Metadata != nil {
+		candidates = append(candidates,
+			req.Metadata["durationSeconds"],
+			req.Metadata["duration"],
+			req.Metadata["seconds"],
+		)
+	}
+
+	for _, candidate := range candidates {
+		var seconds float64
+		switch value := candidate.(type) {
+		case int:
+			seconds = float64(value)
+		case int64:
+			seconds = float64(value)
+		case float64:
+			seconds = value
+		case string:
+			if strings.TrimSpace(value) == "" {
+				continue
+			}
+			parsed, parseErr := strconv.ParseFloat(value, 64)
+			if parseErr != nil {
+				return 0, fmt.Errorf("media duration must be a number of seconds")
+			}
+			seconds = parsed
+		case nil:
+			continue
+		default:
+			return 0, fmt.Errorf("media duration must be a number of seconds")
+		}
+
+		if seconds == 0 {
+			continue
+		}
+		if math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds < 0 || seconds > MaxTaskDurationSeconds {
+			return 0, fmt.Errorf("media duration must be between 1 and %d seconds", MaxTaskDurationSeconds)
+		}
+		return seconds, nil
+	}
+
+	return 0, fmt.Errorf("per-second billing requires duration or seconds in the media task request")
 }
 
 func validatePrompt(prompt string) *dto.TaskError {

@@ -20,6 +20,7 @@ import * as z from 'zod'
 
 import { combineBillingExpr } from '@/features/pricing/lib/billing-expr'
 
+import type { PerSecondRuleDraft } from './per-second-pricing'
 import { formatPricingNumber } from './pricing-format'
 
 export const createModelPricingSchema = (t: (key: string) => string) =>
@@ -39,7 +40,11 @@ export type ModelPricingFormValues = z.infer<
   ReturnType<typeof createModelPricingSchema>
 >
 
-export type PricingMode = 'per-token' | 'per-request' | 'tiered_expr'
+export type PricingMode =
+  | 'per-token'
+  | 'per-request'
+  | 'per-second'
+  | 'tiered_expr'
 
 export type LaneKey =
   | 'completion'
@@ -62,6 +67,7 @@ export type ModelRatioData = {
   billingMode?: PricingMode
   billingExpr?: string
   requestRuleExpr?: string
+  perSecondRules?: PerSecondRuleDraft[]
 }
 
 export type PreviewRow = {
@@ -215,7 +221,8 @@ export function buildPreviewRows(
   promptPrice: string,
   lanePrices: Record<LaneKey, string>,
   laneEnabled: Record<LaneKey, boolean>,
-  t: (key: string) => string
+  t: (key: string) => string,
+  perSecondRules: PerSecondRuleDraft[] = []
 ): PreviewRow[] {
   if (mode === 'tiered_expr') {
     const effectiveExpr = combineBillingExpr(billingExpr, requestRuleExpr)
@@ -236,6 +243,22 @@ export function buildPreviewRows(
         key: 'price',
         label: 'ModelPrice',
         value: values.price || t('Empty'),
+      },
+    ]
+  }
+
+  if (mode === 'per-second') {
+    return [
+      { key: 'mode', label: 'BillingMode', value: 'per_second' },
+      {
+        key: 'price',
+        label: 'ModelPrice',
+        value: values.price || t('Empty'),
+      },
+      {
+        key: 'rules',
+        label: t('Conditional rules'),
+        value: `${perSecondRules.length}`,
       },
     ]
   }

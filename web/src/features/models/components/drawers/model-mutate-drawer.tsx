@@ -78,6 +78,13 @@ import {
   getOptionValue,
 } from '@/features/system-settings/hooks/use-system-options'
 import { useUpdateOption } from '@/features/system-settings/hooks/use-update-option'
+import {
+  normalizePerSecondRules,
+  serializePerSecondRules,
+  validatePerSecondRules,
+  type PerSecondRuleDraft,
+} from '@/features/system-settings/models/per-second-pricing'
+import { PerSecondPricingRulesEditor } from '@/features/system-settings/models/per-second-pricing-rules-editor'
 import { normalizeJsonString } from '@/features/system-settings/models/utils'
 import type { ModelSettings } from '@/features/system-settings/types'
 import { safeJsonParse } from '@/features/system-settings/utils/json-parser'
@@ -120,7 +127,7 @@ const extendedModelFormSchema = z.object({
 
 type ExtendedModelFormValues = z.infer<typeof extendedModelFormSchema>
 
-type PricingMode = 'per-token' | 'per-request'
+type PricingMode = 'per-token' | 'per-request' | 'per-second'
 type PricingSubMode = 'ratio' | 'price'
 
 type PricingFields = Pick<
@@ -141,6 +148,7 @@ type PricingConfig = {
   promptPrice: string
   completionPrice: string
   advancedOpen: boolean
+  perSecondRules: PerSecondRuleDraft[]
 }
 
 const EMPTY_PRICING_FIELDS: PricingFields = {
@@ -159,6 +167,7 @@ const EMPTY_PRICING_CONFIG: PricingConfig = {
   promptPrice: '',
   completionPrice: '',
   advancedOpen: false,
+  perSecondRules: [],
 }
 
 function lookupModelRatio(
@@ -191,6 +200,14 @@ function readPricingConfig(
     settings.AudioCompletionRatio,
     modelName
   )
+  const billingMode = safeJsonParse<Record<string, string>>(
+    settings['billing_setting.billing_mode'],
+    { fallback: {}, silent: true }
+  )[modelName]
+  const perSecondRulesMap = safeJsonParse<Record<string, unknown>>(
+    settings['billing_setting.per_second_rules'],
+    { fallback: {}, silent: true }
+  )
 
   // A fixed per-request price wins outright at billing time (see
   // GetModelRatioOrPrice), so a name that has one is shown, and saved back, as
@@ -198,8 +215,12 @@ function readPricingConfig(
   if (price !== undefined && price !== null) {
     return {
       ...EMPTY_PRICING_CONFIG,
-      mode: 'per-request',
+      mode: billingMode === 'per_second' ? 'per-second' : 'per-request',
       fields: { ...EMPTY_PRICING_FIELDS, price: price.toString() },
+      perSecondRules:
+        billingMode === 'per_second'
+          ? normalizePerSecondRules(perSecondRulesMap[modelName])
+          : [],
     }
   }
 
@@ -234,6 +255,7 @@ function readPricingConfig(
       audioRatio,
       audioCompletionRatio,
     ].some((value) => value !== undefined && value !== null),
+    perSecondRules: [],
   }
 }
 
@@ -353,7 +375,7 @@ function formatEndpointSelection(
 
   const config = Object.fromEntries(customEntries)
   selected.forEach((endpointType, index) => {
-    if (!Object.prototype.hasOwnProperty.call(config, endpointType)) {
+    if (!Object.hasOwn(config, endpointType)) {
       config[String(index)] = endpointType
     }
   })
@@ -365,7 +387,9 @@ function getEndpointLabel(
   endpoint: EndpointOption,
   t: (key: string) => string
 ) {
-  if (endpoint.labelKeys) return endpoint.labelKeys.map((key) => t(key)).join(' ')
+  if (endpoint.labelKeys) {
+    return endpoint.labelKeys.map((key) => t(key)).join(' ')
+  }
   return endpoint.labelKey ? t(endpoint.labelKey) : endpoint.label
 }
 
@@ -384,6 +408,7 @@ export function ModelMutateDrawer({
   const [advancedOpen, setAdvancedOpen] = useState(false)
   const [promptPrice, setPromptPrice] = useState('')
   const [completionPrice, setCompletionPrice] = useState('')
+  const [perSecondRules, setPerSecondRules] = useState<PerSecondRuleDraft[]>([])
   const [oldModelName, setOldModelName] = useState<string>('')
   // Model name whose pricing was read into the form when the drawer opened.
   // Submit may only rewrite pricing for this name, or for a name the user
@@ -450,6 +475,7 @@ export function ModelMutateDrawer({
       ExposeRatioEnabled: false,
       'billing_setting.billing_mode': '{}',
       'billing_setting.billing_expr': '{}',
+      'billing_setting.per_second_rules': '{}',
       'tool_price_setting.prices': '{}',
       TopupGroupRatio: '',
       GroupRatio: '',
@@ -562,6 +588,7 @@ export function ModelMutateDrawer({
       setPromptPrice(pricing.promptPrice)
       setCompletionPrice(pricing.completionPrice)
       setAdvancedOpen(pricing.advancedOpen)
+      setPerSecondRules(pricing.perSecondRules)
       form.reset({
         id: model.id,
         model_name: model.model_name,
@@ -588,6 +615,7 @@ export function ModelMutateDrawer({
       setPromptPrice(pricing.promptPrice)
       setCompletionPrice(pricing.completionPrice)
       setAdvancedOpen(pricing.advancedOpen)
+      setPerSecondRules(pricing.perSecondRules)
       form.reset({
         model_name: modelName,
         description: '',
@@ -607,6 +635,23 @@ export function ModelMutateDrawer({
     async (values: ExtendedModelFormValues): Promise<void> => {
       setIsSubmitting(true)
       try {
+        if (pricingMode === 'per-request' || pricingMode === 'per-second') {
+          const unitPrice = Number(values.price)
+          if (!values.price || !Number.isFinite(unitPrice) || unitPrice < 0) {
+            toast.error(t('A valid non-negative price is required.'))
+            return
+          }
+        }
+
+        const rulesError =
+          pricingMode === 'per-second'
+            ? validatePerSecondRules(perSecondRules)
+            : null
+        if (rulesError) {
+          toast.error(t(rulesError))
+          return
+        }
+
         const submitData = {
           ...values,
           id: isEditing ? currentModelId : undefined,
@@ -636,7 +681,7 @@ export function ModelMutateDrawer({
           // Handle ratio configuration updates in system settings
           const finalModelName = values.model_name
           const hasRatioConfig =
-            (pricingMode === 'per-request' &&
+            ((pricingMode === 'per-request' || pricingMode === 'per-second') &&
               values.price &&
               values.price !== '') ||
             (pricingMode === 'per-token' &&
@@ -679,6 +724,16 @@ export function ModelMutateDrawer({
               modelSettings.AudioCompletionRatio,
               { fallback: {}, silent: true }
             )
+            const billingModeMap = safeJsonParse<Record<string, string>>(
+              modelSettings['billing_setting.billing_mode'],
+              { fallback: {}, silent: true }
+            )
+            const perSecondRulesMap = safeJsonParse<
+              Record<string, ReturnType<typeof serializePerSecondRules>>
+            >(modelSettings['billing_setting.per_second_rules'], {
+              fallback: {},
+              silent: true,
+            })
 
             // Remove old model name entries if model name changed (always, even if no new config)
             if (isEditing && oldModelName && oldModelName !== finalModelName) {
@@ -689,6 +744,10 @@ export function ModelMutateDrawer({
               delete imageMap[oldModelName]
               delete audioMap[oldModelName]
               delete audioCompletionMap[oldModelName]
+              if (billingModeMap[oldModelName] === 'per_second') {
+                delete billingModeMap[oldModelName]
+              }
+              delete perSecondRulesMap[oldModelName]
             }
 
             // Rebuild this model name's entries from the form, but only when
@@ -708,16 +767,31 @@ export function ModelMutateDrawer({
               delete imageMap[finalModelName]
               delete audioMap[finalModelName]
               delete audioCompletionMap[finalModelName]
+              if (
+                billingModeMap[finalModelName] === 'per_second' ||
+                pricingMode === 'per-second'
+              ) {
+                delete billingModeMap[finalModelName]
+              }
+              delete perSecondRulesMap[finalModelName]
             }
 
             // Only add new entries if user provided new configuration
             if (hasRatioConfig) {
               if (
-                pricingMode === 'per-request' &&
+                (pricingMode === 'per-request' ||
+                  pricingMode === 'per-second') &&
                 values.price &&
                 values.price !== ''
               ) {
                 priceMap[finalModelName] = Number.parseFloat(values.price)
+                if (pricingMode === 'per-second') {
+                  billingModeMap[finalModelName] = 'per_second'
+                  if (perSecondRules.length > 0) {
+                    perSecondRulesMap[finalModelName] =
+                      serializePerSecondRules(perSecondRules)
+                  }
+                }
               } else if (pricingMode === 'per-token') {
                 if (values.ratio && values.ratio !== '') {
                   ratioMap[finalModelName] = Number.parseFloat(values.ratio)
@@ -817,6 +891,34 @@ export function ModelMutateDrawer({
               })
             }
 
+            const newBillingMode = normalizeJsonString(
+              JSON.stringify(billingModeMap)
+            )
+            if (
+              newBillingMode !==
+              normalizeJsonString(modelSettings['billing_setting.billing_mode'])
+            ) {
+              updates.push({
+                key: 'billing_setting.billing_mode',
+                value: newBillingMode,
+              })
+            }
+
+            const newPerSecondRules = normalizeJsonString(
+              JSON.stringify(perSecondRulesMap)
+            )
+            if (
+              newPerSecondRules !==
+              normalizeJsonString(
+                modelSettings['billing_setting.per_second_rules']
+              )
+            ) {
+              updates.push({
+                key: 'billing_setting.per_second_rules',
+                value: newPerSecondRules,
+              })
+            }
+
             // Apply all updates (including deletions when clearing fields)
             for (const update of updates) {
               await updateOption.mutateAsync(update)
@@ -829,7 +931,9 @@ export function ModelMutateDrawer({
               : t('Model created successfully')
           )
           await Promise.all([
-            queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() }),
+            queryClient.invalidateQueries({
+              queryKey: modelsQueryKeys.lists(),
+            }),
             queryClient.invalidateQueries({ queryKey: ['system-options'] }),
             queryClient.invalidateQueries({ queryKey: pricingQueryKeys.all }),
           ])
@@ -852,6 +956,7 @@ export function ModelMutateDrawer({
       oldModelName,
       loadedPricingName,
       modelSettings,
+      perSecondRules,
       updateOption,
       t,
     ]
@@ -1206,38 +1311,61 @@ export function ModelMutateDrawer({
                       {t('Per-request (fixed price)')}
                     </Label>
                   </div>
+                  <div className='flex items-center space-x-2'>
+                    <RadioGroupItem value='per-second' id='per-second' />
+                    <Label htmlFor='per-second' className='font-normal'>
+                      {t('Per-second (media duration)')}
+                    </Label>
+                  </div>
                 </RadioGroup>
               </div>
 
-              {pricingMode === 'per-request' ? (
-                <FormField
-                  control={form.control}
-                  name='price'
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>{t('Fixed price (USD)')}</FormLabel>
-                      <FormControl>
-                        <Input
-                          type='text'
-                          placeholder='0.01'
-                          {...field}
-                          onChange={(e) => {
-                            const value = e.target.value
-                            if (validateNumber(value)) {
-                              field.onChange(value)
-                            }
-                          }}
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        {t(
-                          'Cost in USD per request, regardless of tokens used.'
-                        )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
+              {pricingMode === 'per-request' || pricingMode === 'per-second' ? (
+                <>
+                  <FormField
+                    control={form.control}
+                    name='price'
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          {pricingMode === 'per-second'
+                            ? t('Price per second (USD)')
+                            : t('Fixed price (USD)')}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type='text'
+                            placeholder='0.01'
+                            {...field}
+                            onChange={(e) => {
+                              const value = e.target.value
+                              if (validateNumber(value)) {
+                                field.onChange(value)
+                              }
+                            }}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {pricingMode === 'per-second'
+                            ? t(
+                                'Cost in USD per generated second. The media task request must include duration or seconds.'
+                              )
+                            : t(
+                                'Cost in USD per request, regardless of tokens used.'
+                              )}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {pricingMode === 'per-second' && (
+                    <PerSecondPricingRulesEditor
+                      rules={perSecondRules}
+                      error={validatePerSecondRules(perSecondRules)}
+                      onChange={setPerSecondRules}
+                    />
                   )}
-                />
+                </>
               ) : (
                 <>
                   <div className='space-y-4'>

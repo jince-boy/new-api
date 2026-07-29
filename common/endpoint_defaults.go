@@ -33,6 +33,7 @@ var defaultEndpointInfoMap = map[constant.EndpointType]EndpointInfo{
 	constant.EndpointTypeAudioTranslations:     {Path: "/v1/audio/translations", Method: "POST"},
 	constant.EndpointTypeModerations:           {Path: "/v1/moderations", Method: "POST"},
 	constant.EndpointTypeRealtime:              {Path: "/v1/realtime", Method: "GET"},
+	constant.EndpointTypeOpenAIVideo:           {Path: "/v1/videos", Method: "POST"},
 }
 
 // GetDefaultEndpointInfo 返回指定端点类型的默认信息以及是否存在

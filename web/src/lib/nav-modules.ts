@@ -148,7 +148,6 @@ export function parseHeaderNavModules(raw: unknown): HeaderNavModules {
       result.docs = parseDocs(value, result.docs)
       return
     }
-
     const fallback = result[key]
     if (
       typeof fallback === 'boolean' ||

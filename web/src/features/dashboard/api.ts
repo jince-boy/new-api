@@ -29,6 +29,13 @@ import type {
 // Dashboard APIs
 // ============================================================================
 
+export async function getGroupChatQRCodeImage(): Promise<Blob> {
+  const response = await api.get<Blob>('/api/group-chat-qrcode', {
+    responseType: 'blob',
+  })
+  return response.data
+}
+
 // ----------------------------------------------------------------------------
 // Quota & Usage Data
 // ----------------------------------------------------------------------------

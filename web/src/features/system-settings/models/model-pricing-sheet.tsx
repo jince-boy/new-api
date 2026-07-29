@@ -80,6 +80,11 @@ import {
   type PricingMode,
 } from './model-pricing-core'
 import { PriceInput, PriceLane } from './model-pricing-inputs'
+import {
+  validatePerSecondRules,
+  type PerSecondRuleDraft,
+} from './per-second-pricing'
+import { PerSecondPricingRulesEditor } from './per-second-pricing-rules-editor'
 import { formatPricingNumber } from './pricing-format'
 import { TieredPricingEditor } from './tiered-pricing-editor'
 
@@ -155,6 +160,7 @@ export const ModelPricingEditorPanel = forwardRef<
   })
   const [billingExpr, setBillingExpr] = useState('')
   const [requestRuleExpr, setRequestRuleExpr] = useState('')
+  const [perSecondRules, setPerSecondRules] = useState<PerSecondRuleDraft[]>([])
   const [editorReloadToken, setEditorReloadToken] = useState(0)
   const isEditMode = !!editData
 
@@ -188,15 +194,18 @@ export const ModelPricingEditorPanel = forwardRef<
         audioRatio: editData.audioRatio || '',
         audioCompletionRatio: editData.audioCompletionRatio || '',
       })
-      setPricingMode(
-        editData.billingMode === 'tiered_expr'
-          ? 'tiered_expr'
-          : editData.price
-            ? 'per-request'
-            : 'per-token'
-      )
+      let nextPricingMode: PricingMode = 'per-token'
+      if (editData.billingMode === 'tiered_expr') {
+        nextPricingMode = 'tiered_expr'
+      } else if (editData.billingMode === 'per-second') {
+        nextPricingMode = 'per-second'
+      } else if (editData.price) {
+        nextPricingMode = 'per-request'
+      }
+      setPricingMode(nextPricingMode)
       setBillingExpr(editData.billingExpr || '')
       setRequestRuleExpr(editData.requestRuleExpr || '')
+      setPerSecondRules(editData.perSecondRules || [])
     } else {
       form.reset({
         name: '',
@@ -212,6 +221,7 @@ export const ModelPricingEditorPanel = forwardRef<
       setPricingMode('per-token')
       setBillingExpr('')
       setRequestRuleExpr('')
+      setPerSecondRules([])
     }
 
     setPromptPrice(nextLaneState.promptPrice)
@@ -351,13 +361,15 @@ export const ModelPricingEditorPanel = forwardRef<
         promptPrice,
         lanePrices,
         laneEnabled,
-        t
+        t,
+        perSecondRules
       ),
     [
       billingExpr,
       laneEnabled,
       lanePrices,
       pricingMode,
+      perSecondRules,
       promptPrice,
       requestRuleExpr,
       t,
@@ -410,7 +422,25 @@ export const ModelPricingEditorPanel = forwardRef<
     return nextWarnings
   }, [editData, laneEnabled, lanePrices, pricingMode, promptPrice, t])
 
+  const perSecondRulesError =
+    pricingMode === 'per-second' ? validatePerSecondRules(perSecondRules) : null
+
   const validatePricingValues = useCallback(() => {
+    if (
+      (pricingMode === 'per-request' || pricingMode === 'per-second') &&
+      (toNumberOrNull(form.getValues('price')) === null ||
+        Number(form.getValues('price')) < 0)
+    ) {
+      form.setError('price', {
+        message: t('A valid non-negative price is required.'),
+      })
+      return false
+    }
+
+    if (pricingMode === 'per-second' && perSecondRulesError) {
+      return false
+    }
+
     if (
       pricingMode === 'per-token' &&
       toNumberOrNull(promptPrice) === null &&
@@ -436,7 +466,15 @@ export const ModelPricingEditorPanel = forwardRef<
     }
 
     return true
-  }, [form, laneEnabled, lanePrices, pricingMode, promptPrice, t])
+  }, [
+    form,
+    laneEnabled,
+    lanePrices,
+    perSecondRulesError,
+    pricingMode,
+    promptPrice,
+    t,
+  ])
 
   const buildSubmitData = useCallback(
     (values: ModelPricingFormValues) => {
@@ -457,10 +495,13 @@ export const ModelPricingEditorPanel = forwardRef<
         data.billingExpr = billingExpr
         data.requestRuleExpr = requestRuleExpr
       }
+      if (pricingMode === 'per-second') {
+        data.perSecondRules = perSecondRules
+      }
 
       return data
     },
-    [billingExpr, pricingMode, requestRuleExpr]
+    [billingExpr, perSecondRules, pricingMode, requestRuleExpr]
   )
 
   useImperativeHandle(
@@ -544,12 +585,15 @@ export const ModelPricingEditorPanel = forwardRef<
                   onValueChange={handleModeChange}
                   className='gap-4'
                 >
-                  <TabsList className='grid w-full grid-cols-3'>
+                  <TabsList className='grid w-full grid-cols-4'>
                     <TabsTrigger value='per-token'>
                       {t('Per-token')}
                     </TabsTrigger>
                     <TabsTrigger value='per-request'>
                       {t('Per-request')}
+                    </TabsTrigger>
+                    <TabsTrigger value='per-second'>
+                      {t('Per-second')}
                     </TabsTrigger>
                     <TabsTrigger value='tiered_expr'>
                       {t('Expression')}
@@ -635,6 +679,52 @@ export const ModelPricingEditorPanel = forwardRef<
                             </Field>
                           </FormItem>
                         )}
+                      />
+                    </FieldGroup>
+                  </TabsContent>
+
+                  <TabsContent value='per-second' className='pt-0'>
+                    <FieldGroup className='gap-5'>
+                      <FormField
+                        control={form.control}
+                        name='price'
+                        render={({ field }) => (
+                          <FormItem className='contents'>
+                            <Field>
+                              <FieldLabel>{t('Price per second')}</FieldLabel>
+                              <FormControl>
+                                <InputGroup>
+                                  <InputGroupAddon>$</InputGroupAddon>
+                                  <InputGroupInput
+                                    inputMode='decimal'
+                                    placeholder='0.02'
+                                    {...field}
+                                    onChange={(event) => {
+                                      const value = event.target.value
+                                      if (numericDraftRegex.test(value)) {
+                                        field.onChange(value)
+                                      }
+                                    }}
+                                  />
+                                  <InputGroupAddon align='inline-end'>
+                                    {t('per second')}
+                                  </InputGroupAddon>
+                                </InputGroup>
+                              </FormControl>
+                              <FieldDescription>
+                                {t(
+                                  'Cost in USD per generated second. The media task request must include duration or seconds.'
+                                )}
+                              </FieldDescription>
+                              <FormMessage />
+                            </Field>
+                          </FormItem>
+                        )}
+                      />
+                      <PerSecondPricingRulesEditor
+                        rules={perSecondRules}
+                        error={perSecondRulesError}
+                        onChange={setPerSecondRules}
                       />
                     </FieldGroup>
                   </TabsContent>

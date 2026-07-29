@@ -140,3 +140,59 @@ func TestTaskDurationBounds(t *testing.T) {
 		})
 	}
 }
+
+func TestResolveTaskDurationSecondsUsesStandardAndMetadataFields(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	tests := []struct {
+		name    string
+		request TaskSubmitReq
+		want    float64
+		wantErr string
+	}{
+		{
+			name:    "standard duration",
+			request: TaskSubmitReq{Duration: 12},
+			want:    12,
+		},
+		{
+			name:    "seconds string",
+			request: TaskSubmitReq{Seconds: "7.5"},
+			want:    7.5,
+		},
+		{
+			name: "provider metadata duration",
+			request: TaskSubmitReq{Metadata: map[string]any{
+				"durationSeconds": float64(8),
+			}},
+			want: 8,
+		},
+		{
+			name:    "missing duration",
+			request: TaskSubmitReq{},
+			wantErr: "requires duration or seconds",
+		},
+		{
+			name: "metadata duration is bounded",
+			request: TaskSubmitReq{Metadata: map[string]any{
+				"durationSeconds": float64(MaxTaskDurationSeconds + 1),
+			}},
+			wantErr: "must be between",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			context, _ := gin.CreateTestContext(httptest.NewRecorder())
+			context.Set("task_request", tt.request)
+
+			got, err := ResolveTaskDurationSeconds(context)
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

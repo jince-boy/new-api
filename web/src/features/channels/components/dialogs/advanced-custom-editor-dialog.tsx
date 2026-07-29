@@ -17,18 +17,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
-  ArrowDown,
-  ArrowDownToLine,
-  ArrowRight,
-  ArrowUp,
-  Check,
-  Info,
-  Plus,
-  Shuffle,
-  Trash2,
-  type LucideIcon,
-} from 'lucide-react'
-import { type ReactNode, useMemo, useRef, useState } from 'react'
+  Add01Icon,
+  ArrowDown01Icon,
+  ArrowDownToLineIcon,
+  ArrowRight01Icon,
+  ArrowUp01Icon,
+  CheckmarkCircle02Icon,
+  CodeIcon,
+  Delete02Icon,
+  InformationCircleIcon,
+  MagicWand01Icon,
+  Route01Icon,
+} from '@hugeicons/core-free-icons'
+import { HugeiconsIcon } from '@hugeicons/react'
+import { type ComponentProps, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -37,6 +39,20 @@ import { JsonCodeEditor } from '@/components/json-code-editor'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card'
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
 import {
   Popover,
@@ -54,7 +70,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Tooltip,
   TooltipContent,
@@ -110,8 +126,6 @@ type AdvancedCustomEditMode = 'visual' | 'json'
 const longSelectContentClass = 'w-[360px] max-w-[calc(100vw-2rem)]'
 const longSelectItemClass =
   'items-start py-2 [&_[data-slot=select-item-text]]:min-w-0 [&_[data-slot=select-item-text]]:shrink [&_[data-slot=select-item-text]]:whitespace-normal'
-const routeEditorGridClassName =
-  'lg:grid-cols-[6rem_minmax(0,1fr)_minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,0.85fr)_7rem]'
 const upstreamPathDescriptionKey =
   'Use a path to append it to the channel Base URL, or enter a full URL to override the Base URL for this route.'
 const catchAllOrderErrorMessage =
@@ -511,12 +525,14 @@ export function AdvancedCustomEditorDialog({
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title={t('Advanced Custom Routes')}
-      description={t('Advanced Custom')}
-      contentClassName='flex max-h-[90vh] flex-col gap-0 p-0 sm:max-w-5xl'
+      title={t('Configure advanced custom routing')}
+      description={t(
+        'Choose a starter template, then describe which client requests should be sent to each upstream API.'
+      )}
+      contentClassName='flex max-h-[94vh] flex-col gap-0 p-0 sm:max-w-6xl'
       headerClassName='border-b px-6 py-4'
       footerClassName='border-t px-6 py-4'
-      contentHeight='70vh'
+      contentHeight='76vh'
       footer={
         <>
           <Button
@@ -527,210 +543,302 @@ export function AdvancedCustomEditorDialog({
             {t('Cancel')}
           </Button>
           <Button type='button' onClick={saveConfig}>
-            <Check data-icon='inline-start' />
+            <HugeiconsIcon
+              icon={CheckmarkCircle02Icon}
+              data-icon='inline-start'
+            />
             {t('Save changes')}
           </Button>
         </>
       }
     >
-      <div className='bg-muted/30 border-b px-4 py-3'>
-        <div className='flex flex-wrap items-center gap-2'>
-          <span className='text-muted-foreground text-xs font-medium'>
-            {t('Mode')}
-          </span>
-          <Button
-            type='button'
-            variant={editMode === 'visual' ? 'default' : 'outline'}
-            size='sm'
-            onClick={switchToVisualMode}
-          >
-            {t('Visual')}
-          </Button>
-          <Button
-            type='button'
-            variant={editMode === 'json' ? 'default' : 'outline'}
-            size='sm'
-            onClick={switchToJsonMode}
-          >
-            {t('JSON Text')}
-          </Button>
-
-          <div className='bg-border mx-1 h-5 w-px' />
-
-          <span className='text-muted-foreground text-xs font-medium'>
-            {t('Template')}
-          </span>
-          <Select
-            value={templateKey}
-            onValueChange={(nextValue) =>
-              setTemplateKey(
-                nextValue || ADVANCED_CUSTOM_TEMPLATE_OPTIONS[0]?.value || ''
-              )
-            }
-          >
-            <SelectTrigger className='h-8 max-w-full min-w-[260px] flex-1 sm:w-[320px]'>
-              <SelectValue className='min-w-0 truncate'>
-                {t(templateLabel)}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent
-              alignItemWithTrigger={false}
-              className={longSelectContentClass}
-            >
-              <SelectGroup>
-                {ADVANCED_CUSTOM_TEMPLATE_OPTIONS.map((option) => (
-                  <SelectItem
-                    key={option.value}
-                    value={option.value}
-                    className={longSelectItemClass}
-                  >
-                    <span className='min-w-0 leading-snug break-words whitespace-normal'>
-                      {t(option.label)}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          <Button
-            type='button'
-            variant='outline'
-            size='sm'
-            onClick={() => applyTemplate('fill')}
-          >
-            {t('Fill Template')}
-          </Button>
-          <Button
-            type='button'
-            variant='ghost'
-            size='sm'
-            onClick={() => applyTemplate('append')}
-          >
-            {t('Append Template')}
-          </Button>
+      <Tabs
+        value={editMode}
+        onValueChange={(nextMode) => {
+          if (nextMode === 'visual') {
+            switchToVisualMode()
+            return
+          }
+          switchToJsonMode()
+        }}
+        className='gap-0'
+      >
+        <div className='bg-muted/20 border-b px-5 py-3'>
+          <TabsList aria-label={t('Mode')}>
+            <TabsTrigger value='visual'>
+              <HugeiconsIcon icon={Route01Icon} data-icon='inline-start' />
+              {t('Guided setup')}
+            </TabsTrigger>
+            <TabsTrigger value='json'>
+              <HugeiconsIcon icon={CodeIcon} data-icon='inline-start' />
+              {t('JSON Text')}
+            </TabsTrigger>
+          </TabsList>
         </div>
-      </div>
 
-      {editMode === 'visual' ? (
-        <div className='flex flex-col gap-4 p-4 lg:gap-3'>
-          <div className='flex justify-end border-y py-4 lg:py-2'>
-            <Select
-              items={availableIncomingPathOptions}
-              value={null}
-              onValueChange={(incomingPath) => {
-                if (typeof incomingPath === 'string') {
-                  addRoute(incomingPath)
-                }
-              }}
-            >
-              <SelectTrigger
-                size='sm'
-                disabled={availableIncomingPathOptions.length === 0}
-              >
-                <Plus data-icon='inline-start' />
-                <SelectValue placeholder={t('Add route')} />
-              </SelectTrigger>
-              <SelectContent
-                align='end'
-                alignItemWithTrigger={false}
-                className={longSelectContentClass}
-              >
-                <SelectGroup>
-                  {availableIncomingPathOptions.map((option) => (
-                    <SelectItem
-                      key={option.value}
-                      value={option.value}
-                      className={longSelectItemClass}
-                    >
-                      <div className='flex min-w-0 flex-col gap-1 leading-snug whitespace-normal'>
-                        <span>{option.label}</span>
-                        <span className='text-muted-foreground font-mono text-xs break-all'>
-                          {option.value}
-                        </span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </div>
+        <TabsContent value='visual'>
+          <div className='flex flex-col gap-5 p-5'>
+            <RouteSetupGuide />
 
-          {validationError ? (
-            <Alert variant='destructive'>
-              <AlertDescription className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
-                <span>
-                  {validationError.routeIndex !== undefined
-                    ? `${t('Route')} ${validationError.routeIndex + 1}: `
-                    : ''}
-                  {t(validationError.message)}
-                </span>
-                {canFixCatchAllOrder ? (
-                  <Button
-                    type='button'
-                    variant='outline'
-                    size='sm'
-                    onClick={fixCatchAllOrder}
+            <Card size='sm'>
+              <CardHeader>
+                <CardTitle className='flex items-center gap-2'>
+                  <HugeiconsIcon icon={MagicWand01Icon} aria-hidden='true' />
+                  {t('Start from a provider template')}
+                </CardTitle>
+                <CardDescription>
+                  {t(
+                    'Templates fill common routes for you. You can adjust every field before saving.'
+                  )}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className='grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto] lg:items-end'>
+                <Field>
+                  <FieldLabel>{t('Template')}</FieldLabel>
+                  <Select
+                    items={ADVANCED_CUSTOM_TEMPLATE_OPTIONS}
+                    value={templateKey}
+                    onValueChange={(nextValue) =>
+                      setTemplateKey(
+                        nextValue ||
+                          ADVANCED_CUSTOM_TEMPLATE_OPTIONS[0]?.value ||
+                          ''
+                      )
+                    }
                   >
-                    {t('Fix order')}
-                  </Button>
-                ) : null}
+                    <SelectTrigger className='w-full'>
+                      <SelectValue className='min-w-0 truncate'>
+                        {t(templateLabel)}
+                      </SelectValue>
+                    </SelectTrigger>
+                    <SelectContent
+                      alignItemWithTrigger={false}
+                      className={longSelectContentClass}
+                    >
+                      <SelectGroup>
+                        {ADVANCED_CUSTOM_TEMPLATE_OPTIONS.map((option) => (
+                          <SelectItem
+                            key={option.value}
+                            value={option.value}
+                            className={longSelectItemClass}
+                          >
+                            <span className='min-w-0 leading-snug break-words whitespace-normal'>
+                              {t(option.label)}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Button
+                  type='button'
+                  variant='outline'
+                  onClick={() => applyTemplate('fill')}
+                >
+                  {t('Fill Template')}
+                </Button>
+                <Button
+                  type='button'
+                  variant='ghost'
+                  onClick={() => applyTemplate('append')}
+                >
+                  {t('Append Template')}
+                </Button>
+              </CardContent>
+            </Card>
+
+            {validationError ? (
+              <Alert variant='destructive'>
+                <AlertDescription className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>
+                  <span>
+                    {validationError.routeIndex !== undefined
+                      ? `${t('Route')} ${validationError.routeIndex + 1}: `
+                      : ''}
+                    {t(validationError.message)}
+                  </span>
+                  {canFixCatchAllOrder ? (
+                    <Button
+                      type='button'
+                      variant='outline'
+                      size='sm'
+                      onClick={fixCatchAllOrder}
+                    >
+                      {t('Fix order')}
+                    </Button>
+                  ) : null}
+                </AlertDescription>
+              </Alert>
+            ) : null}
+
+            <div className='flex flex-col gap-3'>
+              <div className='flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between'>
+                <div>
+                  <h3 className='text-base font-semibold'>
+                    {t('Public API endpoints')}
+                  </h3>
+                  <p className='text-muted-foreground mt-1 max-w-2xl text-sm'>
+                    {t(
+                      'Each endpoint receives one kind of client request. Add provider routes inside it to decide where matching models go.'
+                    )}
+                  </p>
+                </div>
+                <Select
+                  items={availableIncomingPathOptions}
+                  value={null}
+                  onValueChange={(incomingPath) => {
+                    if (typeof incomingPath === 'string') {
+                      addRoute(incomingPath)
+                    }
+                  }}
+                >
+                  <SelectTrigger
+                    size='sm'
+                    disabled={availableIncomingPathOptions.length === 0}
+                  >
+                    <HugeiconsIcon icon={Add01Icon} data-icon='inline-start' />
+                    <SelectValue placeholder={t('Add endpoint')} />
+                  </SelectTrigger>
+                  <SelectContent
+                    align='end'
+                    alignItemWithTrigger={false}
+                    className={longSelectContentClass}
+                  >
+                    <SelectGroup>
+                      {availableIncomingPathOptions.map((option) => (
+                        <SelectItem
+                          key={option.value}
+                          value={option.value}
+                          className={longSelectItemClass}
+                        >
+                          <div className='flex min-w-0 flex-col gap-1 leading-snug whitespace-normal'>
+                            <span>{option.label}</span>
+                            <span className='text-muted-foreground font-mono text-xs break-all'>
+                              {option.value}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className='flex flex-col gap-4'>
+                {routeGroups.map((routeGroup) => (
+                  <RouteGroupEditor
+                    key={
+                      routeGroup.incomingPath || 'advanced-custom-empty-path'
+                    }
+                    group={routeGroup}
+                    usedIncomingPaths={usedIncomingPaths}
+                    validationError={validationError}
+                    onAddRoute={() =>
+                      addRouteForIncomingPath(routeGroup.incomingPath)
+                    }
+                    onIncomingPathChange={(nextIncomingPath) =>
+                      updateGroupIncomingPath(routeGroup, nextIncomingPath)
+                    }
+                    onMoveRoute={(index, direction) =>
+                      moveRouteWithinGroup(index, direction)
+                    }
+                    onMoveRouteToEnd={moveRouteToGroupEnd}
+                    onRemoveRoute={removeRoute}
+                    onRouteChange={updateRoute}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+
+        <TabsContent value='json'>
+          <div className='flex flex-col gap-3 p-5'>
+            <Alert>
+              <AlertDescription>
+                {t(
+                  'Use the JSON editor when you need to copy a complete configuration or edit advanced values directly.'
+                )}
               </AlertDescription>
             </Alert>
-          ) : null}
-
-          <p className='text-muted-foreground bg-muted/30 hidden rounded-md border px-3 py-2 text-xs leading-relaxed lg:block'>
-            {t(upstreamPathDescriptionKey)}
-          </p>
-
-          <div className='flex flex-col gap-4'>
-            {routeGroups.map((routeGroup) => (
-              <RouteGroupEditor
-                key={routeGroup.incomingPath || 'advanced-custom-empty-path'}
-                group={routeGroup}
-                usedIncomingPaths={usedIncomingPaths}
-                validationError={validationError}
-                onAddRoute={() =>
-                  addRouteForIncomingPath(routeGroup.incomingPath)
-                }
-                onIncomingPathChange={(nextIncomingPath) =>
-                  updateGroupIncomingPath(routeGroup, nextIncomingPath)
-                }
-                onMoveRoute={(index, direction) =>
-                  moveRouteWithinGroup(index, direction)
-                }
-                onMoveRouteToEnd={moveRouteToGroupEnd}
-                onRemoveRoute={removeRoute}
-                onRouteChange={updateRoute}
-              />
-            ))}
+            <JsonCodeEditor
+              value={jsonText}
+              onChange={handleJsonChange}
+              placeholder={stringifyAdvancedCustomConfig(
+                getAdvancedCustomTemplateConfig(templateKey)
+              )}
+              heightClassName='h-[520px] min-h-[420px] max-h-[60vh]'
+              aria-invalid={Boolean(jsonError)}
+              ariaLabel={t('JSON Text')}
+            />
+            <p className='text-muted-foreground text-xs'>
+              {t('Edit JSON text directly. Format will be validated on save.')}
+            </p>
+            {jsonError ? (
+              <p className='text-destructive text-xs'>{jsonError}</p>
+            ) : null}
           </div>
-        </div>
-      ) : (
-        <div className='p-4'>
-          <div className='mb-2 flex items-center gap-2'>
-            <span className='text-muted-foreground text-xs'>
-              {t('Advanced text editing')}
-            </span>
-          </div>
-          <JsonCodeEditor
-            value={jsonText}
-            onChange={handleJsonChange}
-            placeholder={stringifyAdvancedCustomConfig(
-              getAdvancedCustomTemplateConfig(templateKey)
-            )}
-            heightClassName='h-[420px] min-h-[420px] max-h-[420px]'
-            aria-invalid={Boolean(jsonError)}
-            ariaLabel={t('Advanced text editing')}
-          />
-          <p className='text-muted-foreground mt-2 text-xs'>
-            {t('Edit JSON text directly. Format will be validated on save.')}
-          </p>
-          {jsonError ? (
-            <p className='text-destructive mt-1 text-xs'>{jsonError}</p>
-          ) : null}
-        </div>
-      )}
+        </TabsContent>
+      </Tabs>
     </Dialog>
+  )
+}
+
+function RouteSetupGuide() {
+  const { t } = useTranslation()
+  const steps = [
+    {
+      number: '1',
+      title: t('Choose a public endpoint'),
+      description: t(
+        'Select the API path your users will call, such as chat, image, audio, or video.'
+      ),
+    },
+    {
+      number: '2',
+      title: t('Decide which models match'),
+      description: t(
+        'Enter model names for a provider route, or leave the final route empty as the fallback.'
+      ),
+    },
+    {
+      number: '3',
+      title: t('Connect the upstream API'),
+      description: t(
+        'Set its URL, protocol conversion, authentication, and optional request or task mapping.'
+      ),
+    },
+  ]
+
+  return (
+    <Card size='sm'>
+      <CardHeader>
+        <CardTitle>{t('How routing works')}</CardTitle>
+        <CardDescription>
+          {t(
+            'A request is matched from left to right. The first matching provider route handles it.'
+          )}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className='grid gap-3 lg:grid-cols-3'>
+        {steps.map((step) => (
+          <div
+            key={step.number}
+            className='bg-muted/30 flex min-w-0 gap-3 rounded-lg border p-3'
+          >
+            <Badge className='size-7 shrink-0 justify-center rounded-full p-0'>
+              {step.number}
+            </Badge>
+            <div className='min-w-0'>
+              <p className='font-medium'>{step.title}</p>
+              <p className='text-muted-foreground mt-1 text-xs leading-relaxed'>
+                {step.description}
+              </p>
+            </div>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -777,16 +885,11 @@ function RouteGroupEditor({
     )
 
   return (
-    <section
-      className={cn(
-        'border-border overflow-hidden rounded-md border',
-        groupHasError && 'border-destructive/60'
-      )}
-    >
-      <div className='bg-muted/20 flex flex-col gap-3 p-3 lg:flex-row lg:items-center lg:justify-between'>
-        <div className='flex min-w-0 flex-1 flex-col gap-2'>
+    <Card className={cn(groupHasError && 'ring-destructive/60 ring-1')}>
+      <CardHeader className='border-b'>
+        <div className='min-w-0'>
           <div className='flex flex-wrap items-center gap-2'>
-            <span className='text-sm font-medium'>{t('Route group')}</span>
+            <CardTitle>{t('Public endpoint')}</CardTitle>
             <Badge variant='secondary'>
               {group.routeRows.length} {t('Routes')}
             </Badge>
@@ -803,12 +906,37 @@ function RouteGroupEditor({
               <Badge variant='destructive'>{t('Fallback must be last')}</Badge>
             ) : null}
           </div>
+          <CardDescription className='mt-1'>
+            {t(
+              'This is the public API path your users call. Provider routes below decide which upstream receives the request.'
+            )}
+          </CardDescription>
+        </div>
+
+        {!isModelListGroup ? (
+          <CardAction>
+            <Button
+              type='button'
+              variant='outline'
+              size='sm'
+              onClick={onAddRoute}
+            >
+              <HugeiconsIcon icon={Add01Icon} data-icon='inline-start' />
+              {t('Add provider route')}
+            </Button>
+          </CardAction>
+        ) : null}
+      </CardHeader>
+
+      <CardContent className='flex flex-col gap-4'>
+        <Field>
+          <FieldLabel>{t('Incoming Path')}</FieldLabel>
           <Select
             items={ADVANCED_CUSTOM_INCOMING_PATH_OPTIONS}
             value={incomingPath}
             onValueChange={onIncomingPathChange}
           >
-            <SelectTrigger className='h-9 max-w-full lg:max-w-[420px]'>
+            <SelectTrigger className='w-full max-w-xl'>
               <SelectValue className='min-w-0 truncate'>
                 {incomingPathLabel}
               </SelectValue>
@@ -841,88 +969,57 @@ function RouteGroupEditor({
               </SelectGroup>
             </SelectContent>
           </Select>
-        </div>
+          <FieldDescription>
+            {isModelListGroup
+              ? t(
+                  'This endpoint discovers upstream OpenAI models and does not use model matching.'
+                )
+              : t(
+                  'Provider routes are checked from top to bottom. Keep the empty fallback route last.'
+                )}
+          </FieldDescription>
+        </Field>
 
-        {!isModelListGroup ? (
-          <Button
-            type='button'
-            variant='outline'
-            size='sm'
-            onClick={onAddRoute}
-          >
-            <Plus data-icon='inline-start' />
-            {t('Add split')}
-          </Button>
-        ) : null}
-      </div>
-
-      <div className='border-t px-3 py-2'>
-        <p className='text-muted-foreground text-xs leading-relaxed'>
-          {isModelListGroup
-            ? t(
-                'This route discovers upstream OpenAI models and cannot be split or matched by client model rules.'
-              )
-            : t(
-                'Routes with the same incoming path are split by client model rules. Unmatched requests use the final fallback.'
-              )}
-        </p>
         {groupHasError && validationError ? (
-          <p className='text-destructive mt-1 text-xs'>
+          <p className='text-destructive text-sm'>
             {validationError.routeIndex !== undefined
               ? `${t('Route')} ${validationError.routeIndex + 1}: `
               : ''}
             {t(validationError.message)}
           </p>
         ) : null}
-      </div>
 
-      <div
-        className={cn(
-          'text-muted-foreground hidden items-center gap-2 border-t bg-muted/10 px-3 py-2 text-xs font-medium lg:grid',
-          routeEditorGridClassName
-        )}
-      >
-        <span>{t('Route')}</span>
-        <span className='inline-flex items-center gap-1'>
-          {t('Client model')}
-          <ModelRuleHelpPopover />
-        </span>
-        <span>{t('Upstream path')}</span>
-        <span>{t('Converter')}</span>
-        <span>{t('Auth')}</span>
-        <span className='text-right'>{t('Actions')}</span>
-      </div>
+        <div className='flex flex-col gap-3'>
+          {group.routeRows.map((routeRow, position) => {
+            const canMoveUp = position > 0
+            const canMoveDown = position < group.routeRows.length - 1
+            const catchAllOutOfOrder =
+              isCatchAllRoute(routeRow.route) && canMoveDown
+            const routeErrorMessage =
+              validationError?.routeIndex === routeRow.index
+                ? validationError.message
+                : undefined
 
-      <div className='divide-y'>
-        {group.routeRows.map((routeRow, position) => {
-          const canMoveUp = position > 0
-          const canMoveDown = position < group.routeRows.length - 1
-          const catchAllOutOfOrder =
-            isCatchAllRoute(routeRow.route) && canMoveDown
-          const routeErrorMessage =
-            validationError?.routeIndex === routeRow.index
-              ? validationError.message
-              : undefined
-
-          return (
-            <RouteEditor
-              key={routeRow.routeKey}
-              route={routeRow.route}
-              index={routeRow.index}
-              errorMessage={routeErrorMessage}
-              canMoveUp={canMoveUp}
-              canMoveDown={canMoveDown}
-              catchAllOutOfOrder={catchAllOutOfOrder}
-              onChange={(patch) => onRouteChange(routeRow.index, patch)}
-              onMoveDown={() => onMoveRoute(routeRow.index, 1)}
-              onMoveUp={() => onMoveRoute(routeRow.index, -1)}
-              onMoveCatchAllToEnd={() => onMoveRouteToEnd(routeRow.index)}
-              onRemove={() => onRemoveRoute(routeRow.index)}
-            />
-          )
-        })}
-      </div>
-    </section>
+            return (
+              <RouteEditor
+                key={routeRow.routeKey}
+                route={routeRow.route}
+                index={routeRow.index}
+                errorMessage={routeErrorMessage}
+                canMoveUp={canMoveUp}
+                canMoveDown={canMoveDown}
+                catchAllOutOfOrder={catchAllOutOfOrder}
+                onChange={(patch) => onRouteChange(routeRow.index, patch)}
+                onMoveDown={() => onMoveRoute(routeRow.index, 1)}
+                onMoveUp={() => onMoveRoute(routeRow.index, -1)}
+                onMoveCatchAllToEnd={() => onMoveRouteToEnd(routeRow.index)}
+                onRemove={() => onRemoveRoute(routeRow.index)}
+              />
+            )
+          })}
+        </div>
+      </CardContent>
+    </Card>
   )
 }
 
@@ -961,17 +1058,13 @@ function RouteEditor({
     () => getAdvancedCustomConverterOptions(incomingPath),
     [incomingPath]
   )
-  const converterLabel = getOptionLabel(
-    ADVANCED_CUSTOM_CONVERTER_OPTIONS,
-    converter
-  )
   const converterTriggerLabel =
     ADVANCED_CUSTOM_CONVERTER_OPTIONS.find(
       (option) => option.value === converter
-    )?.triggerLabel || converterLabel
+    )?.triggerLabel ||
+    getOptionLabel(ADVANCED_CUSTOM_CONVERTER_OPTIONS, converter)
   const authLabel = getOptionLabel(ADVANCED_CUSTOM_AUTH_MODE_OPTIONS, authMode)
   const isNativeConverter = converter === 'none'
-  const ConverterVisualIcon = isNativeConverter ? ArrowRight : Shuffle
   const modelsInputValue = route.models?.join(', ') || ''
   const parsedRouteModels = parseAdvancedCustomRouteModels(modelsInputValue)
   const isFallback = !isModelListRoute && parsedRouteModels.length === 0
@@ -1023,312 +1116,291 @@ function RouteEditor({
     })
   }
 
+  let modelSummary = parsedRouteModels.join(', ')
+  if (isModelListRoute) {
+    modelSummary = ADVANCED_CUSTOM_MODEL_LIST_LABEL
+  } else if (isFallback) {
+    modelSummary = t('Any unmatched model')
+  }
+  const upstreamSummary = route.upstream_path?.trim() || t('Not configured')
+
   return (
-    <div
-      className={cn(
-        'flex flex-col gap-4 px-4 py-4 lg:gap-2 lg:px-3 lg:py-3',
-        errorMessage && 'bg-destructive/5'
-      )}
+    <Card
+      size='sm'
+      className={cn(errorMessage && 'ring-destructive/60 ring-1')}
     >
-      <div
-        className={cn(
-          'grid gap-4 md:grid-cols-2 lg:items-center lg:gap-2',
-          routeEditorGridClassName
-        )}
-      >
-        <div className='flex min-w-0 items-start justify-between gap-3 md:col-span-2 lg:col-span-1'>
-          <div className='min-w-0 space-y-2 lg:space-y-1'>
-            <div className='flex flex-wrap items-center gap-2'>
-              <div className='text-sm font-medium'>
-                {t('Route')} {index + 1}
-              </div>
-              {isModelListRoute ? (
-                <Badge variant='outline'>
-                  {ADVANCED_CUSTOM_MODEL_LIST_LABEL}
-                </Badge>
-              ) : null}
-              {!isModelListRoute && isFallback ? (
-                <Badge variant='outline'>{t('Fallback')}</Badge>
-              ) : null}
-              <TooltipProvider delay={100}>
-                <Tooltip>
-                  <TooltipTrigger
-                    render={
-                      <span
-                        className={cn(
-                          'border-border inline-flex size-7 shrink-0 items-center justify-center rounded-md border',
-                          isNativeConverter
-                            ? 'bg-secondary text-secondary-foreground'
-                            : 'bg-muted text-foreground'
-                        )}
-                      />
-                    }
-                  >
-                    <ConverterVisualIcon
-                      className='size-3.5'
-                      aria-hidden='true'
-                    />
-                    <span className='sr-only'>{t(converterLabel)}</span>
-                  </TooltipTrigger>
-                  <TooltipContent side='top'>
-                    {t(converterLabel)}
-                  </TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            </div>
-          </div>
-          <div className='flex shrink-0 items-center gap-1 lg:hidden'>
-            <TooltipIconButton
-              label={t('Move route up')}
-              icon={ArrowUp}
-              disabled={!canMoveUp}
-              onClick={onMoveUp}
-            />
-            <TooltipIconButton
-              label={t('Move route down')}
-              icon={ArrowDown}
-              disabled={!canMoveDown}
-              onClick={onMoveDown}
-            />
-            {catchAllOutOfOrder ? (
-              <TooltipIconButton
-                label={t('Move fallback to end')}
-                icon={ArrowDownToLine}
-                onClick={onMoveCatchAllToEnd}
-              />
-            ) : null}
-            <TooltipIconButton
-              label={t('Delete')}
-              icon={Trash2}
-              onClick={onRemove}
-            />
-          </div>
+      <CardHeader>
+        <div className='flex flex-wrap items-center gap-2'>
+          <Badge className='size-7 justify-center rounded-full p-0'>
+            {index + 1}
+          </Badge>
+          <CardTitle>{t('Route')}</CardTitle>
+          {isModelListRoute ? (
+            <Badge variant='outline'>{ADVANCED_CUSTOM_MODEL_LIST_LABEL}</Badge>
+          ) : null}
+          {!isModelListRoute && isFallback ? (
+            <Badge variant='outline'>{t('Fallback')}</Badge>
+          ) : null}
         </div>
-
-        <FieldBlock
-          label={
-            <span className='inline-flex items-center gap-1'>
-              {t('Client model')}
-              <ModelRuleHelpPopover />
-            </span>
-          }
-          className='lg:gap-1'
-          labelClassName='lg:sr-only'
-        >
-          {isModelListRoute && parsedRouteModels.length === 0 ? (
-            <div className='flex h-9 items-center'>
-              <Badge variant='outline'>
-                {ADVANCED_CUSTOM_MODEL_LIST_LABEL}
-              </Badge>
-            </div>
-          ) : (
-            <>
-              <Input
-                value={modelsInputValue}
-                onChange={(event) => setModelsInput(event.target.value)}
-                onBlur={(event) => normalizeModelsInput(event.target.value)}
-                placeholder={
-                  isFallback
-                    ? t('Leave empty for fallback')
-                    : t('e.g. gpt-4o, gemini-2.5-flash')
-                }
-                aria-invalid={Boolean(errorMessage)}
-              />
-              <div className='flex flex-wrap gap-1'>
-                {isFallback ? (
-                  <Badge variant='outline'>{t('Fallback')}</Badge>
-                ) : (
-                  parsedRouteModels.map((model) => {
-                    const ruleKind = getAdvancedCustomModelRuleKind(model)
-                    const displayModel =
-                      ruleKind === 'regex'
-                        ? getAdvancedCustomRegexModelPattern(model) || model
-                        : model
-                    return (
-                      <Badge
-                        key={model}
-                        variant={ruleKind === 'regex' ? 'outline' : 'secondary'}
-                        className='max-w-full gap-1.5 font-mono'
-                      >
-                        <span className='font-sans text-[10px] font-semibold tracking-normal uppercase'>
-                          {t(ruleKind === 'regex' ? 'Regex' : 'Exact')}
-                        </span>
-                        <span className='truncate'>{displayModel}</span>
-                      </Badge>
-                    )
-                  })
-                )}
-              </div>
-            </>
-          )}
-        </FieldBlock>
-
-        <FieldBlock
-          label={t('Upstream path')}
-          className='lg:gap-1'
-          labelClassName='lg:sr-only'
-        >
-          <Input
-            value={route.upstream_path || ''}
-            onChange={(event) =>
-              onChange({
-                upstream_path: event.target.value,
-              })
-            }
-            placeholder={getAdvancedCustomUpstreamPathPlaceholder(
-              converter,
-              incomingPath
-            )}
-          />
-          <p className='text-muted-foreground text-xs leading-relaxed lg:hidden'>
-            {t(upstreamPathDescriptionKey)}
-          </p>
-        </FieldBlock>
-
-        <FieldBlock
-          label={t('Converter')}
-          className='lg:gap-1'
-          labelClassName='lg:sr-only'
-        >
-          <Select
-            value={converter}
-            disabled={isModelListRoute && converter === 'none'}
-            onValueChange={(value) =>
-              setConverter(value as AdvancedCustomConverter)
-            }
-          >
-            <SelectTrigger className='w-full max-w-full lg:h-8'>
-              <SelectValue className='min-w-0 truncate'>
-                {t(converterTriggerLabel)}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent
-              alignItemWithTrigger={false}
-              className={longSelectContentClass}
-            >
-              <SelectGroup>
-                {converterOptions.map((option) => (
-                  <SelectItem
-                    key={option.value}
-                    value={option.value}
-                    className={longSelectItemClass}
-                  >
-                    <span className='min-w-0 leading-snug break-words whitespace-normal'>
-                      {t(option.label)}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </FieldBlock>
-
-        <FieldBlock
-          label={t('Auth')}
-          className='lg:gap-1'
-          labelClassName='lg:sr-only'
-        >
-          <Select
-            value={authMode}
-            onValueChange={(value) =>
-              setAuthMode(value as AdvancedCustomAuthMode)
-            }
-          >
-            <SelectTrigger className='w-full max-w-full lg:h-8'>
-              <SelectValue className='min-w-0 truncate'>
-                {t(authLabel)}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent alignItemWithTrigger={false}>
-              <SelectGroup>
-                {ADVANCED_CUSTOM_AUTH_MODE_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {t(option.label)}
-                  </SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-        </FieldBlock>
-
-        <div className='hidden items-center justify-end gap-1 lg:flex'>
+        <CardDescription>
+          {isFallback
+            ? t('Handles models that were not matched by routes above it.')
+            : t(
+                'Handles requests whose client model matches one of these rules.'
+              )}
+        </CardDescription>
+        <CardAction className='flex items-center gap-1'>
           <TooltipIconButton
             label={t('Move route up')}
-            icon={ArrowUp}
+            icon={ArrowUp01Icon}
             disabled={!canMoveUp}
             onClick={onMoveUp}
           />
           <TooltipIconButton
             label={t('Move route down')}
-            icon={ArrowDown}
+            icon={ArrowDown01Icon}
             disabled={!canMoveDown}
             onClick={onMoveDown}
           />
           {catchAllOutOfOrder ? (
             <TooltipIconButton
               label={t('Move fallback to end')}
-              icon={ArrowDownToLine}
+              icon={ArrowDownToLineIcon}
               onClick={onMoveCatchAllToEnd}
             />
           ) : null}
           <TooltipIconButton
             label={t('Delete')}
-            icon={Trash2}
+            icon={Delete02Icon}
             onClick={onRemove}
           />
+        </CardAction>
+      </CardHeader>
+
+      <CardContent className='flex flex-col gap-5'>
+        <div className='bg-muted/30 grid items-stretch gap-2 rounded-lg border p-3 lg:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto_minmax(0,1fr)] lg:items-center'>
+          <RouteFlowNode label={t('Client model')} value={modelSummary} />
+          <HugeiconsIcon
+            icon={ArrowRight01Icon}
+            className='text-muted-foreground hidden lg:block'
+            aria-hidden='true'
+          />
+          <RouteFlowNode label={t('Upstream path')} value={upstreamSummary} />
+          <HugeiconsIcon
+            icon={ArrowRight01Icon}
+            className='text-muted-foreground hidden lg:block'
+            aria-hidden='true'
+          />
+          <RouteFlowNode
+            label={t('Converter')}
+            value={t(converterTriggerLabel)}
+          />
         </div>
-      </div>
 
-      {errorMessage ? (
-        <p className='text-destructive text-xs'>{t(errorMessage)}</p>
-      ) : null}
+        <FieldGroup className='gap-4'>
+          <div className='grid gap-4 lg:grid-cols-2'>
+            <Field data-invalid={Boolean(errorMessage)}>
+              <FieldLabel>
+                {t('Client model')}
+                <ModelRuleHelpPopover />
+              </FieldLabel>
+              {isModelListRoute && parsedRouteModels.length === 0 ? (
+                <div className='flex h-9 items-center'>
+                  <Badge variant='outline'>
+                    {ADVANCED_CUSTOM_MODEL_LIST_LABEL}
+                  </Badge>
+                </div>
+              ) : (
+                <>
+                  <Input
+                    value={modelsInputValue}
+                    onChange={(event) => setModelsInput(event.target.value)}
+                    onBlur={(event) => normalizeModelsInput(event.target.value)}
+                    placeholder={
+                      isFallback
+                        ? t('Leave empty for fallback')
+                        : t('e.g. gpt-4o, gemini-2.5-flash')
+                    }
+                    aria-invalid={Boolean(errorMessage)}
+                  />
+                  <FieldDescription>
+                    {t(
+                      'Separate exact names with commas. The first matching route wins.'
+                    )}
+                  </FieldDescription>
+                  <div className='flex flex-wrap gap-1'>
+                    {isFallback ? (
+                      <Badge variant='outline'>{t('Fallback')}</Badge>
+                    ) : (
+                      parsedRouteModels.map((model) => {
+                        const ruleKind = getAdvancedCustomModelRuleKind(model)
+                        const displayModel =
+                          ruleKind === 'regex'
+                            ? getAdvancedCustomRegexModelPattern(model) || model
+                            : model
+                        return (
+                          <Badge
+                            key={model}
+                            variant={
+                              ruleKind === 'regex' ? 'outline' : 'secondary'
+                            }
+                            className='max-w-full gap-1.5 font-mono'
+                          >
+                            <span className='font-sans text-[10px] font-semibold tracking-normal uppercase'>
+                              {t(ruleKind === 'regex' ? 'Regex' : 'Exact')}
+                            </span>
+                            <span className='truncate'>{displayModel}</span>
+                          </Badge>
+                        )
+                      })
+                    )}
+                  </div>
+                </>
+              )}
+            </Field>
 
-      {authMode === 'header' || authMode === 'query' ? (
-        <>
-          <Separator className='lg:hidden' />
-          <div
-            className={cn(
-              'grid gap-4 md:grid-cols-2 lg:items-end lg:gap-2 lg:border-t lg:pt-2',
-              routeEditorGridClassName
-            )}
-          >
-            <span className='hidden lg:block' aria-hidden='true' />
-            <FieldBlock
-              label={t('Auth name')}
-              className='lg:gap-1'
-              labelClassName='lg:text-xs'
-            >
+            <Field>
+              <FieldLabel>{t('Upstream path')}</FieldLabel>
               <Input
-                value={route.auth?.name || ''}
-                onChange={(event) => updateAuth('name', event.target.value)}
-                placeholder={
-                  authMode === 'header' ? 'Authorization' : 'api_key'
+                value={route.upstream_path || ''}
+                onChange={(event) =>
+                  onChange({ upstream_path: event.target.value })
                 }
+                placeholder={getAdvancedCustomUpstreamPathPlaceholder(
+                  converter,
+                  incomingPath
+                )}
               />
-            </FieldBlock>
-            <FieldBlock
-              label={t('Auth value')}
-              className='lg:gap-1'
-              labelClassName='lg:text-xs'
-            >
-              <Input
-                value={route.auth?.value || ''}
-                onChange={(event) => updateAuth('value', event.target.value)}
-                placeholder={
-                  authMode === 'header' ? 'Bearer {api_key}' : '{api_key}'
-                }
-              />
-            </FieldBlock>
-            <span className='hidden lg:block' aria-hidden='true' />
-            <span className='hidden lg:block' aria-hidden='true' />
-            <span className='hidden lg:block' aria-hidden='true' />
+              <FieldDescription>
+                {t(upstreamPathDescriptionKey)}
+              </FieldDescription>
+            </Field>
           </div>
-        </>
-      ) : null}
 
-      {!isModelListRoute ? (
-        <AdvancedCustomTaskEditor route={route} onChange={onChange} />
-      ) : null}
+          <div className='grid gap-4 lg:grid-cols-2'>
+            <Field>
+              <FieldLabel>{t('Converter')}</FieldLabel>
+              <Select
+                value={converter}
+                disabled={isModelListRoute && converter === 'none'}
+                onValueChange={(value) =>
+                  setConverter(value as AdvancedCustomConverter)
+                }
+              >
+                <SelectTrigger className='w-full'>
+                  <SelectValue className='min-w-0 truncate'>
+                    {t(converterTriggerLabel)}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent
+                  alignItemWithTrigger={false}
+                  className={longSelectContentClass}
+                >
+                  <SelectGroup>
+                    {converterOptions.map((option) => (
+                      <SelectItem
+                        key={option.value}
+                        value={option.value}
+                        className={longSelectItemClass}
+                      >
+                        <span className='min-w-0 leading-snug break-words whitespace-normal'>
+                          {t(option.label)}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <FieldDescription>
+                {isNativeConverter
+                  ? t(
+                      'Native forwarding keeps the request shape and enables custom JSON or async task mapping below.'
+                    )
+                  : t(
+                      'The selected converter translates between the client protocol and the upstream protocol.'
+                    )}
+              </FieldDescription>
+            </Field>
+
+            <Field>
+              <FieldLabel>{t('Auth')}</FieldLabel>
+              <Select
+                value={authMode}
+                onValueChange={(value) =>
+                  setAuthMode(value as AdvancedCustomAuthMode)
+                }
+              >
+                <SelectTrigger className='w-full'>
+                  <SelectValue className='min-w-0 truncate'>
+                    {t(authLabel)}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  <SelectGroup>
+                    {ADVANCED_CUSTOM_AUTH_MODE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {t(option.label)}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <FieldDescription>
+                {t(
+                  'Use the channel key automatically, or define a custom header or query parameter.'
+                )}
+              </FieldDescription>
+            </Field>
+          </div>
+
+          {authMode === 'header' || authMode === 'query' ? (
+            <div className='bg-muted/30 grid gap-4 rounded-lg border p-3 lg:grid-cols-2'>
+              <Field>
+                <FieldLabel>{t('Auth name')}</FieldLabel>
+                <Input
+                  value={route.auth?.name || ''}
+                  onChange={(event) => updateAuth('name', event.target.value)}
+                  placeholder={
+                    authMode === 'header' ? 'Authorization' : 'api_key'
+                  }
+                />
+              </Field>
+              <Field>
+                <FieldLabel>{t('Auth value')}</FieldLabel>
+                <Input
+                  value={route.auth?.value || ''}
+                  onChange={(event) => updateAuth('value', event.target.value)}
+                  placeholder={
+                    authMode === 'header' ? 'Bearer {api_key}' : '{api_key}'
+                  }
+                />
+              </Field>
+            </div>
+          ) : null}
+        </FieldGroup>
+
+        {errorMessage ? (
+          <p className='text-destructive text-sm'>{t(errorMessage)}</p>
+        ) : null}
+
+        {!isModelListRoute ? (
+          <AdvancedCustomTaskEditor route={route} onChange={onChange} />
+        ) : null}
+      </CardContent>
+    </Card>
+  )
+}
+
+function RouteFlowNode(props: { label: string; value: string }) {
+  return (
+    <div className='min-w-0'>
+      <p className='text-muted-foreground text-xs'>{props.label}</p>
+      <p
+        className='mt-1 truncate font-mono text-sm font-medium'
+        title={props.value}
+      >
+        {props.value}
+      </p>
     </div>
   )
 }
@@ -1349,7 +1421,7 @@ function ModelRuleHelpPopover() {
           />
         }
       >
-        <Info className='size-3.5' aria-hidden='true' />
+        <HugeiconsIcon icon={InformationCircleIcon} aria-hidden='true' />
       </PopoverTrigger>
       <PopoverContent
         align='start'
@@ -1365,7 +1437,7 @@ function ModelRuleHelpPopover() {
             )}
           </PopoverDescription>
         </PopoverHeader>
-        <div className='text-muted-foreground space-y-2 text-xs leading-relaxed'>
+        <div className='text-muted-foreground flex flex-col gap-2 text-xs leading-relaxed'>
           <p>
             {t(
               'Use exact model names such as gpt-4o, or regex rules prefixed with re: such as re:^gemini-.'
@@ -1389,12 +1461,12 @@ function ModelRuleHelpPopover() {
 
 function TooltipIconButton({
   label,
-  icon: Icon,
+  icon,
   disabled,
   onClick,
 }: {
   label: string
-  icon: LucideIcon
+  icon: ComponentProps<typeof HugeiconsIcon>['icon']
   disabled?: boolean
   onClick: () => void
 }) {
@@ -1412,30 +1484,15 @@ function TooltipIconButton({
             />
           }
         >
-          <Icon data-icon='inline-start' aria-hidden='true' />
+          <HugeiconsIcon
+            icon={icon}
+            data-icon='inline-start'
+            aria-hidden='true'
+          />
           <span className='sr-only'>{label}</span>
         </TooltipTrigger>
         <TooltipContent side='top'>{label}</TooltipContent>
       </Tooltip>
     </TooltipProvider>
-  )
-}
-
-function FieldBlock({
-  label,
-  className,
-  labelClassName,
-  children,
-}: {
-  label: ReactNode
-  className?: string
-  labelClassName?: string
-  children: ReactNode
-}) {
-  return (
-    <div className={cn('flex min-w-0 flex-col gap-2', className)}>
-      <span className={cn('text-sm font-medium', labelClassName)}>{label}</span>
-      {children}
-    </div>
   )
 }

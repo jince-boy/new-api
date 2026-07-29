@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-export type ApiMethod = 'GET' | 'HEAD' | 'POST' | 'DELETE'
+export type ApiMethod = 'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 
 export type ApiAuthStyle = 'bearer' | 'claude' | 'gemini' | 'websocket'
 

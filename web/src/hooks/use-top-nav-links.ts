@@ -42,26 +42,23 @@ type CustomNavLink = {
   openInNewTab?: unknown
 }
 
-export function buildDocumentationLinks(
+export function buildUserGuideLinks(
   docsLink: string | undefined,
   docsNavigation: DocsNavigation,
   translate: (key: string) => string
 ): TopNavLink[] {
-  const links: TopNavLink[] = [
-    { title: translate('API Reference'), href: '/docs' },
-  ]
-
   if (!docsNavigation.enabled || !docsLink) {
-    return links
+    return []
   }
 
-  links.push({
-    title: translate('User Guide'),
-    href: docsLink,
-    external: true,
-    openInNewTab: docsNavigation.openInNewTab,
-  })
-  return links
+  return [
+    {
+      title: translate('User Guide'),
+      href: docsLink,
+      external: true,
+      openInNewTab: docsNavigation.openInNewTab,
+    },
+  ]
 }
 
 const parseCustomNavLinks = (raw: unknown): TopNavLink[] => {
@@ -142,8 +139,7 @@ export function useTopNavLinks(): TopNavLink[] {
     )
   }, [status])
 
-  // Documentation link (may be external)
-  const docsLink: string | undefined = status?.docs_link as string | undefined
+  const docsLink = status?.docs_link as string | undefined
 
   const isAuthed = !!auth?.user
 
@@ -176,8 +172,7 @@ export function useTopNavLinks(): TopNavLink[] {
     links.push({ title: t('Rankings'), href: '/rankings', requiresAuth })
   }
 
-  // The API reference is always available; the external user guide is configurable.
-  links.push(...buildDocumentationLinks(docsLink, modules.docs, t))
+  links.push(...buildUserGuideLinks(docsLink, modules.docs, t))
 
   // About
   if (modules?.about !== false) {

@@ -139,15 +139,11 @@ export function EndpointReference(props: { endpoint: ApiEndpoint }) {
             successTooltip={t('Endpoint path copied')}
           />
         </div>
-        <div className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'>
-          <span>{t('Stable')}</span>
-          {props.endpoint.contentType && (
-            <>
-              <span aria-hidden='true'>·</span>
-              <code className='font-mono'>{props.endpoint.contentType}</code>
-            </>
-          )}
-        </div>
+        {props.endpoint.contentType && (
+          <div className='text-muted-foreground text-xs'>
+            <code className='font-mono'>{props.endpoint.contentType}</code>
+          </div>
+        )}
       </header>
 
       <div className='mt-10 flex flex-col gap-12'>

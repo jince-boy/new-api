@@ -272,3 +272,40 @@ func TestModelPriceHelperRequestBillingRatiosOnlyApplyToFixedPrice(t *testing.T)
 	require.Equal(t, common.QuotaClampOverflow, clamp.Kind)
 	require.Nil(t, info.Billing)
 }
+
+func TestPerSecondBillingRequiresTaskPricingAndUsesConfiguredUnitPrice(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	savedConfig := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		savedConfig[key] = value
+		return nil
+	}))
+	savedModelPrices := ratio_setting.ModelPrice2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(savedConfig))
+		require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(savedModelPrices))
+	})
+
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode":    `{"media-per-second":"per_second"}`,
+		"group_ratio_setting.group_ratio": `{"default":1}`,
+	}))
+	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"media-per-second":0.02}`))
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Set("group", "default")
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "media-per-second",
+		UserGroup:       "default",
+		UsingGroup:      "default",
+	}
+
+	_, err := ModelPriceHelper(ctx, info, 0, &types.TokenCountMeta{})
+	require.ErrorContains(t, err, "asynchronous media task endpoint")
+
+	priceData, err := ModelPriceHelperPerCall(ctx, info)
+	require.NoError(t, err)
+	require.True(t, priceData.UsePrice)
+	require.Equal(t, 0.02, priceData.ModelPrice)
+	require.Equal(t, 10000, priceData.Quota)
+}

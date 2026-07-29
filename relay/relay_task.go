@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,6 +21,8 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	relaykitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/sjson"
 )
@@ -189,10 +192,44 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 	info.PriceData = priceData
 
+	// 4.5 条件按秒价格：一旦模型配置了规则，默认价格与规则价格就构成
+	// 完整的每秒价格表，不再叠加适配器内置的分辨率等价格倍率。
+	unitPrice := priceData.ModelPrice
+	matchedRule := ""
+	hasPerSecondRules := false
+	if billing_setting.GetBillingMode(modelName) == billing_setting.BillingModePerSecond {
+		unitPrice, matchedRule, hasPerSecondRules, err = relaycommon.ResolvePerSecondUnitPrice(c, modelName, priceData.ModelPrice)
+		if err != nil {
+			return nil, service.TaskErrorWrapperLocal(err, "invalid_per_second_pricing_rule", http.StatusBadRequest)
+		}
+	}
+	if hasPerSecondRules && unitPrice != priceData.ModelPrice {
+		quota, quotaErr := common.QuotaFromFloatStrict(unitPrice * common.QuotaPerUnit * priceData.GroupRatioInfo.GroupRatio)
+		if quotaErr != nil {
+			return nil, service.TaskErrorWrapperLocal(quotaErr, "invalid_per_second_price", http.StatusBadRequest)
+		}
+		priceData.ModelPrice = unitPrice
+		priceData.Quota = quota
+		priceData.FreeModel = false
+		if !operation_setting.GetQuotaSetting().EnableFreeModelPreConsume && (unitPrice == 0 || priceData.GroupRatioInfo.GroupRatio == 0) {
+			priceData.FreeModel = true
+		}
+		info.PriceData = priceData
+	}
+	if matchedRule != "" {
+		c.Set("per_second_pricing_rule", matchedRule)
+	}
+
 	// 5. 计费估算：让适配器根据用户请求提供 OtherRatios（时长、分辨率等）
 	//    必须在 ModelPriceHelperPerCall 之后调用（它会重建 PriceData）。
 	//    ResolveOriginTask 可能已在 remix 路径中预设了 OtherRatios，此处合并。
-	if estimatedRatios := adaptor.EstimateBilling(c, info); len(estimatedRatios) > 0 {
+	estimatedRatios := adaptor.EstimateBilling(c, info)
+	estimatedRatios = filterConditionalPerSecondRatios(estimatedRatios, hasPerSecondRules)
+	estimatedRatios, err = prepareTaskBillingRatios(c, modelName, estimatedRatios)
+	if err != nil {
+		return nil, service.TaskErrorWrapperLocal(err, "invalid_billing_duration", http.StatusBadRequest)
+	}
+	if len(estimatedRatios) > 0 {
 		for k, v := range estimatedRatios {
 			info.PriceData.AddOtherRatio(k, v)
 		}
@@ -246,7 +283,9 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 
 	// 11. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios
 	finalQuota := info.PriceData.Quota
-	if adjustedRatios := adaptor.AdjustBillingOnSubmit(info, taskData); len(adjustedRatios) > 0 {
+	adjustedRatios := adaptor.AdjustBillingOnSubmit(info, taskData)
+	adjustedRatios = filterConditionalPerSecondRatios(adjustedRatios, hasPerSecondRules)
+	if len(adjustedRatios) > 0 {
 		if adjustedQuota, ok := recalcQuotaFromRatios(info, adjustedRatios); ok {
 			// 基于调整后的 ratios 重新计算 quota
 			finalQuota = adjustedQuota
@@ -276,6 +315,40 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		Quota:          finalQuota,
 		TaskRoute:      taskRoute,
 	}, nil
+}
+
+func filterConditionalPerSecondRatios(ratios map[string]float64, enabled bool) map[string]float64 {
+	if !enabled {
+		return ratios
+	}
+	seconds, ok := ratios["seconds"]
+	if !ok {
+		return nil
+	}
+	return map[string]float64{"seconds": seconds}
+}
+
+func prepareTaskBillingRatios(c *gin.Context, modelName string, ratios map[string]float64) (map[string]float64, error) {
+	if billing_setting.GetBillingMode(modelName) != billing_setting.BillingModePerSecond {
+		return ratios, nil
+	}
+
+	seconds, hasEstimatedSeconds := ratios["seconds"]
+	if !hasEstimatedSeconds || seconds <= 0 || math.IsNaN(seconds) || math.IsInf(seconds, 0) {
+		var err error
+		seconds, err = relaycommon.ResolveTaskDurationSeconds(c)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if math.IsNaN(seconds) || math.IsInf(seconds, 0) || seconds <= 0 || seconds > relaycommon.MaxTaskDurationSeconds {
+		return nil, fmt.Errorf("media duration must be between 1 and %d seconds", relaycommon.MaxTaskDurationSeconds)
+	}
+	if ratios == nil {
+		ratios = make(map[string]float64)
+	}
+	ratios["seconds"] = seconds
+	return ratios, nil
 }
 
 // recalcQuotaFromRatios 根据 adjustedRatios 重新计算 quota。

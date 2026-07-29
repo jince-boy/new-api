@@ -48,9 +48,10 @@ export type PricingModel = {
   enable_groups: string[]
   tags?: string
   supported_endpoint_types?: string[]
+  supported_endpoints?: Record<string, PricingEndpointInfo>
   key?: string
   group_ratio?: Record<string, number>
-  /** Billing mode (e.g. "tiered_expr") used to flag dynamic pricing */
+  /** Billing mode (e.g. "tiered_expr" or "per_second") */
   billing_mode?: string
   /** Raw expression describing dynamic / tiered billing */
   billing_expr?: string
@@ -95,8 +96,13 @@ export type PricingData = {
   vendors: PricingVendor[]
   group_ratio: Record<string, number>
   usable_group: Record<string, { desc: string; ratio: number }>
-  supported_endpoint: Record<string, string>
+  supported_endpoint: Record<string, PricingEndpointInfo>
   auto_groups: string[]
+}
+
+export type PricingEndpointInfo = {
+  path: string
+  method: string
 }
 
 export type TokenUnit = 'M' | 'K'
@@ -108,4 +114,4 @@ export type PriceType =
   | 'image'
   | 'audio_input'
   | 'audio_output'
-export type QuotaType = 0 | 1 // 0: token-based, 1: per-request
+export type QuotaType = 0 | 1 // 0: token-based, 1: fixed-unit pricing

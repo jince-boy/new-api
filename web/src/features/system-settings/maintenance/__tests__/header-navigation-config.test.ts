@@ -19,10 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
+import { buildUserGuideLinks } from '@/hooks/use-top-nav-links'
+
 import { parseHeaderNavModules, serializeHeaderNavModules } from '../config'
 
 describe('header navigation configuration', () => {
-  test('upgrades a legacy documentation boolean without changing its state', () => {
+  test('upgrades a legacy user guide boolean without changing its state', () => {
     const config = parseHeaderNavModules('{"docs":false}')
 
     assert.deepEqual(config.docs, {
@@ -40,5 +42,36 @@ describe('header navigation configuration', () => {
       enabled: true,
       openInNewTab: true,
     })
+  })
+
+  test('builds only the external user guide link, never the retired API reference', () => {
+    const links = buildUserGuideLinks(
+      'https://docs.example.com/guide',
+      { enabled: true, openInNewTab: true },
+      (key) => key
+    )
+
+    assert.deepEqual(links, [
+      {
+        title: 'User Guide',
+        href: 'https://docs.example.com/guide',
+        external: true,
+        openInNewTab: true,
+      },
+    ])
+    assert.equal(
+      links.some((link) => link.href === '/docs'),
+      false
+    )
+  })
+
+  test('hides the user guide when its navigation switch is disabled', () => {
+    const links = buildUserGuideLinks(
+      'https://docs.example.com/guide',
+      { enabled: false, openInNewTab: false },
+      (key) => key
+    )
+
+    assert.deepEqual(links, [])
   })
 })

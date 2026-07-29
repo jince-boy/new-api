@@ -78,6 +78,14 @@ func pricingEndpointTypesFromPricing(pricings []Pricing) map[string][]constant.E
 	return byModel
 }
 
+func pricingByName(pricings []Pricing) map[string]Pricing {
+	byModel := make(map[string]Pricing, len(pricings))
+	for _, pricing := range pricings {
+		byModel[pricing.ModelName] = pricing
+	}
+	return byModel
+}
+
 func TestPricingAdvancedCustomUsesConfiguredEndpointTypes(t *testing.T) {
 	resetPricingEndpointTestTables(t)
 
@@ -107,7 +115,7 @@ func TestPricingAdvancedCustomUsesConfiguredEndpointTypes(t *testing.T) {
 	}, byModel["gpt-4o"])
 }
 
-func TestPricingModelMetadataEndpointsMergeWithAdvancedCustomInference(t *testing.T) {
+func TestPricingModelMetadataEndpointsOverrideChannelInference(t *testing.T) {
 	resetPricingEndpointTestTables(t)
 
 	insertPricingEndpointChannel(t, 103, constant.ChannelTypeAdvancedCustom, pricingEndpointAdvancedCustomConfig(
@@ -131,7 +139,6 @@ func TestPricingModelMetadataEndpointsMergeWithAdvancedCustomInference(t *testin
 	byModel := pricingEndpointTypesByModel(t)
 
 	assert.Equal(t, []constant.EndpointType{
-		constant.EndpointTypeOpenAIResponse,
 		constant.EndpointTypeOpenAI,
 	}, byModel["gemini-2.5-flash"])
 }
@@ -160,6 +167,43 @@ func TestPricingModelMetadataEndpointsCanProvideEndpointWithoutChannelInference(
 	byModel := pricingEndpointTypesByModel(t)
 
 	assert.Equal(t, []constant.EndpointType{constant.EndpointTypeOpenAI}, byModel["metadata-only-model"])
+}
+
+func TestPricingKeepsConfiguredEndpointPathsIsolatedPerModel(t *testing.T) {
+	resetPricingEndpointTestTables(t)
+
+	insertPricingEndpointChannel(t, 105, constant.ChannelTypeAdvancedCustom, pricingEndpointAdvancedCustomConfig(
+		dto.AdvancedCustomRoute{
+			IncomingPath: "/v1/chat/completions",
+			UpstreamPath: "/v1/chat/completions",
+		},
+	))
+	insertPricingEndpointAbility(t, 105, "model-a")
+	insertPricingEndpointAbility(t, 105, "model-b")
+	for _, modelMeta := range []Model{
+		{
+			ModelName: "model-a",
+			Endpoints: `{"openai":{"path":"/gateway/a/chat","method":"POST"}}`,
+			Status:    1,
+			NameRule:  NameRuleExact,
+		},
+		{
+			ModelName: "model-b",
+			Endpoints: `{"openai":{"path":"/gateway/b/chat","method":"PUT"}}`,
+			Status:    1,
+			NameRule:  NameRuleExact,
+		},
+	} {
+		require.NoError(t, DB.Create(&modelMeta).Error)
+	}
+
+	InitChannelCache()
+	byModel := pricingByName(GetPricing())
+
+	require.Contains(t, byModel, "model-a")
+	require.Contains(t, byModel, "model-b")
+	assert.Equal(t, common.EndpointInfo{Path: "/gateway/a/chat", Method: "POST"}, byModel["model-a"].SupportedEndpoints["openai"])
+	assert.Equal(t, common.EndpointInfo{Path: "/gateway/b/chat", Method: "PUT"}, byModel["model-b"].SupportedEndpoints["openai"])
 }
 
 func TestPricingAdvancedCustomMissingConfigFallsBackToChannelType(t *testing.T) {
