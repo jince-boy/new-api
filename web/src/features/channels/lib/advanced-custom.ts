@@ -859,7 +859,14 @@ function validateAdvancedCustomTask(
   if (requestMode === 'passthrough' && task.body_template !== undefined) {
     return 'Task body template requires template mode'
   }
-  if (!task.submit_response?.task_id_path?.trim()) {
+  const submitScriptError = validateRouteScript(task.submit_response?.script)
+  if (submitScriptError) return submitScriptError
+  const submitRequestScriptError = validateRouteScript(task.request_script)
+  if (submitRequestScriptError) return submitRequestScriptError
+  if (
+    !task.submit_response?.task_id_path?.trim() &&
+    !task.submit_response?.script?.trim()
+  ) {
     return 'Submit task ID path is required'
   }
   if (hasInvalidTaskStatusMap(task.submit_response.status_map || {})) {
@@ -883,18 +890,26 @@ function validateAdvancedCustomTask(
   if (pollMethod === 'GET' && task.poll.body_template !== undefined) {
     return 'GET poll requests cannot include a body template'
   }
+  const pollRequestScriptError = validateRouteScript(task.poll.request_script)
+  if (pollRequestScriptError) return pollRequestScriptError
   const pollAuthError = validateRouteAuth(task.poll.auth)
   if (pollAuthError) return pollAuthError
   const pollHeadersError = validateHeaders(task.poll.headers)
   if (pollHeadersError) return pollHeadersError
 
   const response = task.poll.response
-  if (!response?.status_path?.trim()) return 'Poll status path is required'
-  if (!response.result_url_path?.trim()) {
-    return 'Poll result URL path is required'
-  }
+  const pollResponseScriptError = validateRouteScript(response?.script)
+  if (pollResponseScriptError) return pollResponseScriptError
   const statusMap = response.status_map || {}
-  if (Object.keys(statusMap).length === 0) return 'Poll status map is required'
+  if (!response?.script?.trim()) {
+    if (!response?.status_path?.trim()) return 'Poll status path is required'
+    if (!response.result_url_path?.trim()) {
+      return 'Poll result URL path is required'
+    }
+    if (Object.keys(statusMap).length === 0) {
+      return 'Poll status map is required'
+    }
+  }
   if (hasInvalidTaskStatusMap(statusMap)) {
     return 'Poll status map contains an invalid status'
   }
@@ -947,6 +962,16 @@ function validateSafeErrorMessages(
   return hasInvalidMessage
     ? 'Safe error message map contains an empty code or message'
     : null
+}
+
+function validateRouteScript(script: string | undefined): string | null {
+  if (script !== undefined && script.trim().length === 0) {
+    return 'Route expression script cannot be empty'
+  }
+  if (script && new TextEncoder().encode(script).length > 32 * 1024) {
+    return 'Route expression script exceeds 32 KiB'
+  }
+  return null
 }
 
 function validateHeaders(

@@ -288,6 +288,172 @@ func TestDoResponseAcceptsSuccessWithoutBusinessErrorCode(t *testing.T) {
 	assert.Equal(t, http.StatusOK, recorder.Code)
 }
 
+func TestDoResponseScriptMatchesCodeInsidePlainTextBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "task_public"}}
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			SubmitResponse: relaykitdto.AdvancedCustomTaskResponse{
+				Script: `raw_body matches '"code"[[:space:]]*:[[:space:]]*500063' ? {"status":"FAILURE","message":"Content was blocked by policy."} : nil`,
+			},
+		}},
+	}
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/plain"}},
+		Body: io.NopCloser(strings.NewReader(
+			`warn Model "seedance-2.0-mini" does not support multi-shot. { "error": "private prompt detail", "code": 500063 }`,
+		)),
+	}
+
+	taskID, _, taskErr := adaptor.DoResponse(context, response, info)
+
+	require.NotNil(t, taskErr)
+	assert.Empty(t, taskID)
+	assert.Equal(t, "Content was blocked by policy.", taskErr.Message)
+	assert.NotContains(t, taskErr.Message, "private prompt detail")
+}
+
+func TestDoResponseScriptCanExplicitlyReturnSelectedUpstreamMessage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "task_public"}}
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			SubmitResponse: relaykitdto.AdvancedCustomTaskResponse{
+				Script: `body.code == -2001 ? {"status":"FAILURE","message":type(json_path("message")) == "string" ? string(json_path("message")) : "Request failed."} : nil`,
+			},
+		}},
+	}
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(`{"code":-2001,"message":"Provider is temporarily unavailable."}`)),
+	}
+
+	_, _, taskErr := adaptor.DoResponse(context, response, info)
+
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "Provider is temporarily unavailable.", taskErr.Message)
+}
+
+func TestDoResponseScriptDoesNotReturnStructuredUpstreamMessage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "task_public"}}
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			SubmitResponse: relaykitdto.AdvancedCustomTaskResponse{
+				Script: `body.code == -2001 ? {"status":"FAILURE","message":type(json_path("message")) == "string" ? string(json_path("message")) : "Request failed."} : nil`,
+			},
+		}},
+	}
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(`{"code":-2001,"message":{"debug":"private detail"}}`)),
+	}
+
+	_, _, taskErr := adaptor.DoResponse(context, response, info)
+
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "Request failed.", taskErr.Message)
+	assert.NotContains(t, taskErr.Message, "private detail")
+}
+
+func TestMapTaskErrorResponseScriptCanInspectHTTPStatusAndHeader(t *testing.T) {
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			SubmitResponse: relaykitdto.AdvancedCustomTaskResponse{
+				Script: `http_status == 429 && header("X-Error-Class") == "quota" ? {"status":"FAILURE","message":"Service capacity is temporarily unavailable."} : nil`,
+			},
+		}},
+	}
+	info := &relaycommon.RelayInfo{}
+
+	taskErr := adaptor.MapTaskErrorResponse(
+		nil,
+		http.StatusTooManyRequests,
+		http.Header{"X-Error-Class": []string{"quota"}},
+		[]byte(`private upstream body`),
+		info,
+	)
+
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "Service capacity is temporarily unavailable.", taskErr.Message)
+	assert.NotContains(t, taskErr.Message, "private upstream body")
+}
+
+func TestSubmitRequestScriptTransformsBodyHeadersMethodAndQuery(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos?client=1", strings.NewReader(`{"prompt":"draw a fox"}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Client-Region", "cn")
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = request
+	var parsed map[string]any
+	require.NoError(t, common.UnmarshalBodyReusable(context, &parsed))
+
+	adaptor := &TaskAdaptor{
+		baseURL:      "https://provider.example",
+		apiKey:       "secret",
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{
+			UpstreamPath: "/submit",
+			Task: &relaykitdto.AdvancedCustomTask{
+				SubmitMethod:  "POST",
+				RequestMode:   relaykitdto.AdvancedCustomTaskRequestModePassthrough,
+				RequestScript: `{"body":{"text":body.prompt,"model":model},"headers":{"X-Region":header("X-Client-Region")},"query":{"mode":"fast"},"method":"PUT"}`,
+			},
+		},
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta:   &relaycommon.ChannelMeta{UpstreamModelName: "provider-video"},
+		TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "public-task"},
+	}
+
+	bodyReader, err := adaptor.BuildRequestBody(context, info)
+	require.NoError(t, err)
+	body, err := io.ReadAll(bodyReader)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"text":"draw a fox","model":"provider-video"}`, string(body))
+
+	requestURL, err := adaptor.BuildRequestURL(info)
+	require.NoError(t, err)
+	assert.Equal(t, "https://provider.example/submit?mode=fast", requestURL)
+
+	upstreamRequest := httptest.NewRequest(http.MethodPost, requestURL, nil)
+	require.NoError(t, adaptor.BuildRequestHeader(context, upstreamRequest, info))
+	assert.Equal(t, "cn", upstreamRequest.Header.Get("X-Region"))
+	assert.Equal(t, "PUT", adaptor.submitScript.Method)
+}
+
+func TestParseTaskResultResponseUsesPollResponseScript(t *testing.T) {
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		baseURL:      "https://provider.example",
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			Poll: relaykitdto.AdvancedCustomTaskPoll{Response: relaykitdto.AdvancedCustomTaskResponse{
+				Script: `body.code == 0 ? {"status":body.state,"progress":body.percent,"result_url":body.output} : {"status":"FAILURE","message":"Polling failed."}`,
+			}},
+		}},
+	}
+
+	result, err := adaptor.ParseTaskResultResponse(
+		http.StatusOK,
+		http.Header{"X-Provider": []string{"video"}},
+		[]byte(`{"code":0,"state":"SUCCESS","percent":0.75,"output":"/video.mp4"}`),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, string(model.TaskStatusSuccess), result.Status)
+	assert.Equal(t, "75%", result.Progress)
+	assert.Equal(t, "https://provider.example/video.mp4", result.Url)
+}
+
 func TestMapTaskErrorResponseExtractsConfiguredMessageWithoutRawBody(t *testing.T) {
 	adaptor := &TaskAdaptor{
 		routeMatched: true,
@@ -302,7 +468,7 @@ func TestMapTaskErrorResponseExtractsConfiguredMessageWithoutRawBody(t *testing.
 	info := &relaycommon.RelayInfo{}
 	body := []byte(`{"status":"failed","error":{"message":"invalid prompt","debug":"must not leak"}}`)
 
-	taskErr := adaptor.MapTaskErrorResponse(nil, http.StatusBadRequest, body, info)
+	taskErr := adaptor.MapTaskErrorResponse(nil, http.StatusBadRequest, nil, body, info)
 
 	require.NotNil(t, taskErr)
 	assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
@@ -328,7 +494,7 @@ func TestMapTaskErrorResponseUsesSafeMessageForBusinessErrorCode(t *testing.T) {
 	info := &relaycommon.RelayInfo{}
 	body := []byte(`{"code":-2010,"message":"private credential failure detail","data":null}`)
 
-	taskErr := adaptor.MapTaskErrorResponse(nil, http.StatusUnauthorized, body, info)
+	taskErr := adaptor.MapTaskErrorResponse(nil, http.StatusUnauthorized, nil, body, info)
 
 	require.NotNil(t, taskErr)
 	assert.Equal(t, http.StatusUnauthorized, taskErr.StatusCode)
@@ -349,7 +515,7 @@ func TestMapTaskErrorResponseDoesNotExposeStructuredErrorValue(t *testing.T) {
 	info := &relaycommon.RelayInfo{}
 	body := []byte(`{"error":{"message":"invalid prompt","debug":"private upstream details"}}`)
 
-	taskErr := adaptor.MapTaskErrorResponse(nil, http.StatusBadRequest, body, info)
+	taskErr := adaptor.MapTaskErrorResponse(nil, http.StatusBadRequest, nil, body, info)
 
 	require.NotNil(t, taskErr)
 	assert.Equal(t, "upstream task submission failed with HTTP status 400", taskErr.Message)

@@ -198,6 +198,10 @@ describe('advanced custom protocol editor layout', () => {
     assert.equal(visibleText.includes('{public_task_id}'), true)
     assert.equal(visibleText.includes('{task_id}'), true)
     assert.equal(visibleText.includes('{api_key}'), true)
+    assert.equal(visibleText.includes('Submit request expression'), true)
+    assert.equal(visibleText.includes('Submit response expression'), true)
+    assert.equal(visibleText.includes('Poll request expression'), true)
+    assert.equal(visibleText.includes('Poll response expression'), true)
 
     await unmountEditor(rendered)
   })

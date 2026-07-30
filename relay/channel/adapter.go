@@ -94,5 +94,11 @@ type TaskRouteSnapshotProvider interface {
 // user-facing error from a non-2xx upstream response without exposing the raw
 // response body.
 type TaskErrorResponseMapper interface {
-	MapTaskErrorResponse(c *gin.Context, statusCode int, responseBody []byte, info *relaycommon.RelayInfo) *taskdto.TaskError
+	MapTaskErrorResponse(c *gin.Context, statusCode int, responseHeader http.Header, responseBody []byte, info *relaycommon.RelayInfo) *taskdto.TaskError
+}
+
+// TaskResponseParser lets configurable task adaptors inspect the polling HTTP
+// status and headers in addition to the response body.
+type TaskResponseParser interface {
+	ParseTaskResultResponse(statusCode int, responseHeader http.Header, responseBody []byte) (*relaycommon.TaskInfo, error)
 }

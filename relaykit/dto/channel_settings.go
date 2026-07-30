@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/QuantumNous/new-api/relaykit/routeexpr"
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
@@ -148,18 +149,20 @@ type AdvancedCustomTask struct {
 	SubmitMethod   string                      `json:"submit_method,omitempty"`
 	RequestMode    string                      `json:"request_mode,omitempty"`
 	BodyTemplate   json.RawMessage             `json:"body_template,omitempty"`
+	RequestScript  string                      `json:"request_script,omitempty"`
 	SubmitResponse AdvancedCustomTaskResponse  `json:"submit_response"`
 	Poll           AdvancedCustomTaskPoll      `json:"poll"`
 	Download       *AdvancedCustomTaskDownload `json:"download,omitempty"`
 }
 
 type AdvancedCustomTaskPoll struct {
-	Method       string                     `json:"method,omitempty"`
-	UpstreamPath string                     `json:"upstream_path"`
-	Auth         *AdvancedCustomRouteAuth   `json:"auth,omitempty"`
-	Headers      map[string]string          `json:"headers,omitempty"`
-	BodyTemplate json.RawMessage            `json:"body_template,omitempty"`
-	Response     AdvancedCustomTaskResponse `json:"response"`
+	Method        string                     `json:"method,omitempty"`
+	UpstreamPath  string                     `json:"upstream_path"`
+	Auth          *AdvancedCustomRouteAuth   `json:"auth,omitempty"`
+	Headers       map[string]string          `json:"headers,omitempty"`
+	BodyTemplate  json.RawMessage            `json:"body_template,omitempty"`
+	RequestScript string                     `json:"request_script,omitempty"`
+	Response      AdvancedCustomTaskResponse `json:"response"`
 }
 
 // AdvancedCustomTaskDownload describes credentials that the media delivery
@@ -183,6 +186,7 @@ type AdvancedCustomTaskResponse struct {
 	ErrorCodePath       string            `json:"error_code_path,omitempty"`
 	ErrorMessageMap     map[string]string `json:"error_message_map,omitempty"`
 	DefaultErrorMessage string            `json:"default_error_message,omitempty"`
+	Script              string            `json:"script,omitempty"`
 }
 
 const (
@@ -569,8 +573,14 @@ func validateAdvancedCustomTask(index int, task *AdvancedCustomTask) error {
 		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.request_mode is invalid: %s", index, task.RequestMode)
 	}
 
-	if strings.TrimSpace(task.SubmitResponse.TaskIDPath) == "" {
-		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.submit_response.task_id_path is required", index)
+	if err := validateAdvancedCustomRouteExpression(index, "task.request_script", task.RequestScript); err != nil {
+		return err
+	}
+	if strings.TrimSpace(task.SubmitResponse.TaskIDPath) == "" && strings.TrimSpace(task.SubmitResponse.Script) == "" {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.submit_response.task_id_path is required when no response script is configured", index)
+	}
+	if err := validateAdvancedCustomRouteExpression(index, "task.submit_response.script", task.SubmitResponse.Script); err != nil {
+		return err
 	}
 	if err := validateAdvancedCustomTaskStatusMap(index, "task.submit_response.status_map", task.SubmitResponse.StatusMap); err != nil {
 		return err
@@ -602,6 +612,9 @@ func validateAdvancedCustomTask(index int, task *AdvancedCustomTask) error {
 	if pollMethod == http.MethodGet && len(task.Poll.BodyTemplate) > 0 {
 		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.body_template is not allowed for GET", index)
 	}
+	if err := validateAdvancedCustomRouteExpression(index, "task.poll.request_script", task.Poll.RequestScript); err != nil {
+		return err
+	}
 	if err := validateAdvancedCustomRouteAuth(index, task.Poll.Auth); err != nil {
 		return err
 	}
@@ -618,14 +631,19 @@ func validateAdvancedCustomTask(index int, task *AdvancedCustomTask) error {
 	}
 
 	response := task.Poll.Response
-	if strings.TrimSpace(response.StatusPath) == "" {
-		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.status_path is required", index)
+	if err := validateAdvancedCustomRouteExpression(index, "task.poll.response.script", response.Script); err != nil {
+		return err
 	}
-	if strings.TrimSpace(response.ResultURLPath) == "" {
-		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.result_url_path is required", index)
-	}
-	if len(response.StatusMap) == 0 {
-		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.status_map is required", index)
+	if strings.TrimSpace(response.Script) == "" {
+		if strings.TrimSpace(response.StatusPath) == "" {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.status_path is required when no response script is configured", index)
+		}
+		if strings.TrimSpace(response.ResultURLPath) == "" {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.result_url_path is required when no response script is configured", index)
+		}
+		if len(response.StatusMap) == 0 {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.status_map is required when no response script is configured", index)
+		}
 	}
 	if err := validateAdvancedCustomTaskStatusMap(index, "task.poll.response.status_map", response.StatusMap); err != nil {
 		return err
@@ -638,13 +656,20 @@ func validateAdvancedCustomTaskStatusMap(index int, field string, statusMap map[
 		if strings.TrimSpace(upstream) == "" {
 			return fmt.Errorf("advanced_custom.advanced_routes[%d].%s contains an empty upstream status", index, field)
 		}
-		switch strings.ToUpper(strings.TrimSpace(canonical)) {
-		case "SUBMITTED", "QUEUED", "IN_PROGRESS", "SUCCESS", "FAILURE":
-		default:
+		if !IsAdvancedCustomCanonicalTaskStatus(canonical) {
 			return fmt.Errorf("advanced_custom.advanced_routes[%d].%s has invalid target status: %s", index, field, canonical)
 		}
 	}
 	return nil
+}
+
+func IsAdvancedCustomCanonicalTaskStatus(status string) bool {
+	switch strings.ToUpper(strings.TrimSpace(status)) {
+	case "SUBMITTED", "QUEUED", "IN_PROGRESS", "SUCCESS", "FAILURE":
+		return true
+	default:
+		return false
+	}
 }
 
 func validateAdvancedCustomTaskErrorMessages(index int, field string, response AdvancedCustomTaskResponse) error {
@@ -656,6 +681,13 @@ func validateAdvancedCustomTaskErrorMessages(index int, field string, response A
 		if strings.TrimSpace(code) == "" || strings.TrimSpace(message) == "" {
 			return fmt.Errorf("advanced_custom.advanced_routes[%d].%s.error_message_map contains an empty code or message", index, field)
 		}
+	}
+	return nil
+}
+
+func validateAdvancedCustomRouteExpression(index int, field string, source string) error {
+	if err := routeexpr.Validate(source); err != nil {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].%s is invalid: %w", index, field, err)
 	}
 	return nil
 }

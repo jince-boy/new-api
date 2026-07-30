@@ -35,6 +35,10 @@ type TaskPollingAdaptor interface {
 	AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int
 }
 
+type taskResponseParser interface {
+	ParseTaskResultResponse(statusCode int, responseHeader http.Header, responseBody []byte) (*relaycommon.TaskInfo, error)
+}
+
 // GetTaskAdaptorFunc 由 main 包注入，用于获取指定平台的任务适配器。
 // 打破 service -> relay -> relay/channel -> service 的循环依赖。
 var GetTaskAdaptorFunc func(platform constant.TaskPlatform) TaskPollingAdaptor
@@ -480,24 +484,30 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		return fmt.Errorf("readAll failed for task %s: %w", taskId, err)
 	}
 
-	logger.LogDebug(ctx, "updateVideoSingleTask response: %s", responseBody)
+	logger.LogDebug(ctx, "updateVideoSingleTask upstream status=%d body_bytes=%d", resp.StatusCode, len(responseBody))
 
 	snap := task.Snapshot()
 
 	taskResult := &relaycommon.TaskInfo{}
-	// try parse as New API response format
-	var responseItems taskdto.TaskResponse[model.Task]
-	if err = common.Unmarshal(responseBody, &responseItems); err == nil && responseItems.IsSuccess() {
-		logger.LogDebug(ctx, "updateVideoSingleTask parsed as new api response format: %+v", responseItems)
-		t := responseItems.Data
-		taskResult.TaskID = t.TaskID
-		taskResult.Status = string(t.Status)
-		taskResult.Url = t.GetResultURL()
-		taskResult.Progress = t.Progress
-		taskResult.Reason = t.FailReason
-		task.Data = t.Data
-	} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
-		return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
+	if parser, ok := adaptor.(taskResponseParser); ok {
+		taskResult, err = parser.ParseTaskResultResponse(resp.StatusCode, resp.Header, responseBody)
+		if err != nil {
+			return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
+		}
+	} else {
+		// try parse as New API response format
+		var responseItems taskdto.TaskResponse[model.Task]
+		if err = common.Unmarshal(responseBody, &responseItems); err == nil && responseItems.IsSuccess() {
+			t := responseItems.Data
+			taskResult.TaskID = t.TaskID
+			taskResult.Status = string(t.Status)
+			taskResult.Url = t.GetResultURL()
+			taskResult.Progress = t.Progress
+			taskResult.Reason = t.FailReason
+			task.Data = t.Data
+		} else if taskResult, err = adaptor.ParseTaskResult(responseBody); err != nil {
+			return fmt.Errorf("parseTaskResult failed for task %s: %w", taskId, err)
+		}
 	}
 
 	task.Data = redactVideoResponseBody(responseBody)
@@ -510,7 +520,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 		}
 	}
 
-	logger.LogDebug(ctx, "updateVideoSingleTask taskResult: %+v", taskResult)
+	logger.LogDebug(ctx, "updateVideoSingleTask parsed status=%s progress=%s has_result_url=%t", taskResult.Status, taskResult.Progress, taskResult.Url != "")
 
 	now := time.Now().Unix()
 	if taskResult.Status == "" {
@@ -528,8 +538,7 @@ func updateVideoSingleTask(ctx context.Context, adaptor TaskPollingAdaptor, ch *
 				// 其他错误认为是任务失败，记录错误信息并更新任务状态
 				taskResult = relaycommon.FailTaskInfo("upstream returned error")
 			} else {
-				// unknown error format, log original response
-				logger.LogError(ctx, fmt.Sprintf("Task %s returned empty status with unrecognized error format, response: %s", taskId, string(responseBody)))
+				logger.LogError(ctx, fmt.Sprintf("Task %s returned empty status with unrecognized error format (HTTP %d, %d bytes)", taskId, resp.StatusCode, len(responseBody)))
 				taskResult = relaycommon.FailTaskInfo("upstream returned unrecognized message")
 			}
 		}

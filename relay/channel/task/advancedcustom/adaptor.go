@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -35,6 +36,10 @@ type TaskAdaptor struct {
 	routeMatched bool
 	baseURL      string
 	apiKey       string
+	submitScript taskRequestScriptResult
+	pollModel    string
+	pollTaskID   string
+	pollPublicID string
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
@@ -70,14 +75,29 @@ func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, erro
 	if !a.routeMatched {
 		return "", fmt.Errorf("advanced custom task route is not resolved")
 	}
-	return synccustom.BuildTaskRouteURL(a.baseURL, a.route.UpstreamPath, info.UpstreamModelName, "", a.apiKey, a.route.Auth)
+	requestURL, err := synccustom.BuildTaskRouteURL(a.baseURL, a.route.UpstreamPath, info.UpstreamModelName, "", a.apiKey, a.route.Auth)
+	if err != nil || len(a.submitScript.Query) == 0 {
+		return requestURL, err
+	}
+	parsedURL, err := url.Parse(requestURL)
+	if err != nil {
+		return "", err
+	}
+	query := parsedURL.Query()
+	applyTaskScriptQueryOverrides(query, a.submitScript.Query)
+	parsedURL.RawQuery = query.Encode()
+	return parsedURL.String(), nil
 }
 
 func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, &req.Header)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
-	return synccustom.ApplyTaskRouteHeaders(req.Header, a.route.Headers, a.route.Auth, a.apiKey, info.UpstreamModelName, "")
+	if err := synccustom.ApplyTaskRouteHeaders(req.Header, a.route.Headers, a.route.Auth, a.apiKey, info.UpstreamModelName, ""); err != nil {
+		return err
+	}
+	applyTaskScriptHeaderOverrides(req.Header, a.submitScript.Headers)
+	return nil
 }
 
 func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error) {
@@ -88,6 +108,11 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	rawBody, err := storage.Bytes()
 	if err != nil {
 		return nil, err
+	}
+	originalRawBody := append([]byte(nil), rawBody...)
+	publicTaskID := ""
+	if info.TaskRelayInfo != nil {
+		publicTaskID = info.PublicTaskID
 	}
 	if strings.Contains(strings.ToLower(c.GetHeader("Content-Type")), "multipart/form-data") {
 		taskRequest, taskRequestErr := relaycommon.GetTaskRequest(c)
@@ -116,30 +141,49 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 		if err != nil {
 			return nil, err
 		}
-		return bytes.NewReader(encoded), nil
+		rawBody = encoded
+	} else {
+		var template any
+		if err := common.Unmarshal(a.route.Task.BodyTemplate, &template); err != nil {
+			return nil, fmt.Errorf("decode body template: %w", err)
+		}
+		resolved, keep := resolveTaskTemplate(template, taskTemplateValues{
+			model:        info.UpstreamModelName,
+			publicTaskID: publicTaskID,
+			requestBody:  rawBody,
+		})
+		if !keep {
+			return nil, fmt.Errorf("body template resolved to an empty value")
+		}
+		rawBody, err = common.Marshal(resolved)
+		if err != nil {
+			return nil, err
+		}
 	}
-
-	var template any
-	if err := common.Unmarshal(a.route.Task.BodyTemplate, &template); err != nil {
-		return nil, fmt.Errorf("decode body template: %w", err)
-	}
-	resolved, keep := resolveTaskTemplate(template, taskTemplateValues{
-		model:        info.UpstreamModelName,
-		publicTaskID: info.PublicTaskID,
-		requestBody:  rawBody,
+	a.submitScript, err = runTaskRequestScript(a.route.Task.RequestScript, taskScriptInput{
+		Body:         rawBody,
+		OriginalBody: originalRawBody,
+		Headers:      c.Request.Header,
+		Query:        c.Request.URL.Query(),
+		Method:       a.route.Task.SubmitMethod,
+		Path:         c.Request.URL.Path,
+		Model:        info.UpstreamModelName,
+		PublicTaskID: publicTaskID,
 	})
-	if !keep {
-		return nil, fmt.Errorf("body template resolved to an empty value")
-	}
-	encoded, err := common.Marshal(resolved)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("run submit request script: %w", err)
 	}
-	return bytes.NewReader(encoded), nil
+	if a.submitScript.BodySet {
+		rawBody = a.submitScript.Body
+	}
+	return bytes.NewReader(rawBody), nil
 }
 
 func (a *TaskAdaptor) DoRequest(c *gin.Context, info *relaycommon.RelayInfo, requestBody io.Reader) (*http.Response, error) {
 	method := strings.ToUpper(strings.TrimSpace(a.route.Task.SubmitMethod))
+	if a.submitScript.Method != "" {
+		method = a.submitScript.Method
+	}
 	if method == "" {
 		method = http.MethodPost
 	}
@@ -153,36 +197,47 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	}
 	_ = resp.Body.Close()
 
-	upstreamStatus, mappedStatus, errorMessage, errorPathMatched := inspectConfiguredTaskResponse(
-		responseBody,
-		a.route.Task.SubmitResponse,
-	)
+	scriptInput := taskScriptInput{Body: responseBody, Headers: resp.Header, HTTPStatus: resp.StatusCode}
+	if info.ChannelMeta != nil {
+		scriptInput.Model = info.UpstreamModelName
+	}
+	if info.TaskRelayInfo != nil {
+		scriptInput.PublicTaskID = info.PublicTaskID
+	}
+	if resp.Request != nil {
+		scriptInput.Method = resp.Request.Method
+		scriptInput.Path = resp.Request.URL.Path
+	}
+	inspection, inspectErr := inspectConfiguredTaskResponse(responseBody, scriptInput, a.route.Task.SubmitResponse)
+	if inspectErr != nil {
+		return "", responseBody, service.TaskErrorWrapper(inspectErr, "invalid_response", http.StatusBadGateway)
+	}
 	info.TaskUpstreamDiagnostics = &relaycommon.TaskUpstreamDiagnostics{
 		HTTPStatus:           resp.StatusCode,
-		UpstreamStatus:       upstreamStatus,
-		MappedStatus:         mappedStatus,
-		StatusMappingApplied: upstreamStatus != "" && mappedStatus != "",
-		ErrorPathMatched:     errorPathMatched,
+		UpstreamStatus:       inspection.UpstreamStatus,
+		MappedStatus:         inspection.Status,
+		StatusMappingApplied: inspection.UpstreamStatus != "" && inspection.Status != "",
+		ErrorPathMatched:     inspection.ErrorPathMatched,
 	}
-	if upstreamStatus != "" && len(a.route.Task.SubmitResponse.StatusMap) > 0 && mappedStatus == "" {
+	if inspection.UpstreamStatus != "" && len(a.route.Task.SubmitResponse.StatusMap) > 0 && inspection.Status == "" && strings.TrimSpace(a.route.Task.SubmitResponse.Script) == "" {
 		return "", responseBody, service.TaskErrorWrapper(
-			fmt.Errorf("unmapped upstream task status %q at path %s", upstreamStatus, a.route.Task.SubmitResponse.StatusPath),
+			fmt.Errorf("unmapped upstream task status %q at path %s", inspection.UpstreamStatus, a.route.Task.SubmitResponse.StatusPath),
 			"invalid_response",
 			http.StatusBadGateway,
 		)
 	}
-	if mappedStatus == string(model.TaskStatusFailure) {
-		if errorMessage == "" {
-			errorMessage = fmt.Sprintf("upstream task submission failed with status %s", upstreamStatus)
+	if inspection.Status == string(model.TaskStatusFailure) {
+		if inspection.ErrorMessage == "" {
+			inspection.ErrorMessage = fmt.Sprintf("upstream task submission failed with status %s", inspection.UpstreamStatus)
 		}
 		return "", responseBody, service.TaskErrorWrapper(
-			fmt.Errorf("%s", errorMessage),
+			fmt.Errorf("%s", inspection.ErrorMessage),
 			"upstream_task_failed",
 			http.StatusBadGateway,
 		)
 	}
 
-	taskID := extractTaskString(responseBody, a.route.Task.SubmitResponse.TaskIDPath)
+	taskID := inspection.TaskID
 	if taskID == "" {
 		return "", responseBody, service.TaskErrorWrapper(
 			fmt.Errorf("upstream task id is empty at path %s", a.route.Task.SubmitResponse.TaskIDPath),
@@ -196,33 +251,44 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	video.TaskID = info.PublicTaskID
 	video.Model = info.OriginModelName
 	video.CreatedAt = time.Now().Unix()
-	if mappedStatus != "" {
-		video.Status = model.TaskStatus(mappedStatus).ToVideoStatus()
+	if inspection.Status != "" {
+		video.Status = model.TaskStatus(inspection.Status).ToVideoStatus()
 	}
 	c.JSON(http.StatusOK, video)
 	return taskID, responseBody, nil
 }
 
-func (a *TaskAdaptor) MapTaskErrorResponse(_ *gin.Context, statusCode int, responseBody []byte, info *relaycommon.RelayInfo) *taskdto.TaskError {
-	upstreamStatus, mappedStatus, errorMessage, errorPathMatched := inspectConfiguredTaskResponse(
-		responseBody,
-		a.route.Task.SubmitResponse,
-	)
+func (a *TaskAdaptor) MapTaskErrorResponse(c *gin.Context, statusCode int, responseHeader http.Header, responseBody []byte, info *relaycommon.RelayInfo) *taskdto.TaskError {
+	scriptInput := taskScriptInput{Body: responseBody, Headers: responseHeader, HTTPStatus: statusCode}
+	if info.ChannelMeta != nil {
+		scriptInput.Model = info.UpstreamModelName
+	}
+	if info.TaskRelayInfo != nil {
+		scriptInput.PublicTaskID = info.PublicTaskID
+	}
+	if c != nil && c.Request != nil {
+		scriptInput.Method = c.Request.Method
+		scriptInput.Path = c.Request.URL.Path
+	}
+	inspection, err := inspectConfiguredTaskResponse(responseBody, scriptInput, a.route.Task.SubmitResponse)
+	if err != nil {
+		return service.TaskErrorWrapper(err, "invalid_response", http.StatusBadGateway)
+	}
 	info.TaskUpstreamDiagnostics = &relaycommon.TaskUpstreamDiagnostics{
 		HTTPStatus:           statusCode,
-		UpstreamStatus:       upstreamStatus,
-		MappedStatus:         mappedStatus,
-		StatusMappingApplied: upstreamStatus != "" && mappedStatus != "",
-		ErrorPathMatched:     errorPathMatched,
+		UpstreamStatus:       inspection.UpstreamStatus,
+		MappedStatus:         inspection.Status,
+		StatusMappingApplied: inspection.UpstreamStatus != "" && inspection.Status != "",
+		ErrorPathMatched:     inspection.ErrorPathMatched,
 	}
-	if errorMessage == "" {
-		errorMessage = fmt.Sprintf("upstream task submission failed with HTTP status %d", statusCode)
+	if inspection.ErrorMessage == "" {
+		inspection.ErrorMessage = fmt.Sprintf("upstream task submission failed with HTTP status %d", statusCode)
 	}
 	code := "fail_to_fetch_task"
-	if mappedStatus == string(model.TaskStatusFailure) {
+	if inspection.Status == string(model.TaskStatusFailure) {
 		code = "upstream_task_failed"
 	}
-	return service.TaskErrorWrapper(fmt.Errorf("%s", errorMessage), code, statusCode)
+	return service.TaskErrorWrapper(fmt.Errorf("%s", inspection.ErrorMessage), code, statusCode)
 }
 
 func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy string) (*http.Response, error) {
@@ -234,6 +300,9 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 	}
 	modelName, _ := body["model"].(string)
 	publicTaskID, _ := body["public_task_id"].(string)
+	a.pollModel = modelName
+	a.pollTaskID = taskID
+	a.pollPublicID = publicTaskID
 
 	route, ok := body["advanced_custom_task_route"].(*relaykitdto.AdvancedCustomRoute)
 	if !ok || route == nil {
@@ -272,6 +341,7 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 	}
 
 	var requestBody io.Reader
+	var requestBodyBytes []byte
 	if len(poll.BodyTemplate) > 0 {
 		var template any
 		if err := common.Unmarshal(poll.BodyTemplate, &template); err != nil {
@@ -283,7 +353,8 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 			if err != nil {
 				return nil, err
 			}
-			requestBody = bytes.NewReader(encoded)
+			requestBodyBytes = encoded
+			requestBody = bytes.NewReader(requestBodyBytes)
 		}
 	}
 	method := strings.ToUpper(strings.TrimSpace(poll.Method))
@@ -301,6 +372,39 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 	if err := synccustom.ApplyTaskRouteHeaders(req.Header, headers, auth, key, modelName, taskID); err != nil {
 		return nil, err
 	}
+	scriptResult, err := runTaskRequestScript(poll.RequestScript, taskScriptInput{
+		Body:         requestBodyBytes,
+		OriginalBody: requestBodyBytes,
+		Headers:      req.Header,
+		Query:        req.URL.Query(),
+		Method:       method,
+		Path:         req.URL.Path,
+		Model:        modelName,
+		TaskID:       taskID,
+		PublicTaskID: publicTaskID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("run poll request script: %w", err)
+	}
+	if scriptResult.Method != "" {
+		req.Method = scriptResult.Method
+	}
+	if scriptResult.BodySet {
+		req.Body = io.NopCloser(bytes.NewReader(scriptResult.Body))
+		req.ContentLength = int64(len(scriptResult.Body))
+		if len(scriptResult.Body) == 0 {
+			req.Body = http.NoBody
+		}
+		if req.Header.Get("Content-Type") == "" && len(scriptResult.Body) > 0 {
+			req.Header.Set("Content-Type", "application/json")
+		}
+	}
+	applyTaskScriptHeaderOverrides(req.Header, scriptResult.Headers)
+	if len(scriptResult.Query) > 0 {
+		query := req.URL.Query()
+		applyTaskScriptQueryOverrides(query, scriptResult.Query)
+		req.URL.RawQuery = query.Encode()
+	}
 	client, err := service.GetHttpClientWithProxy(proxy)
 	if err != nil {
 		return nil, fmt.Errorf("new proxy http client failed: %w", err)
@@ -309,25 +413,39 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 }
 
 func (a *TaskAdaptor) ParseTaskResult(responseBody []byte) (*relaycommon.TaskInfo, error) {
+	return a.ParseTaskResultResponse(0, nil, responseBody)
+}
+
+func (a *TaskAdaptor) ParseTaskResultResponse(statusCode int, responseHeader http.Header, responseBody []byte) (*relaycommon.TaskInfo, error) {
 	if !a.routeMatched || a.route.Task == nil {
 		return nil, fmt.Errorf("advanced custom task route is not resolved")
 	}
 	mapping := a.route.Task.Poll.Response
-	upstreamStatus, canonicalStatus, errorMessage, _ := inspectConfiguredTaskResponse(responseBody, mapping)
-	if canonicalStatus == "" {
-		return nil, fmt.Errorf("unmapped upstream task status %q at path %s", upstreamStatus, mapping.StatusPath)
+	inspection, err := inspectConfiguredTaskResponse(responseBody, taskScriptInput{
+		Body:         responseBody,
+		Headers:      responseHeader,
+		HTTPStatus:   statusCode,
+		Model:        a.pollModel,
+		TaskID:       a.pollTaskID,
+		PublicTaskID: a.pollPublicID,
+	}, mapping)
+	if err != nil {
+		return nil, err
+	}
+	if inspection.Status == "" {
+		return nil, fmt.Errorf("unmapped upstream task status %q at path %s", inspection.UpstreamStatus, mapping.StatusPath)
 	}
 
 	result := &relaycommon.TaskInfo{
-		Status:   canonicalStatus,
-		Progress: normalizeTaskProgress(gjson.GetBytes(responseBody, mapping.ProgressPath)),
-		Reason:   errorMessage,
+		Status:   inspection.Status,
+		Progress: inspection.Progress,
+		Reason:   inspection.ErrorMessage,
 	}
-	if canonicalStatus == string(model.TaskStatusFailure) && result.Reason == "" {
-		result.Reason = fmt.Sprintf("upstream task failed with status %s", upstreamStatus)
+	if inspection.Status == string(model.TaskStatusFailure) && result.Reason == "" {
+		result.Reason = fmt.Sprintf("upstream task failed with status %s", inspection.UpstreamStatus)
 	}
-	if canonicalStatus == string(model.TaskStatusSuccess) {
-		result.Url = extractTaskString(responseBody, mapping.ResultURLPath)
+	if inspection.Status == string(model.TaskStatusSuccess) {
+		result.Url = inspection.ResultURL
 		if result.Url == "" {
 			return nil, fmt.Errorf("successful task response has no result URL at path %s", mapping.ResultURLPath)
 		}
@@ -342,7 +460,56 @@ func (a *TaskAdaptor) ParseTaskResult(responseBody []byte) (*relaycommon.TaskInf
 	return result, nil
 }
 
-func inspectConfiguredTaskResponse(responseBody []byte, mapping relaykitdto.AdvancedCustomTaskResponse) (string, string, string, bool) {
+type configuredTaskResponseInspection struct {
+	TaskID           string
+	UpstreamStatus   string
+	Status           string
+	ErrorMessage     string
+	Progress         string
+	ResultURL        string
+	ErrorPathMatched bool
+}
+
+func inspectConfiguredTaskResponse(responseBody []byte, scriptInput taskScriptInput, mapping relaykitdto.AdvancedCustomTaskResponse) (configuredTaskResponseInspection, error) {
+	inspection := inspectLegacyConfiguredTaskResponse(responseBody, mapping)
+	scriptInput.Body = responseBody
+	scriptResult, err := runTaskResponseScript(mapping.Script, scriptInput)
+	if err != nil {
+		return configuredTaskResponseInspection{}, fmt.Errorf("run response script: %w", err)
+	}
+	if scriptResult == nil {
+		return inspection, nil
+	}
+	if scriptResult.TaskID != "" {
+		inspection.TaskID = strings.TrimSpace(scriptResult.TaskID)
+	}
+	if scriptResult.UpstreamStatus != "" {
+		inspection.UpstreamStatus = strings.TrimSpace(scriptResult.UpstreamStatus)
+	}
+	if scriptResult.Status != "" {
+		inspection.Status = scriptResult.Status
+		if inspection.UpstreamStatus == "" {
+			inspection.UpstreamStatus = scriptResult.Status
+		}
+	}
+	if scriptResult.Message != "" {
+		inspection.ErrorMessage = strings.TrimSpace(scriptResult.Message)
+	}
+	if scriptResult.Progress != "" {
+		inspection.Progress = normalizeTaskProgress(gjson.Result{Type: gjson.String, Str: scriptResult.Progress})
+	}
+	if scriptResult.ResultURL != "" {
+		inspection.ResultURL = strings.TrimSpace(scriptResult.ResultURL)
+	}
+	return inspection, nil
+}
+
+func inspectLegacyConfiguredTaskResponse(responseBody []byte, mapping relaykitdto.AdvancedCustomTaskResponse) configuredTaskResponseInspection {
+	inspection := configuredTaskResponseInspection{
+		TaskID:    extractTaskString(responseBody, mapping.TaskIDPath),
+		Progress:  normalizeTaskProgress(gjson.GetBytes(responseBody, mapping.ProgressPath)),
+		ResultURL: extractTaskString(responseBody, mapping.ResultURLPath),
+	}
 	errorCode := extractTaskString(responseBody, mapping.ErrorCodePath)
 	if errorCode != "" && (len(mapping.ErrorMessageMap) > 0 || strings.TrimSpace(mapping.DefaultErrorMessage) != "") {
 		errorMessage := mapConfiguredTaskErrorMessage(errorCode, mapping.ErrorMessageMap)
@@ -352,13 +519,17 @@ func inspectConfiguredTaskResponse(responseBody []byte, mapping relaykitdto.Adva
 		if errorMessage == "" {
 			errorMessage = "upstream task failed"
 		}
-		return errorCode, string(model.TaskStatusFailure), errorMessage, false
+		inspection.UpstreamStatus = errorCode
+		inspection.Status = string(model.TaskStatusFailure)
+		inspection.ErrorMessage = errorMessage
+		return inspection
 	}
 
-	upstreamStatus := extractTaskString(responseBody, mapping.StatusPath)
-	mappedStatus := mapConfiguredTaskStatus(upstreamStatus, mapping.StatusMap)
-	errorMessage := extractTaskString(responseBody, mapping.ErrorPath)
-	return upstreamStatus, mappedStatus, errorMessage, errorMessage != ""
+	inspection.UpstreamStatus = extractTaskString(responseBody, mapping.StatusPath)
+	inspection.Status = mapConfiguredTaskStatus(inspection.UpstreamStatus, mapping.StatusMap)
+	inspection.ErrorMessage = extractTaskString(responseBody, mapping.ErrorPath)
+	inspection.ErrorPathMatched = inspection.ErrorMessage != ""
+	return inspection
 }
 
 func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {

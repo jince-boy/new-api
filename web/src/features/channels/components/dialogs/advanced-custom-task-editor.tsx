@@ -338,6 +338,13 @@ export function AdvancedCustomTaskEditor(props: AdvancedCustomTaskEditorProps) {
             })
           }
         />
+        <ExpressionScriptTextarea
+          label={t('Submit request expression')}
+          value={task.request_script}
+          placeholder='{"body":{"prompt":body.prompt,"model":model},"headers":{"X-Region":header("X-Region")},"query":{"mode":"fast"}}'
+          onChange={(value) => updateTask({ request_script: value })}
+        />
+        <RequestExpressionHelp />
         <Separator />
         <TaskSubheading>{t('Values read from submit response')}</TaskSubheading>
         <div className='grid gap-3 md:grid-cols-2'>
@@ -376,6 +383,13 @@ export function AdvancedCustomTaskEditor(props: AdvancedCustomTaskEditorProps) {
           response={task.submit_response}
           onChange={updateSubmitResponse}
         />
+        <ExpressionScriptTextarea
+          label={t('Submit response expression')}
+          value={task.submit_response.script}
+          placeholder='raw_body contains "500063" ? {"status":"FAILURE","message":"Content was blocked."} : nil'
+          onChange={(value) => updateSubmitResponse({ script: value })}
+        />
+        <ResponseExpressionHelp />
       </TaskSection>
 
       <TaskSection
@@ -440,6 +454,13 @@ export function AdvancedCustomTaskEditor(props: AdvancedCustomTaskEditorProps) {
             }
           />
         </div>
+        <ExpressionScriptTextarea
+          label={t('Poll request expression')}
+          value={task.poll.request_script}
+          placeholder='{"headers":{"X-Task-ID":task_id},"query":{"task":task_id}}'
+          onChange={(value) => updatePoll({ request_script: value })}
+        />
+        <RequestExpressionHelp />
         <Separator />
         <TaskSubheading>{t('Values read from poll response')}</TaskSubheading>
         <div className='grid gap-3 md:grid-cols-2'>
@@ -483,6 +504,13 @@ export function AdvancedCustomTaskEditor(props: AdvancedCustomTaskEditorProps) {
           response={task.poll.response}
           onChange={updatePollResponse}
         />
+        <ExpressionScriptTextarea
+          label={t('Poll response expression')}
+          value={task.poll.response.script}
+          placeholder='body.code == 0 ? {"status":body.status,"progress":body.progress,"result_url":body.url} : nil'
+          onChange={(value) => updatePollResponse({ script: value })}
+        />
+        <ResponseExpressionHelp />
       </TaskSection>
 
       <TaskSection
@@ -740,7 +768,54 @@ function SafeErrorMessageFields(props: {
           }
         />
       </TaskField>
+      <p className='text-muted-foreground text-xs'>
+        {t(
+          'Use a response expression below when matching requires HTTP status, headers, nested fields, or text contained in a non-JSON response.'
+        )}
+      </p>
     </div>
+  )
+}
+
+function ExpressionScriptTextarea(props: {
+  label: string
+  value?: string
+  placeholder: string
+  onChange: (value: string | undefined) => void
+}) {
+  return (
+    <TaskField label={props.label}>
+      <Textarea
+        value={props.value || ''}
+        placeholder={props.placeholder}
+        className='min-h-28 font-mono text-xs'
+        onChange={(event) => props.onChange(event.target.value || undefined)}
+      />
+    </TaskField>
+  )
+}
+
+function RequestExpressionHelp() {
+  const { t } = useTranslation()
+
+  return (
+    <p className='text-muted-foreground text-xs'>
+      {t(
+        'Request expressions can read body, original_body, raw_body, headers, query, method, path, model, task_id and public_task_id. Return an object with optional body or raw_body, headers, query and method fields; null header or query values delete them.'
+      )}
+    </p>
+  )
+}
+
+function ResponseExpressionHelp() {
+  const { t } = useTranslation()
+
+  return (
+    <p className='text-muted-foreground text-xs'>
+      {t(
+        'Response expressions can also read http_status and response headers. Return nil when unmatched, or an object with task_id, upstream_status, status, message, progress or result_url. Expressions run before fixed paths and maps; only return an upstream message when you explicitly choose it.'
+      )}
+    </p>
   )
 }
 

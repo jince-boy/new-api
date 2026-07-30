@@ -190,6 +190,74 @@ describe('advanced custom configurable protocols', () => {
     })
   })
 
+  test('accepts request and response expressions without fixed response paths', () => {
+    const task = createAdvancedCustomTask()
+    task.request_script =
+      '{"body":{"prompt":body.prompt},"headers":{"X-Model":model}}'
+    task.submit_response.task_id_path = ''
+    task.submit_response.script =
+      'body.code == 0 ? {"task_id":body.id,"status":"SUBMITTED"} : nil'
+    task.poll.request_script = '{"query":{"task":task_id}}'
+    task.poll.response.status_path = ''
+    task.poll.response.result_url_path = ''
+    task.poll.response.status_map = {}
+    task.poll.response.script =
+      '{"status":body.status,"result_url":body.url ?? ""}'
+    const config: AdvancedCustomConfig = {
+      advanced_routes: [
+        {
+          incoming_path: '/v1/videos',
+          upstream_path: '/v1/videos/generations',
+          converter: 'none',
+          task,
+        },
+      ],
+    }
+
+    assert.equal(validateAdvancedCustomConfig(config), null)
+    assert.equal(
+      normalizeAdvancedCustomConfig(config).advanced_routes?.[0].task
+        ?.submit_response.script,
+      task.submit_response.script
+    )
+  })
+
+  test('rejects empty and oversized route expression scripts', () => {
+    const emptyTask = createAdvancedCustomTask()
+    emptyTask.request_script = '   '
+    const emptyConfig: AdvancedCustomConfig = {
+      advanced_routes: [
+        {
+          incoming_path: '/v1/videos',
+          upstream_path: '/v1/videos/generations',
+          converter: 'none',
+          task: emptyTask,
+        },
+      ],
+    }
+    assert.deepEqual(validateAdvancedCustomConfig(emptyConfig), {
+      routeIndex: 0,
+      message: 'Route expression script cannot be empty',
+    })
+
+    const oversizedTask = createAdvancedCustomTask()
+    oversizedTask.submit_response.script = 'x'.repeat(32 * 1024 + 1)
+    const oversizedConfig: AdvancedCustomConfig = {
+      advanced_routes: [
+        {
+          incoming_path: '/v1/videos',
+          upstream_path: '/v1/videos/generations',
+          converter: 'none',
+          task: oversizedTask,
+        },
+      ],
+    }
+    assert.deepEqual(validateAdvancedCustomConfig(oversizedConfig), {
+      routeIndex: 0,
+      message: 'Route expression script exceeds 32 KiB',
+    })
+  })
+
   test('rejects header authentication values that can split HTTP headers', () => {
     const config: AdvancedCustomConfig = {
       advanced_routes: [

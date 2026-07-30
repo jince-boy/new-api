@@ -79,6 +79,20 @@ func TestAdvancedCustomTaskRouteAcceptsSafeErrorMessages(t *testing.T) {
 	require.NoError(t, (&AdvancedCustomConfig{Routes: []AdvancedCustomRoute{route}}).Validate())
 }
 
+func TestAdvancedCustomTaskRouteAcceptsScriptsInsteadOfFixedResponsePaths(t *testing.T) {
+	route := validAdvancedCustomTaskRoute()
+	route.Task.RequestScript = `{"body": body, "headers": {"X-Model": model}}`
+	route.Task.SubmitResponse.TaskIDPath = ""
+	route.Task.SubmitResponse.Script = `body.code == 0 ? {"task_id": body.data.id, "status": "SUBMITTED"} : nil`
+	route.Task.Poll.RequestScript = `{"query": {"task": task_id}}`
+	route.Task.Poll.Response.StatusPath = ""
+	route.Task.Poll.Response.ResultURLPath = ""
+	route.Task.Poll.Response.StatusMap = nil
+	route.Task.Poll.Response.Script = `{"status": body.state, "result_url": body.url ?? ""}`
+
+	require.NoError(t, (&AdvancedCustomConfig{Routes: []AdvancedCustomRoute{route}}).Validate())
+}
+
 func TestAdvancedCustomTaskRouteRejectsIncompleteProtocols(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -134,6 +148,13 @@ func TestAdvancedCustomTaskRouteRejectsIncompleteProtocols(t *testing.T) {
 				route.Task.Poll.Response.ErrorMessageMap = map[string]string{"-2008": ""}
 			},
 			want: "error_message_map contains an empty code or message",
+		},
+		{
+			name: "invalid response script",
+			mutate: func(route *AdvancedCustomRoute) {
+				route.Task.SubmitResponse.Script = `repeat("x", 100)`
+			},
+			want: "task.submit_response.script is invalid",
 		},
 		{
 			name: "task converter",

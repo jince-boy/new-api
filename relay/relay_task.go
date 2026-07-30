@@ -274,7 +274,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		_ = resp.Body.Close()
 		var taskErr *dto.TaskError
 		if mapper, ok := adaptor.(channel.TaskErrorResponseMapper); ok {
-			taskErr = mapper.MapTaskErrorResponse(c, resp.StatusCode, responseBody, info)
+			taskErr = mapper.MapTaskErrorResponse(c, resp.StatusCode, resp.Header, responseBody, info)
 		} else {
 			taskErr = service.TaskErrorWrapper(
 				fmt.Errorf("upstream task request failed with HTTP status %d", resp.StatusCode),
@@ -609,7 +609,12 @@ func tryRealtimeFetch(task *model.Task, isOpenAIVideoAPI bool) []byte {
 		return nil
 	}
 
-	ti, err := adaptor.ParseTaskResult(body)
+	var ti *relaycommon.TaskInfo
+	if parser, ok := adaptor.(channel.TaskResponseParser); ok {
+		ti, err = parser.ParseTaskResultResponse(resp.StatusCode, resp.Header, body)
+	} else {
+		ti, err = adaptor.ParseTaskResult(body)
+	}
 	if err != nil || ti == nil {
 		return nil
 	}

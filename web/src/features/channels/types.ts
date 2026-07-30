@@ -142,6 +142,7 @@ export interface AdvancedCustomTask {
   submit_method?: AdvancedCustomTaskMethod
   request_mode?: AdvancedCustomTaskRequestMode
   body_template?: unknown
+  request_script?: string
   submit_response: AdvancedCustomTaskResponse
   poll: AdvancedCustomTaskPoll
   download?: AdvancedCustomTaskDownload
@@ -153,6 +154,7 @@ export interface AdvancedCustomTaskPoll {
   auth?: AdvancedCustomRouteAuth
   headers?: Record<string, string>
   body_template?: unknown
+  request_script?: string
   response: AdvancedCustomTaskResponse
 }
 
@@ -171,6 +173,7 @@ export interface AdvancedCustomTaskResponse {
   error_code_path?: string
   error_message_map?: Record<string, string>
   default_error_message?: string
+  script?: string
 }
 
 export type AdvancedCustomCanonicalTaskStatus =
