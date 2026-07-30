@@ -185,6 +185,109 @@ func TestDoResponseUsesConfiguredSubmitFailureMappingBeforeTaskID(t *testing.T) 
 	assert.True(t, info.TaskUpstreamDiagnostics.ErrorPathMatched)
 }
 
+func TestDoResponseUsesSafeMessageForBusinessErrorCode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{
+		TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "task_public"},
+	}
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			SubmitResponse: relaykitdto.AdvancedCustomTaskResponse{
+				TaskIDPath:          "task_id",
+				StatusPath:          "status",
+				ErrorPath:           "message",
+				ErrorCodePath:       "code",
+				ErrorMessageMap:     map[string]string{"-2000": "请求参数非法，请检查后重试。"},
+				DefaultErrorMessage: "请求处理失败，请稍后重试。",
+			},
+		}},
+	}
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(
+			`{"code":-2000,"message":"private provider rejection detail","data":null}`,
+		)),
+	}
+
+	taskID, _, taskErr := adaptor.DoResponse(context, response, info)
+
+	require.NotNil(t, taskErr)
+	assert.Empty(t, taskID)
+	assert.Equal(t, "upstream_task_failed", taskErr.Code)
+	assert.Equal(t, "请求参数非法，请检查后重试。", taskErr.Message)
+	assert.NotContains(t, taskErr.Message, "private provider rejection detail")
+	require.NotNil(t, info.TaskUpstreamDiagnostics)
+	assert.Equal(t, "-2000", info.TaskUpstreamDiagnostics.UpstreamStatus)
+	assert.Equal(t, "FAILURE", info.TaskUpstreamDiagnostics.MappedStatus)
+	assert.False(t, info.TaskUpstreamDiagnostics.ErrorPathMatched)
+}
+
+func TestDoResponseUsesDefaultSafeMessageForUnknownBusinessErrorCode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{
+		TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "task_public"},
+	}
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			SubmitResponse: relaykitdto.AdvancedCustomTaskResponse{
+				TaskIDPath:          "task_id",
+				ErrorPath:           "message",
+				ErrorCodePath:       "code",
+				ErrorMessageMap:     map[string]string{"-2000": "请求参数非法。"},
+				DefaultErrorMessage: "请求处理失败，请稍后重试。",
+			},
+		}},
+	}
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(
+			`{"code":-2999,"message":"private unknown provider detail","data":null}`,
+		)),
+	}
+
+	_, _, taskErr := adaptor.DoResponse(context, response, info)
+
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "请求处理失败，请稍后重试。", taskErr.Message)
+	assert.NotContains(t, taskErr.Message, "private unknown provider detail")
+}
+
+func TestDoResponseAcceptsSuccessWithoutBusinessErrorCode(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	info := &relaycommon.RelayInfo{
+		TaskRelayInfo:   &relaycommon.TaskRelayInfo{PublicTaskID: "task_public"},
+		OriginModelName: "video-model",
+	}
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			SubmitResponse: relaykitdto.AdvancedCustomTaskResponse{
+				TaskIDPath:          "task_id",
+				StatusPath:          "status",
+				StatusMap:           map[string]string{"submitted": "SUBMITTED"},
+				ErrorCodePath:       "code",
+				DefaultErrorMessage: "请求处理失败，请稍后重试。",
+			},
+		}},
+	}
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(`{"task_id":"upstream-123","status":"submitted"}`)),
+	}
+
+	taskID, _, taskErr := adaptor.DoResponse(context, response, info)
+
+	require.Nil(t, taskErr)
+	assert.Equal(t, "upstream-123", taskID)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+}
+
 func TestMapTaskErrorResponseExtractsConfiguredMessageWithoutRawBody(t *testing.T) {
 	adaptor := &TaskAdaptor{
 		routeMatched: true,
@@ -208,6 +311,30 @@ func TestMapTaskErrorResponseExtractsConfiguredMessageWithoutRawBody(t *testing.
 	assert.NotContains(t, taskErr.Message, "must not leak")
 	require.NotNil(t, info.TaskUpstreamDiagnostics)
 	assert.Equal(t, http.StatusBadRequest, info.TaskUpstreamDiagnostics.HTTPStatus)
+}
+
+func TestMapTaskErrorResponseUsesSafeMessageForBusinessErrorCode(t *testing.T) {
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			SubmitResponse: relaykitdto.AdvancedCustomTaskResponse{
+				ErrorPath:           "message",
+				ErrorCodePath:       "code",
+				ErrorMessageMap:     map[string]string{"-2010": "当前服务暂时不可用，请稍后重试。"},
+				DefaultErrorMessage: "请求处理失败，请稍后重试。",
+			},
+		}},
+	}
+	info := &relaycommon.RelayInfo{}
+	body := []byte(`{"code":-2010,"message":"private credential failure detail","data":null}`)
+
+	taskErr := adaptor.MapTaskErrorResponse(nil, http.StatusUnauthorized, body, info)
+
+	require.NotNil(t, taskErr)
+	assert.Equal(t, http.StatusUnauthorized, taskErr.StatusCode)
+	assert.Equal(t, "upstream_task_failed", taskErr.Code)
+	assert.Equal(t, "当前服务暂时不可用，请稍后重试。", taskErr.Message)
+	assert.NotContains(t, taskErr.Message, "private credential failure detail")
 }
 
 func TestMapTaskErrorResponseDoesNotExposeStructuredErrorValue(t *testing.T) {
@@ -248,4 +375,29 @@ func TestParseTaskResultProvidesFailureReasonWhenErrorPathIsEmpty(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, string(model.TaskStatusFailure), result.Status)
 	assert.Equal(t, "upstream task failed with status failed", result.Reason)
+}
+
+func TestParseTaskResultUsesSafeMessageForBusinessErrorEnvelope(t *testing.T) {
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			Poll: relaykitdto.AdvancedCustomTaskPoll{Response: relaykitdto.AdvancedCustomTaskResponse{
+				StatusPath:          "status",
+				StatusMap:           map[string]string{"running": "IN_PROGRESS", "completed": "SUCCESS"},
+				ErrorPath:           "message",
+				ErrorCodePath:       "code",
+				ErrorMessageMap:     map[string]string{"-2008": "视频生成失败，请调整输入内容后重试。"},
+				DefaultErrorMessage: "请求处理失败，请稍后重试。",
+			}},
+		}},
+	}
+
+	result, err := adaptor.ParseTaskResult([]byte(
+		`{"code":-2008,"message":"private provider failure reason","data":null}`,
+	))
+
+	require.NoError(t, err)
+	assert.Equal(t, string(model.TaskStatusFailure), result.Status)
+	assert.Equal(t, "视频生成失败，请调整输入内容后重试。", result.Reason)
+	assert.NotContains(t, result.Reason, "private provider failure reason")
 }

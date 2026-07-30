@@ -63,6 +63,22 @@ func TestAdvancedCustomTaskRouteValidationAndMatching(t *testing.T) {
 	assert.False(t, ok)
 }
 
+func TestAdvancedCustomTaskRouteAcceptsSafeErrorMessages(t *testing.T) {
+	route := validAdvancedCustomTaskRoute()
+	route.Task.SubmitResponse.ErrorCodePath = "code"
+	route.Task.SubmitResponse.ErrorMessageMap = map[string]string{
+		"-2000": "Invalid request parameters.",
+	}
+	route.Task.SubmitResponse.DefaultErrorMessage = "The request could not be processed."
+	route.Task.Poll.Response.ErrorCodePath = "code"
+	route.Task.Poll.Response.ErrorMessageMap = map[string]string{
+		"-2008": "Video generation failed.",
+	}
+	route.Task.Poll.Response.DefaultErrorMessage = "The task could not be processed."
+
+	require.NoError(t, (&AdvancedCustomConfig{Routes: []AdvancedCustomRoute{route}}).Validate())
+}
+
 func TestAdvancedCustomTaskRouteRejectsIncompleteProtocols(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -103,6 +119,21 @@ func TestAdvancedCustomTaskRouteRejectsIncompleteProtocols(t *testing.T) {
 				route.Task.SubmitResponse.StatusMap = map[string]string{"failed": "ERROR"}
 			},
 			want: "task.submit_response.status_map has invalid target status",
+		},
+		{
+			name: "safe submit messages without error code path",
+			mutate: func(route *AdvancedCustomRoute) {
+				route.Task.SubmitResponse.ErrorMessageMap = map[string]string{"-2000": "Invalid request."}
+			},
+			want: "error_code_path is required when safe error messages are configured",
+		},
+		{
+			name: "empty safe poll message",
+			mutate: func(route *AdvancedCustomRoute) {
+				route.Task.Poll.Response.ErrorCodePath = "code"
+				route.Task.Poll.Response.ErrorMessageMap = map[string]string{"-2008": ""}
+			},
+			want: "error_message_map contains an empty code or message",
 		},
 		{
 			name: "task converter",

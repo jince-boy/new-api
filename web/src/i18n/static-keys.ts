@@ -55,6 +55,10 @@ export const STATIC_I18N_KEYS = [
   'Worker instances do not run master-only background tasks.',
   'Drawing task polling',
 
+  // Advanced custom task validation
+  'Business error code path is required when safe error messages are configured',
+  'Safe error message map contains an empty code or message',
+
   // Pricing constants
   'Name',
   'Price: Low to High',

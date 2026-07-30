@@ -174,12 +174,15 @@ type AdvancedCustomTaskDownload struct {
 // are the gateway's stable task states: SUBMITTED, QUEUED, IN_PROGRESS,
 // SUCCESS, or FAILURE.
 type AdvancedCustomTaskResponse struct {
-	TaskIDPath    string            `json:"task_id_path,omitempty"`
-	StatusPath    string            `json:"status_path,omitempty"`
-	ProgressPath  string            `json:"progress_path,omitempty"`
-	ResultURLPath string            `json:"result_url_path,omitempty"`
-	ErrorPath     string            `json:"error_path,omitempty"`
-	StatusMap     map[string]string `json:"status_map,omitempty"`
+	TaskIDPath          string            `json:"task_id_path,omitempty"`
+	StatusPath          string            `json:"status_path,omitempty"`
+	ProgressPath        string            `json:"progress_path,omitempty"`
+	ResultURLPath       string            `json:"result_url_path,omitempty"`
+	ErrorPath           string            `json:"error_path,omitempty"`
+	StatusMap           map[string]string `json:"status_map,omitempty"`
+	ErrorCodePath       string            `json:"error_code_path,omitempty"`
+	ErrorMessageMap     map[string]string `json:"error_message_map,omitempty"`
+	DefaultErrorMessage string            `json:"default_error_message,omitempty"`
 }
 
 const (
@@ -572,6 +575,9 @@ func validateAdvancedCustomTask(index int, task *AdvancedCustomTask) error {
 	if err := validateAdvancedCustomTaskStatusMap(index, "task.submit_response.status_map", task.SubmitResponse.StatusMap); err != nil {
 		return err
 	}
+	if err := validateAdvancedCustomTaskErrorMessages(index, "task.submit_response", task.SubmitResponse); err != nil {
+		return err
+	}
 
 	pollMethod := strings.ToUpper(strings.TrimSpace(task.Poll.Method))
 	if pollMethod == "" {
@@ -621,7 +627,10 @@ func validateAdvancedCustomTask(index int, task *AdvancedCustomTask) error {
 	if len(response.StatusMap) == 0 {
 		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.status_map is required", index)
 	}
-	return validateAdvancedCustomTaskStatusMap(index, "task.poll.response.status_map", response.StatusMap)
+	if err := validateAdvancedCustomTaskStatusMap(index, "task.poll.response.status_map", response.StatusMap); err != nil {
+		return err
+	}
+	return validateAdvancedCustomTaskErrorMessages(index, "task.poll.response", response)
 }
 
 func validateAdvancedCustomTaskStatusMap(index int, field string, statusMap map[string]string) error {
@@ -633,6 +642,19 @@ func validateAdvancedCustomTaskStatusMap(index int, field string, statusMap map[
 		case "SUBMITTED", "QUEUED", "IN_PROGRESS", "SUCCESS", "FAILURE":
 		default:
 			return fmt.Errorf("advanced_custom.advanced_routes[%d].%s has invalid target status: %s", index, field, canonical)
+		}
+	}
+	return nil
+}
+
+func validateAdvancedCustomTaskErrorMessages(index int, field string, response AdvancedCustomTaskResponse) error {
+	hasMessages := len(response.ErrorMessageMap) > 0 || strings.TrimSpace(response.DefaultErrorMessage) != ""
+	if hasMessages && strings.TrimSpace(response.ErrorCodePath) == "" {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].%s.error_code_path is required when safe error messages are configured", index, field)
+	}
+	for code, message := range response.ErrorMessageMap {
+		if strings.TrimSpace(code) == "" || strings.TrimSpace(message) == "" {
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].%s.error_message_map contains an empty code or message", index, field)
 		}
 	}
 	return nil

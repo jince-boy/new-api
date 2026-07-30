@@ -865,6 +865,10 @@ function validateAdvancedCustomTask(
   if (hasInvalidTaskStatusMap(task.submit_response.status_map || {})) {
     return 'Submit status map contains an invalid status'
   }
+  const submitErrorMessageError = validateSafeErrorMessages(
+    task.submit_response
+  )
+  if (submitErrorMessageError) return submitErrorMessageError
 
   const pollMethod = (task.poll?.method || 'GET').toUpperCase()
   if (!methods.has(pollMethod)) return 'Poll method is invalid'
@@ -894,6 +898,8 @@ function validateAdvancedCustomTask(
   if (hasInvalidTaskStatusMap(statusMap)) {
     return 'Poll status map contains an invalid status'
   }
+  const pollErrorMessageError = validateSafeErrorMessages(response)
+  if (pollErrorMessageError) return pollErrorMessageError
 
   const downloadAuthError = validateRouteAuth(task.download?.auth)
   if (downloadAuthError) return downloadAuthError
@@ -914,6 +920,33 @@ function hasInvalidTaskStatusMap(
     ([upstream, canonical]) =>
       !upstream.trim() || !canonicalStatuses.has(canonical)
   )
+}
+
+function validateSafeErrorMessages(
+  response: AdvancedCustomTaskResponse
+): string | null {
+  const messageMap = response.error_message_map
+  const hasMessageMap =
+    messageMap !== undefined &&
+    messageMap !== null &&
+    typeof messageMap === 'object' &&
+    !Array.isArray(messageMap) &&
+    Object.keys(messageMap).length > 0
+  const hasDefaultMessage = Boolean(response.default_error_message?.trim())
+  if (
+    (hasMessageMap || hasDefaultMessage) &&
+    !response.error_code_path?.trim()
+  ) {
+    return 'Business error code path is required when safe error messages are configured'
+  }
+  if (!hasMessageMap) return null
+  const hasInvalidMessage = Object.entries(messageMap).some(
+    ([code, message]) =>
+      !code.trim() || typeof message !== 'string' || !message.trim()
+  )
+  return hasInvalidMessage
+    ? 'Safe error message map contains an empty code or message'
+    : null
 }
 
 function validateHeaders(

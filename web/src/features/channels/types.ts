@@ -168,6 +168,9 @@ export interface AdvancedCustomTaskResponse {
   result_url_path?: string
   error_path?: string
   status_map?: Record<string, AdvancedCustomCanonicalTaskStatus>
+  error_code_path?: string
+  error_message_map?: Record<string, string>
+  default_error_message?: string
 }
 
 export type AdvancedCustomCanonicalTaskStatus =

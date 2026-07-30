@@ -139,6 +139,57 @@ describe('advanced custom configurable protocols', () => {
     })
   })
 
+  test('preserves and validates safe business error messages', () => {
+    const task = createAdvancedCustomTask()
+    task.submit_response.error_code_path = 'code'
+    task.submit_response.error_message_map = {
+      '-2000': 'Invalid request parameters.',
+      '-2009': 'The service is temporarily unavailable.',
+    }
+    task.submit_response.default_error_message =
+      'The request could not be processed.'
+    const config: AdvancedCustomConfig = {
+      advanced_routes: [
+        {
+          incoming_path: '/v1/videos',
+          upstream_path: '/v1/videos/generations',
+          converter: 'none',
+          task,
+        },
+      ],
+    }
+
+    assert.equal(validateAdvancedCustomConfig(config), null)
+    assert.deepEqual(
+      normalizeAdvancedCustomConfig(config).advanced_routes?.[0].task
+        ?.submit_response.error_message_map,
+      task.submit_response.error_message_map
+    )
+  })
+
+  test('requires an error code path for safe business error messages', () => {
+    const task = createAdvancedCustomTask()
+    task.submit_response.error_message_map = {
+      '-2000': 'Invalid request parameters.',
+    }
+    const config: AdvancedCustomConfig = {
+      advanced_routes: [
+        {
+          incoming_path: '/v1/videos',
+          upstream_path: '/v1/videos/generations',
+          converter: 'none',
+          task,
+        },
+      ],
+    }
+
+    assert.deepEqual(validateAdvancedCustomConfig(config), {
+      routeIndex: 0,
+      message:
+        'Business error code path is required when safe error messages are configured',
+    })
+  })
+
   test('rejects header authentication values that can split HTTP headers', () => {
     const config: AdvancedCustomConfig = {
       advanced_routes: [

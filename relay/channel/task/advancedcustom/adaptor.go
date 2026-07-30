@@ -313,8 +313,7 @@ func (a *TaskAdaptor) ParseTaskResult(responseBody []byte) (*relaycommon.TaskInf
 		return nil, fmt.Errorf("advanced custom task route is not resolved")
 	}
 	mapping := a.route.Task.Poll.Response
-	upstreamStatus := extractTaskString(responseBody, mapping.StatusPath)
-	canonicalStatus := mapConfiguredTaskStatus(upstreamStatus, mapping.StatusMap)
+	upstreamStatus, canonicalStatus, errorMessage, _ := inspectConfiguredTaskResponse(responseBody, mapping)
 	if canonicalStatus == "" {
 		return nil, fmt.Errorf("unmapped upstream task status %q at path %s", upstreamStatus, mapping.StatusPath)
 	}
@@ -322,7 +321,7 @@ func (a *TaskAdaptor) ParseTaskResult(responseBody []byte) (*relaycommon.TaskInf
 	result := &relaycommon.TaskInfo{
 		Status:   canonicalStatus,
 		Progress: normalizeTaskProgress(gjson.GetBytes(responseBody, mapping.ProgressPath)),
-		Reason:   extractTaskString(responseBody, mapping.ErrorPath),
+		Reason:   errorMessage,
 	}
 	if canonicalStatus == string(model.TaskStatusFailure) && result.Reason == "" {
 		result.Reason = fmt.Sprintf("upstream task failed with status %s", upstreamStatus)
@@ -344,6 +343,18 @@ func (a *TaskAdaptor) ParseTaskResult(responseBody []byte) (*relaycommon.TaskInf
 }
 
 func inspectConfiguredTaskResponse(responseBody []byte, mapping relaykitdto.AdvancedCustomTaskResponse) (string, string, string, bool) {
+	errorCode := extractTaskString(responseBody, mapping.ErrorCodePath)
+	if errorCode != "" && (len(mapping.ErrorMessageMap) > 0 || strings.TrimSpace(mapping.DefaultErrorMessage) != "") {
+		errorMessage := mapConfiguredTaskErrorMessage(errorCode, mapping.ErrorMessageMap)
+		if errorMessage == "" {
+			errorMessage = strings.TrimSpace(mapping.DefaultErrorMessage)
+		}
+		if errorMessage == "" {
+			errorMessage = "upstream task failed"
+		}
+		return errorCode, string(model.TaskStatusFailure), errorMessage, false
+	}
+
 	upstreamStatus := extractTaskString(responseBody, mapping.StatusPath)
 	mappedStatus := mapConfiguredTaskStatus(upstreamStatus, mapping.StatusMap)
 	errorMessage := extractTaskString(responseBody, mapping.ErrorPath)
@@ -490,6 +501,18 @@ func mapConfiguredTaskStatus(upstream string, statusMap map[string]string) strin
 	for configured, mapped := range statusMap {
 		if strings.EqualFold(strings.TrimSpace(configured), strings.TrimSpace(upstream)) {
 			return strings.ToUpper(strings.TrimSpace(mapped))
+		}
+	}
+	return ""
+}
+
+func mapConfiguredTaskErrorMessage(errorCode string, messageMap map[string]string) string {
+	if message, ok := messageMap[errorCode]; ok {
+		return strings.TrimSpace(message)
+	}
+	for configured, message := range messageMap {
+		if strings.EqualFold(strings.TrimSpace(configured), strings.TrimSpace(errorCode)) {
+			return strings.TrimSpace(message)
 		}
 	}
 	return ""

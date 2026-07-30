@@ -372,6 +372,10 @@ export function AdvancedCustomTaskEditor(props: AdvancedCustomTaskEditorProps) {
             })
           }
         />
+        <SafeErrorMessageFields
+          response={task.submit_response}
+          onChange={updateSubmitResponse}
+        />
       </TaskSection>
 
       <TaskSection
@@ -474,6 +478,10 @@ export function AdvancedCustomTaskEditor(props: AdvancedCustomTaskEditorProps) {
               status_map: value as AdvancedCustomTaskResponse['status_map'],
             })
           }
+        />
+        <SafeErrorMessageFields
+          response={task.poll.response}
+          onChange={updatePollResponse}
         />
       </TaskSection>
 
@@ -684,6 +692,55 @@ function MethodSelect(props: {
         </SelectGroup>
       </SelectContent>
     </Select>
+  )
+}
+
+function SafeErrorMessageFields(props: {
+  response: AdvancedCustomTaskResponse
+  onChange: (patch: Partial<AdvancedCustomTaskResponse>) => void
+}) {
+  const { t } = useTranslation()
+
+  return (
+    <div className='space-y-3 rounded-lg border p-3'>
+      <div>
+        <p className='text-sm font-medium'>{t('Safe business errors')}</p>
+        <p className='text-muted-foreground mt-1 text-xs'>
+          {t(
+            'Map business error codes to fixed safe messages. These messages take precedence over the upstream error message, and unknown codes use the default.'
+          )}
+        </p>
+      </div>
+      <PathInput
+        label={t('Business error code path')}
+        value={props.response.error_code_path}
+        placeholder='code'
+        onChange={(value) => props.onChange({ error_code_path: value })}
+      />
+      <JsonTextarea
+        label={t('Safe error message map')}
+        value={props.response.error_message_map}
+        objectOnly
+        optional
+        placeholder='{"-2000":"Invalid request parameters."}'
+        onChange={(value) =>
+          props.onChange({
+            error_message_map: value as Record<string, string> | undefined,
+          })
+        }
+      />
+      <TaskField label={t('Default safe error message')}>
+        <Input
+          value={props.response.default_error_message || ''}
+          placeholder={t(
+            'The request could not be processed. Please try again later.'
+          )}
+          onChange={(event) =>
+            props.onChange({ default_error_message: event.target.value })
+          }
+        />
+      </TaskField>
+    </div>
   )
 }
 
