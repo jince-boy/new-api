@@ -250,10 +250,10 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         <ModelDescription
           content={props.model.description}
           variant='preview'
-          className='text-muted-foreground mt-2 line-clamp-2 min-h-[2.5rem] flex-1 text-[13px] leading-relaxed sm:mt-4'
+          className='text-muted-foreground mt-2 min-h-[2.5rem] flex-1 text-[13px] leading-relaxed sm:mt-4'
         />
       ) : (
-        <p className='text-muted-foreground mt-2 line-clamp-2 min-h-[2.5rem] flex-1 text-[13px] leading-relaxed sm:mt-4'>
+        <p className='text-muted-foreground mt-2 min-h-[2.5rem] flex-1 text-[13px] leading-relaxed sm:mt-4'>
           {t('No description available.')}
         </p>
       )}

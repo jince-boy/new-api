@@ -74,7 +74,7 @@ describe('ModelCard metadata layout', () => {
             id: 1,
             model_name: 'seedance-2.0-mini',
             description:
-              '<p>720p</p><p>比例 1:1 / 4:3 / 3:4 / 16:9 / 9:16 / 21:9</p>',
+              '<p>720p</p><p>比例 1:1 / 4:3 / 3:4 / 16:9 / 9:16 / 21:9</p><p>第三行也必须完整显示</p>',
             quota_type: 1,
             model_ratio: 1,
             completion_ratio: 1,
@@ -103,8 +103,9 @@ describe('ModelCard metadata layout', () => {
     assert.equal(details.classList.contains('row-start-2'), true)
     assert.equal(
       description.textContent,
-      '720p\n比例 1:1 / 4:3 / 3:4 / 16:9 / 9:16 / 21:9'
+      '720p\n比例 1:1 / 4:3 / 3:4 / 16:9 / 9:16 / 21:9\n第三行也必须完整显示'
     )
+    assert.equal(description.classList.contains('line-clamp-2'), false)
     assert.equal(summary.textContent?.includes('勿选测试渠道'), true)
     assert.equal(
       details.textContent?.includes(
