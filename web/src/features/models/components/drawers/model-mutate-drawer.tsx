@@ -33,6 +33,7 @@ import {
   sideDrawerHeaderClassName,
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
+import { ModelDescription } from '@/components/model-description'
 import { TagInput } from '@/components/tag-input'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -530,7 +531,7 @@ export function ModelMutateDrawer({
       endpoints: '',
       name_rule: 0,
       status: true,
-      sync_official: true,
+      sync_official: false,
       price: '',
       ratio: '',
       cacheRatio: '',
@@ -625,7 +626,7 @@ export function ModelMutateDrawer({
         endpoints: '',
         name_rule: 0,
         status: true,
-        sync_official: true,
+        sync_official: false,
         ...pricing.fields,
       })
     }
@@ -1021,10 +1022,24 @@ export function ModelMutateDrawer({
                     <FormControl>
                       <Textarea
                         placeholder={t('Describe this model...')}
-                        rows={3}
+                        rows={6}
                         {...field}
                       />
                     </FormControl>
+                    {field.value.trim() && (
+                      <div
+                        aria-label={t('Preview')}
+                        className='bg-muted/20 max-h-48 overflow-y-auto rounded-md border p-3'
+                      >
+                        <div className='text-muted-foreground mb-2 text-xs font-medium'>
+                          {t('Preview')}
+                        </div>
+                        <ModelDescription
+                          content={field.value}
+                          className='text-foreground text-sm'
+                        />
+                      </div>
+                    )}
                     <FormMessage />
                   </FormItem>
                 )}

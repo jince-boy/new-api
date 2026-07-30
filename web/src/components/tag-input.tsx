@@ -61,7 +61,7 @@ export function TagInput({
       e.preventDefault()
       addTag(inputValue)
     } else if (e.key === 'Backspace' && !inputValue && value.length > 0) {
-      removeTag(value[value.length - 1])
+      removeTag(value.at(-1) ?? '')
     }
   }
 
@@ -80,8 +80,12 @@ export function TagInput({
       onClick={() => inputRef.current?.focus()}
     >
       {value.map((tag) => (
-        <Badge key={tag} variant='secondary' className='gap-1 pr-1'>
-          {tag}
+        <Badge
+          key={tag}
+          variant='secondary'
+          className='max-w-full gap-1 pr-1 whitespace-normal'
+        >
+          <span className='min-w-0 break-words'>{tag}</span>
           {!disabled && (
             <Button
               type='button'

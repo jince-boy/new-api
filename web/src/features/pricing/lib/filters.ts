@@ -23,8 +23,8 @@ import {
   QUOTA_TYPE_VALUES,
   ENDPOINT_TYPES,
 } from '../constants'
-import { getDisplayGroupRatio } from './model-helpers'
 import type { PricingModel } from '../types'
+import { getDisplayGroupRatio } from './model-helpers'
 
 // ----------------------------------------------------------------------------
 // Filter Utilities
@@ -173,12 +173,13 @@ export function filterAndSortModels(
 }
 
 /**
- * Parse tags from comma-separated string
+ * Parse the canonical comma-separated model tag format.
+ * Spaces, slashes, semicolons and pipes are valid tag content.
  */
 export function parseTags(tagsString?: string): string[] {
   if (!tagsString) return []
   return tagsString
-    .split(/[,;|\s]+/)
+    .split(',')
     .map((t) => t.trim())
     .filter(Boolean)
 }
@@ -198,7 +199,7 @@ export function extractAllTags(models: PricingModel[]): string[] {
     }
   })
 
-  return Array.from(tagSet).sort((a, b) => a.localeCompare(b))
+  return [...tagSet].sort((a, b) => a.localeCompare(b))
 }
 
 /**

@@ -38,7 +38,7 @@ export const modelFormSchema = z.object({
   endpoints: z.string().default(''),
   name_rule: z.number().min(0).max(3).default(0),
   status: z.boolean().default(true),
-  sync_official: z.boolean().default(true),
+  sync_official: z.boolean().default(false),
   enable_groups: z.array(z.string()).default([]),
   quota_types: z.array(z.number()).default([]),
 })

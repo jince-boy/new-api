@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { getModelDescriptionPreview } from '@/components/model-description-utils'
 import { Button } from '@/components/ui/button'
 
 import { useModels } from './models-provider'
@@ -30,6 +31,7 @@ export function DescriptionCell({
   description,
 }: DescriptionCellProps) {
   const { setOpen, setDescriptionData } = useModels()
+  const preview = getModelDescriptionPreview(description)
 
   if (!description) {
     return <span className='text-muted-foreground text-xs'>-</span>
@@ -47,7 +49,7 @@ export function DescriptionCell({
         onClick={handleClick}
         className='text-muted-foreground hover:text-foreground block h-auto w-full cursor-pointer overflow-hidden p-0 text-left text-sm text-ellipsis whitespace-nowrap no-underline'
       >
-        {description}
+        {preview}
       </Button>
     </div>
   )

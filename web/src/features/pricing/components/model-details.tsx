@@ -38,6 +38,7 @@ import { StaticDataTable } from '@/components/data-table'
 import { sideDrawerContentClassName } from '@/components/drawer-layout'
 import { GroupBadge } from '@/components/group-badge'
 import { PublicLayout } from '@/components/layout'
+import { ModelDescription } from '@/components/model-description'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -241,7 +242,7 @@ function CatalogPillList(props: { items: string[] }) {
       {props.items.map((item) => (
         <span
           key={item}
-          className='bg-muted text-muted-foreground rounded-md px-2 py-1 text-xs font-medium'
+          className='bg-muted text-muted-foreground max-w-full rounded-md px-2 py-1 text-xs font-medium break-words whitespace-normal'
         >
           {item}
         </span>
@@ -559,9 +560,10 @@ function ModelHeader(props: { model: PricingModel }) {
         <ModelBillingModeBadge model={model} />
       </div>
       {description && (
-        <p className='text-muted-foreground mt-2 text-sm leading-relaxed'>
-          {description}
-        </p>
+        <ModelDescription
+          content={description}
+          className='text-muted-foreground mt-2 text-sm'
+        />
       )}
     </header>
   )

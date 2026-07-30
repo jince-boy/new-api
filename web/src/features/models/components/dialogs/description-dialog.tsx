@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useTranslation } from 'react-i18next'
 
 import { Dialog } from '@/components/dialog'
+import { ModelDescription } from '@/components/model-description'
 import { ScrollArea } from '@/components/ui/scroll-area'
 
 type DescriptionDialogProps = {
@@ -46,11 +47,10 @@ export function DescriptionDialog({
       bodyClassName='space-y-4'
     >
       <ScrollArea className='max-h-96'>
-        <div className='space-y-2 pr-4'>
-          <p className='text-foreground text-sm leading-relaxed break-words whitespace-pre-wrap'>
-            {description}
-          </p>
-        </div>
+        <ModelDescription
+          content={description}
+          className='text-foreground pr-4 text-sm'
+        />
       </ScrollArea>
     </Dialog>
   )

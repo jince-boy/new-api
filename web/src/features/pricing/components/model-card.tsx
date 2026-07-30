@@ -20,6 +20,7 @@ import { ChevronRight, Copy } from 'lucide-react'
 import { memo, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { ModelDescription } from '@/components/model-description'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { getLobeIcon } from '@/lib/lobe-icon'
 import { cn } from '@/lib/utils'
@@ -85,7 +86,8 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
     props.selectedGroup && groups.includes(props.selectedGroup)
       ? props.selectedGroup
       : groups[0]
-  const bottomTags = [...endpoints.slice(0, 2), ...tags.slice(0, 2)]
+  const visibleEndpoints = endpoints.slice(0, 2)
+  const visibleTags = tags.slice(0, 2)
   const hiddenCount =
     Math.max(groups.length - 1, 0) +
     Math.max(endpoints.length - 2, 0) +
@@ -244,30 +246,73 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         </div>
       </div>
 
-      <p className='text-muted-foreground mt-2 line-clamp-1 flex-1 text-[13px] leading-relaxed sm:mt-4 sm:line-clamp-2 sm:min-h-[2.5rem]'>
-        {props.model.description || t('No description available.')}
-      </p>
+      {props.model.description ? (
+        <ModelDescription
+          content={props.model.description}
+          variant='preview'
+          className='text-muted-foreground mt-2 line-clamp-2 min-h-[2.5rem] flex-1 text-[13px] leading-relaxed sm:mt-4'
+        />
+      ) : (
+        <p className='text-muted-foreground mt-2 line-clamp-2 min-h-[2.5rem] flex-1 text-[13px] leading-relaxed sm:mt-4'>
+          {t('No description available.')}
+        </p>
+      )}
 
-      <div className='mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-2 gap-y-1 sm:mt-4'>
-        <div className='flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1'>
+      <div
+        data-slot='model-card-metadata'
+        className='mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-start gap-x-3 gap-y-2 border-t pt-2 sm:mt-4 sm:pt-3'
+      >
+        <div
+          data-slot='model-card-summary'
+          className='col-start-1 row-start-1 flex min-w-0 items-center gap-2 overflow-hidden'
+        >
           {primaryGroup && (
-            <span className='text-muted-foreground text-sm font-medium'>
+            <span
+              className='text-muted-foreground min-w-0 truncate text-xs font-medium whitespace-nowrap'
+              title={primaryGroup}
+            >
               {primaryGroup}
             </span>
           )}
-          <ModelBillingModeBadge model={props.model} />
+          <ModelBillingModeBadge
+            model={props.model}
+            className='shrink-0 text-xs'
+          />
         </div>
-        <ModelPerfBadge perf={props.perf} className='row-span-2 self-start' />
+        <ModelPerfBadge
+          perf={props.perf}
+          className='col-start-2 row-span-2 row-start-1 self-start'
+        />
 
-        <div className='flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-0.5 sm:gap-x-3 sm:gap-y-1'>
-          {bottomTags.map((item) => (
-            <span key={item} className='text-muted-foreground/70 text-xs'>
-              {item}
+        <div
+          data-slot='model-card-details'
+          className='col-start-1 row-start-2 flex min-w-0 flex-wrap items-center gap-1.5 overflow-hidden'
+        >
+          {visibleEndpoints.map((endpoint) => (
+            <span
+              key={endpoint}
+              data-slot='model-card-endpoint'
+              className='text-muted-foreground/65 max-w-full truncate text-xs'
+              title={endpoint}
+            >
+              {endpoint}
             </span>
           ))}
-          <span className='text-muted-foreground/50 text-xs'>
-            {tokenUnitLabel}
-          </span>
+          {visibleTags.map((tag) => (
+            <span
+              key={tag}
+              data-slot='model-card-tag'
+              className='bg-muted/60 text-muted-foreground max-w-full truncate rounded-md px-1.5 py-0.5 text-xs'
+              title={tag}
+            >
+              {tag}
+            </span>
+          ))}
+          {isTokenBased && (
+            <span className='text-muted-foreground/50 text-xs whitespace-nowrap'>
+              {tokenUnitLabel}
+            </span>
+          )}
           {hiddenCount > 0 && (
             <span className='text-muted-foreground/40 text-xs'>
               +{hiddenCount}
