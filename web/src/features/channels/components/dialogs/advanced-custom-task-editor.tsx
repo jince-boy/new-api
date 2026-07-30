@@ -353,7 +353,25 @@ export function AdvancedCustomTaskEditor(props: AdvancedCustomTaskEditorProps) {
             placeholder='data.status'
             onChange={(value) => updateSubmitResponse({ status_path: value })}
           />
+          <PathInput
+            label={t('Error message path')}
+            value={task.submit_response.error_path}
+            placeholder='error.message'
+            onChange={(value) => updateSubmitResponse({ error_path: value })}
+          />
         </div>
+        <JsonTextarea
+          label={t('Status map')}
+          value={task.submit_response.status_map}
+          objectOnly
+          optional
+          placeholder='{"submitted":"SUBMITTED","failed":"FAILURE"}'
+          onChange={(value) =>
+            updateSubmitResponse({
+              status_map: value as AdvancedCustomTaskResponse['status_map'],
+            })
+          }
+        />
       </TaskSection>
 
       <TaskSection

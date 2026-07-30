@@ -23,6 +23,7 @@ import type {
   AdvancedCustomRoute,
   AdvancedCustomRouteAuth,
   AdvancedCustomTask,
+  AdvancedCustomTaskResponse,
 } from '../types'
 
 export const CHANNEL_TYPE_ADVANCED_CUSTOM = 58
@@ -377,6 +378,14 @@ export function createAdvancedCustomTask(): AdvancedCustomTask {
     submit_response: {
       task_id_path: 'data.task_id',
       status_path: 'data.status',
+      error_path: 'error.message',
+      status_map: {
+        submitted: 'SUBMITTED',
+        pending: 'QUEUED',
+        processing: 'IN_PROGRESS',
+        completed: 'SUCCESS',
+        failed: 'FAILURE',
+      },
     },
     poll: {
       method: 'GET',
@@ -853,6 +862,9 @@ function validateAdvancedCustomTask(
   if (!task.submit_response?.task_id_path?.trim()) {
     return 'Submit task ID path is required'
   }
+  if (hasInvalidTaskStatusMap(task.submit_response.status_map || {})) {
+    return 'Submit status map contains an invalid status'
+  }
 
   const pollMethod = (task.poll?.method || 'GET').toUpperCase()
   if (!methods.has(pollMethod)) return 'Poll method is invalid'
@@ -879,6 +891,18 @@ function validateAdvancedCustomTask(
   }
   const statusMap = response.status_map || {}
   if (Object.keys(statusMap).length === 0) return 'Poll status map is required'
+  if (hasInvalidTaskStatusMap(statusMap)) {
+    return 'Poll status map contains an invalid status'
+  }
+
+  const downloadAuthError = validateRouteAuth(task.download?.auth)
+  if (downloadAuthError) return downloadAuthError
+  return validateHeaders(task.download?.headers)
+}
+
+function hasInvalidTaskStatusMap(
+  statusMap: NonNullable<AdvancedCustomTaskResponse['status_map']>
+): boolean {
   const canonicalStatuses = new Set([
     'SUBMITTED',
     'QUEUED',
@@ -886,18 +910,10 @@ function validateAdvancedCustomTask(
     'SUCCESS',
     'FAILURE',
   ])
-  if (
-    Object.entries(statusMap).some(
-      ([upstream, canonical]) =>
-        !upstream.trim() || !canonicalStatuses.has(canonical)
-    )
-  ) {
-    return 'Poll status map contains an invalid status'
-  }
-
-  const downloadAuthError = validateRouteAuth(task.download?.auth)
-  if (downloadAuthError) return downloadAuthError
-  return validateHeaders(task.download?.headers)
+  return Object.entries(statusMap).some(
+    ([upstream, canonical]) =>
+      !upstream.trim() || !canonicalStatuses.has(canonical)
+  )
 }
 
 function validateHeaders(

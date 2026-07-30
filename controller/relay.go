@@ -589,14 +589,7 @@ func RelayTask(c *gin.Context) {
 		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 		task.PrivateData.TokenId = relayInfo.TokenId
 		task.PrivateData.NodeName = common.NodeName
-		task.PrivateData.BillingContext = &model.TaskBillingContext{
-			ModelPrice:      relayInfo.PriceData.ModelPrice,
-			GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
-			ModelRatio:      relayInfo.PriceData.ModelRatio,
-			OtherRatios:     relayInfo.PriceData.OtherRatios(),
-			OriginModelName: relayInfo.OriginModelName,
-			PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
-		}
+		task.PrivateData.BillingContext = service.NewTaskBillingContext(relayInfo)
 		task.Quota = result.Quota
 		task.Data = result.TaskData
 		task.Action = relayInfo.Action
@@ -606,6 +599,11 @@ func RelayTask(c *gin.Context) {
 	}
 
 	if taskErr != nil {
+		platform := constant.TaskPlatform(c.GetString("platform"))
+		if platform == "" {
+			platform = relay.GetTaskPlatform(c)
+		}
+		service.RecordTaskSubmissionFailure(c, relayInfo, platform, taskErr)
 		respondTaskError(c, taskErr)
 	}
 }

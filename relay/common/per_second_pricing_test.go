@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 package common
 
 import (
+	"bytes"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -31,7 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResolvePerSecondUnitPriceReadsRawCustomFieldsAndResolutionAlias(t *testing.T) {
+func TestResolvePerSecondUnitPricePrefersResolutionNameOverFrameSize(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	saved := map[string]string{}
 	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
@@ -42,16 +44,16 @@ func TestResolvePerSecondUnitPriceReadsRawCustomFieldsAndResolutionAlias(t *test
 		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
 	})
 	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
-		"billing_setting.per_second_rules": `{"video-model":[{"name":"720p premium","price":0.04,"conditions":[{"path":"resolution","operator":"eq","value":"720p"},{"path":"vendor.quality","operator":"eq","value":"premium"}]}]}`,
+		"billing_setting.per_second_rules": `{"video-model":[{"name":"480p","price":0.02,"conditions":[{"path":"resolution","operator":"eq","value":"480p"}]},{"name":"720p premium","price":0.04,"conditions":[{"path":"resolution","operator":"eq","value":"720p"},{"path":"vendor.quality","operator":"eq","value":"premium"}]}]}`,
 	}))
 
-	body := `{"model":"video-model","prompt":"demo","size":"720P","duration":8,"vendor":{"quality":"premium"}}`
+	body := `{"model":"video-model","prompt":"demo","size":"1280x720","resolution_name":"720P","duration":8,"vendor":{"quality":"premium"}}`
 	request := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
 	context, _ := gin.CreateTestContext(httptest.NewRecorder())
 	context.Request = request
 	require.NoError(t, rootcommon.UnmarshalBodyReusable(context, &TaskSubmitReq{}))
-	context.Set("task_request", TaskSubmitReq{Size: "720P", Duration: 8})
+	context.Set("task_request", TaskSubmitReq{Size: "1280x720", Duration: 8})
 
 	price, ruleName, configured, err := ResolvePerSecondUnitPrice(context, "video-model", 0.02)
 
@@ -59,4 +61,80 @@ func TestResolvePerSecondUnitPriceReadsRawCustomFieldsAndResolutionAlias(t *test
 	require.True(t, configured)
 	assert.Equal(t, 0.04, price)
 	assert.Equal(t, "720p premium", ruleName)
+}
+
+func TestResolvePerSecondUnitPriceReadsMultipartResolutionName(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+	})
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.per_second_rules": `{"video-model":[{"name":"480p","price":0.02,"conditions":[{"path":"resolution","operator":"eq","value":"480p"}]},{"name":"720p","price":0.04,"conditions":[{"path":"resolution","operator":"eq","value":"720p"}]}]}`,
+	}))
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	require.NoError(t, writer.WriteField("model", "video-model"))
+	require.NoError(t, writer.WriteField("prompt", "demo"))
+	require.NoError(t, writer.WriteField("seconds", "8"))
+	require.NoError(t, writer.WriteField("size", "1280x720"))
+	require.NoError(t, writer.WriteField("resolution_name", "720p"))
+	file, err := writer.CreateFormFile("input_reference[]", "reference.png")
+	require.NoError(t, err)
+	_, err = file.Write([]byte("reference image"))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos", &body)
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = request
+	info := &RelayInfo{TaskRelayInfo: &TaskRelayInfo{}}
+	require.Nil(t, ValidateMultipartDirect(context, info))
+
+	storedRequest, err := GetTaskRequest(context)
+	require.NoError(t, err)
+	assert.Equal(t, "720p", storedRequest.ResolutionName)
+
+	price, ruleName, configured, err := ResolvePerSecondUnitPrice(context, "video-model", 0.02)
+
+	require.NoError(t, err)
+	require.True(t, configured)
+	assert.Equal(t, 0.04, price)
+	assert.Equal(t, "720p", ruleName)
+}
+
+func TestResolvePerSecondUnitPriceKeepsLegacySizeAlias(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+	})
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.per_second_rules": `{"video-model":[{"name":"720p","price":0.04,"conditions":[{"path":"resolution","operator":"eq","value":"720p"}]}]}`,
+	}))
+
+	body := `{"model":"video-model","prompt":"demo","size":"720p","duration":8}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = request
+	require.NoError(t, rootcommon.UnmarshalBodyReusable(context, &TaskSubmitReq{}))
+	context.Set("task_request", TaskSubmitReq{Size: "720p", Duration: 8})
+
+	price, ruleName, configured, err := ResolvePerSecondUnitPrice(context, "video-model", 0.02)
+
+	require.NoError(t, err)
+	require.True(t, configured)
+	assert.Equal(t, 0.04, price)
+	assert.Equal(t, "720p", ruleName)
 }

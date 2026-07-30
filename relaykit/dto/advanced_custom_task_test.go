@@ -98,6 +98,13 @@ func TestAdvancedCustomTaskRouteRejectsIncompleteProtocols(t *testing.T) {
 			want: "invalid target status",
 		},
 		{
+			name: "unknown submit canonical status",
+			mutate: func(route *AdvancedCustomRoute) {
+				route.Task.SubmitResponse.StatusMap = map[string]string{"failed": "ERROR"}
+			},
+			want: "task.submit_response.status_map has invalid target status",
+		},
+		{
 			name: "task converter",
 			mutate: func(route *AdvancedCustomRoute) {
 				route.Converter = advancedCustomConverterOpenAIChatToOpenAIResponses

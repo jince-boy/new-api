@@ -4,12 +4,15 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -40,6 +43,17 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	other["is_task"] = true
 	other["request_path"] = c.Request.URL.Path
 	other["model_price"] = info.PriceData.ModelPrice
+	billingMode := billing_setting.GetBillingMode(info.OriginModelName)
+	if billingMode != "" {
+		other["billing_mode"] = billingMode
+	}
+	if billingMode == billing_setting.BillingModePerSecond {
+		other["per_second_pricing_rule"] = info.PerSecondPricingRule
+		other["per_second_pricing_rule_matched"] = info.PerSecondPricingRuleMatched
+	}
+	for key, ratio := range info.PriceData.OtherRatios() {
+		other[key] = ratio
+	}
 	if info.PriceData.ModelRatio > 0 {
 		other["model_ratio"] = info.PriceData.ModelRatio
 	}
@@ -51,6 +65,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["is_model_mapped"] = true
 		other["upstream_model_name"] = info.UpstreamModelName
 	}
+	attachTaskUpstreamDiagnostics(other, info.TaskUpstreamDiagnostics)
 	attachQuotaSaturation(c, info, other)
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 		ChannelId: info.ChannelId,
@@ -64,6 +79,114 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 	})
 	model.UpdateUserUsedQuotaAndRequestCount(info.UserId, info.PriceData.Quota)
 	model.UpdateChannelUsedQuota(info.ChannelId, info.PriceData.Quota)
+}
+
+func NewTaskBillingContext(info *relaycommon.RelayInfo) *model.TaskBillingContext {
+	if info == nil {
+		return nil
+	}
+	return &model.TaskBillingContext{
+		ModelPrice:                  info.PriceData.ModelPrice,
+		GroupRatio:                  info.PriceData.GroupRatioInfo.GroupRatio,
+		ModelRatio:                  info.PriceData.ModelRatio,
+		OtherRatios:                 info.PriceData.OtherRatios(),
+		OriginModelName:             info.OriginModelName,
+		BillingMode:                 billing_setting.GetBillingMode(info.OriginModelName),
+		PerSecondPricingRule:        info.PerSecondPricingRule,
+		PerSecondPricingRuleMatched: info.PerSecondPricingRuleMatched,
+		PerCallBilling:              common.StringsContains(constant.TaskPricePatches, info.OriginModelName) || info.PriceData.UsePrice,
+	}
+}
+
+// RecordTaskSubmissionFailure persists one zero-cost error log and one failed
+// task row after the final upstream submission attempt. Raw upstream response
+// bodies are intentionally excluded; only configured mapping diagnostics are
+// stored for administrators.
+func RecordTaskSubmissionFailure(c *gin.Context, info *relaycommon.RelayInfo, platform constant.TaskPlatform, taskErr *taskdto.TaskError) {
+	if c == nil || info == nil || taskErr == nil || taskErr.LocalError || info.PublicTaskID == "" {
+		return
+	}
+
+	now := time.Now().Unix()
+	task := model.InitTask(platform, info)
+	task.Ip = c.ClientIP()
+	task.Status = model.TaskStatusFailure
+	task.Progress = "100%"
+	task.FinishTime = now
+	task.FailReason = taskErr.Message
+	task.Action = info.Action
+	task.Quota = 0
+	task.PrivateData.BillingSource = info.BillingSource
+	task.PrivateData.SubscriptionId = info.SubscriptionId
+	task.PrivateData.TokenId = info.TokenId
+	task.PrivateData.NodeName = common.NodeName
+	task.PrivateData.BillingContext = NewTaskBillingContext(info)
+	if err := task.Insert(); err != nil {
+		logger.LogError(c, fmt.Sprintf("failed to persist upstream task submission failure: %s", err.Error()))
+	}
+
+	other := map[string]interface{}{
+		"is_task":      true,
+		"task_id":      task.TaskID,
+		"request_path": c.Request.URL.Path,
+		"error_code":   taskErr.Code,
+		"http_status":  taskErr.StatusCode,
+		"model_price":  info.PriceData.ModelPrice,
+		"group_ratio":  info.PriceData.GroupRatioInfo.GroupRatio,
+	}
+	if billingMode := billing_setting.GetBillingMode(info.OriginModelName); billingMode != "" {
+		other["billing_mode"] = billingMode
+	}
+	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModePerSecond {
+		other["per_second_pricing_rule"] = info.PerSecondPricingRule
+		other["per_second_pricing_rule_matched"] = info.PerSecondPricingRuleMatched
+	}
+	for key, ratio := range info.PriceData.OtherRatios() {
+		other[key] = ratio
+	}
+	attachTaskUpstreamDiagnostics(other, info.TaskUpstreamDiagnostics)
+	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
+		UserId:            info.UserId,
+		LogType:           model.LogTypeError,
+		Content:           taskErr.Message,
+		ChannelId:         info.ChannelId,
+		ModelName:         info.OriginModelName,
+		Quota:             0,
+		TokenId:           info.TokenId,
+		Group:             info.UsingGroup,
+		Ip:                c.ClientIP(),
+		RequestId:         c.GetString(common.RequestIdKey),
+		UpstreamRequestId: c.GetString(common.UpstreamRequestIdKey),
+		Other:             other,
+		NodeName:          common.NodeName,
+	})
+}
+
+func attachTaskUpstreamDiagnostics(other map[string]interface{}, diagnostics *relaycommon.TaskUpstreamDiagnostics) {
+	if other == nil || diagnostics == nil {
+		return
+	}
+	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	if !ok || adminInfo == nil {
+		adminInfo = map[string]interface{}{}
+		other["admin_info"] = adminInfo
+	}
+	taskUpstream := map[string]interface{}{
+		"http_status":            diagnostics.HTTPStatus,
+		"upstream_status":        diagnostics.UpstreamStatus,
+		"mapped_status":          diagnostics.MappedStatus,
+		"status_mapping_applied": diagnostics.StatusMappingApplied,
+		"error_path_matched":     diagnostics.ErrorPathMatched,
+	}
+	if diagnostics.GatewayStatusBeforeMapping > 0 {
+		taskUpstream["gateway_status_before_mapping"] = diagnostics.GatewayStatusBeforeMapping
+		taskUpstream["gateway_status_after_mapping"] = diagnostics.GatewayStatusAfterMapping
+		taskUpstream["status_code_mapping_configured"] = diagnostics.StatusCodeMappingConfigured
+		taskUpstream["status_code_mapping_applied"] = diagnostics.StatusCodeMappingApplied
+		taskUpstream["error_response_mapping_configured"] = diagnostics.ErrorResponseMappingConfigured
+		taskUpstream["error_response_mapping_applied"] = diagnostics.ErrorResponseMappingApplied
+	}
+	adminInfo["task_upstream"] = taskUpstream
 }
 
 // ---------------------------------------------------------------------------
@@ -123,6 +246,13 @@ func taskBillingOther(task *model.Task) map[string]interface{} {
 	other := make(map[string]interface{})
 	if bc := task.PrivateData.BillingContext; bc != nil {
 		other["model_price"] = bc.ModelPrice
+		if bc.BillingMode != "" {
+			other["billing_mode"] = bc.BillingMode
+		}
+		if bc.BillingMode == billing_setting.BillingModePerSecond {
+			other["per_second_pricing_rule"] = bc.PerSecondPricingRule
+			other["per_second_pricing_rule_matched"] = bc.PerSecondPricingRuleMatched
+		}
 		if bc.ModelRatio > 0 {
 			other["model_ratio"] = bc.ModelRatio
 		}

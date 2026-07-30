@@ -70,6 +70,7 @@ import {
 import { parseTags } from '../lib/filters'
 import {
   getAvailableGroups,
+  getConfiguredGroupRatio,
   getDisplayGroupRatio,
   isTokenBasedModel,
 } from '../lib/model-helpers'
@@ -85,6 +86,10 @@ import { DynamicPricingBreakdown } from './dynamic-pricing-breakdown'
 import { ModelBillingModeBadge } from './model-billing-mode-badge'
 import { ModelDetailsApi } from './model-details-api'
 import { ModelDetailsPerformance } from './model-details-performance'
+import {
+  PerSecondPricingBreakdown,
+  PerSecondPricingTable,
+} from './per-second-pricing-breakdown'
 
 // ----------------------------------------------------------------------------
 // Local UI helpers
@@ -1042,6 +1047,43 @@ function GroupPricingSection(props: {
     )
   }
 
+  if (
+    props.model.billing_mode === 'per_second' &&
+    props.model.per_second_rules?.length
+  ) {
+    return (
+      <section>
+        <SectionTitle>{t('Pricing by Group')}</SectionTitle>
+        <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
+        <div className='space-y-3'>
+          {availableGroups.map((group) => {
+            const ratio = getConfiguredGroupRatio(props.groupRatio, group)
+            return (
+              <div key={group} className='overflow-hidden rounded-lg border'>
+                <div className='bg-muted/20 flex items-center justify-between gap-3 border-b px-3 py-2'>
+                  <GroupBadge group={group} size='sm' />
+                  <span className='text-muted-foreground font-mono text-xs'>
+                    {ratio}x
+                  </span>
+                </div>
+                <div className='p-3'>
+                  <PerSecondPricingTable
+                    model={props.model}
+                    groupRatio={ratio}
+                    priceRate={props.priceRate}
+                    usdExchangeRate={props.usdExchangeRate}
+                    showRechargePrice={showRechargePrice}
+                    showHeader={false}
+                  />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </section>
+    )
+  }
+
   const renderGroupPrice = (group: string, type: PriceType) =>
     formatGroupPrice(
       props.model,
@@ -1207,6 +1249,16 @@ export function ModelDetailsContent(props: ModelDetailsContentProps) {
             {isDynamic && (
               <DynamicPricingBreakdown billingExpr={props.model.billing_expr} />
             )}
+            <PerSecondPricingBreakdown
+              model={props.model}
+              groupRatio={getDisplayGroupRatio(
+                props.model,
+                props.selectedGroup
+              )}
+              priceRate={props.priceRate}
+              usdExchangeRate={props.usdExchangeRate}
+              showRechargePrice={showRechargePrice}
+            />
             <GroupPricingSection
               model={props.model}
               groupRatio={props.groupRatio}

@@ -326,6 +326,9 @@ func TestListModelsIncludesPerSecondBillingModel(t *testing.T) {
 	withBillingConfig(t, map[string]string{
 		"zz-per-second-model": "per_second",
 	}, nil)
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.per_second_rules": `{"zz-per-second-model":[{"name":"720p","price":0.04,"conditions":[{"path":"resolution","operator":"eq","value":"720p"}]}]}`,
+	}))
 
 	savedModelPrices := ratio_setting.ModelPrice2JSONString()
 	t.Cleanup(func() {
@@ -362,6 +365,9 @@ func TestListModelsIncludesPerSecondBillingModel(t *testing.T) {
 	assert.Equal(t, "per_second", pricing.BillingMode)
 	assert.Equal(t, 0.02, pricing.ModelPrice)
 	assert.Equal(t, 1, pricing.QuotaType)
+	require.Len(t, pricing.PerSecondRules, 1)
+	assert.Equal(t, "720p", pricing.PerSecondRules[0].Name)
+	assert.Equal(t, 0.04, pricing.PerSecondRules[0].Price)
 }
 
 func TestListModelsUsesAdvancedCustomEndpointTypesFromPricingCache(t *testing.T) {

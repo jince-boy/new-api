@@ -628,10 +628,11 @@ curl "${BASE_URL}/v1/videos" \
   -F "model=sora-2" \
   -F "prompt=A slow aerial shot above a futuristic coastal city" \
   -F "seconds=4" \
-  -F "size=1280x720"
+  -F "size=1280x720" \
+  -F "resolution_name=720p"
 ```
 
-Sora 兼容请求要求 `model` 和非空 `prompt`。支持 `image`、`images` 或 `input_reference` 作为参考图。视频时长的网关安全上限为 3600 秒；模型通常只允许更小的离散值。
+Sora 兼容请求要求 `model` 和非空 `prompt`。`size` 表示画面宽高，`resolution_name` 表示计费和模型能力使用的分辨率档位（例如 `480p`、`720p`）；省略时使用模型或渠道默认值。支持 `image`、`images` 或 `input_reference` 作为参考图。视频时长的网关安全上限为 3600 秒；模型通常只允许更小的离散值。
 
 查询任务：
 

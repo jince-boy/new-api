@@ -209,6 +209,87 @@ function isUsageBillingPathLocal(
   return adminInfo?.local_count_tokens === true
 }
 
+type TaskUpstreamDiagnostics = NonNullable<
+  NonNullable<LogOtherData['admin_info']>['task_upstream']
+>
+
+function taskMappingResult(
+  t: TFunction,
+  configured?: boolean,
+  applied?: boolean
+): string {
+  if (!configured) return t('Not configured')
+  return applied ? t('Matched') : t('No matching results')
+}
+
+export function UpstreamTaskMappingDetails(props: {
+  diagnostics: TaskUpstreamDiagnostics
+}) {
+  const { t } = useTranslation()
+  const statusCodeMappingResult = props.diagnostics.status_code_mapping_applied
+    ? `${props.diagnostics.gateway_status_before_mapping} → ${props.diagnostics.gateway_status_after_mapping}`
+    : taskMappingResult(
+        t,
+        props.diagnostics.status_code_mapping_configured,
+        props.diagnostics.status_code_mapping_applied
+      )
+
+  return (
+    <DetailSection
+      icon={<Route className='size-3' aria-hidden='true' />}
+      iconTone='info'
+      label={t('Upstream task mapping')}
+    >
+      {props.diagnostics.http_status != null ? (
+        <DetailRow
+          label={t('Upstream HTTP status')}
+          value={String(props.diagnostics.http_status)}
+          mono
+        />
+      ) : null}
+      {props.diagnostics.upstream_status ? (
+        <DetailRow
+          label={t('Upstream task status')}
+          value={props.diagnostics.upstream_status}
+          mono
+        />
+      ) : null}
+      {props.diagnostics.mapped_status ? (
+        <DetailRow
+          label={t('Mapped task status')}
+          value={props.diagnostics.mapped_status}
+          mono
+        />
+      ) : null}
+      <DetailRow
+        label={t('Status mapping applied')}
+        value={props.diagnostics.status_mapping_applied ? t('Yes') : t('No')}
+      />
+      <DetailRow
+        label={t('Error path matched')}
+        value={props.diagnostics.error_path_matched ? t('Yes') : t('No')}
+      />
+      {props.diagnostics.gateway_status_before_mapping != null ? (
+        <>
+          <DetailRow
+            label={t('Status Code Mapping')}
+            value={statusCodeMappingResult}
+            mono={props.diagnostics.status_code_mapping_applied}
+          />
+          <DetailRow
+            label={t('Error Response Mapping')}
+            value={taskMappingResult(
+              t,
+              props.diagnostics.error_response_mapping_configured,
+              props.diagnostics.error_response_mapping_applied
+            )}
+          />
+        </>
+      ) : null}
+    </DetailSection>
+  )
+}
+
 function quotaSaturationKindLabel(
   kind: 'overflow' | 'underflow' | 'nan',
   t: (key: string) => string
@@ -228,6 +309,7 @@ function BillingBreakdown(props: {
   const isPerCall = isPerCallBilling(other.model_price)
   const isClaude = other.claude === true
   const isTieredExpr = other.billing_mode === 'tiered_expr'
+  const isPerSecond = other.billing_mode === 'per_second'
   const tieredSummary = getTieredBillingSummary(other)
 
   const rows: Array<{ label: string; value: string }> = []
@@ -257,6 +339,26 @@ function BillingBreakdown(props: {
       rows.push({
         label: t('Matched Tier'),
         value: t('No matching results'),
+      })
+    }
+  } else if (isPerSecond) {
+    rows.push({ label: t('Billing Mode'), value: t('Per-second') })
+    if (other.model_price != null) {
+      rows.push({
+        label: t('Price per second'),
+        value: fmtPrice(other.model_price),
+      })
+    }
+    rows.push({
+      label: t('Matched Tier'),
+      value: other.per_second_pricing_rule_matched
+        ? other.per_second_pricing_rule || t('No matching results')
+        : t('Default'),
+    })
+    if (other.seconds != null && Number.isFinite(other.seconds)) {
+      rows.push({
+        label: t('Duration'),
+        value: `${other.seconds} ${t('seconds')}`,
       })
     }
   } else if (isPerCall) {
@@ -1085,6 +1187,12 @@ export function DetailsDialog(props: DetailsDialogProps) {
               mono
             />
           </DetailSection>
+        )}
+
+        {props.isAdmin && other?.admin_info?.task_upstream && (
+          <UpstreamTaskMappingDetails
+            diagnostics={other.admin_info.task_upstream}
+          />
         )}
 
         {/* Token breakdown (for consume/error types with token data) */}

@@ -569,6 +569,9 @@ func validateAdvancedCustomTask(index int, task *AdvancedCustomTask) error {
 	if strings.TrimSpace(task.SubmitResponse.TaskIDPath) == "" {
 		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.submit_response.task_id_path is required", index)
 	}
+	if err := validateAdvancedCustomTaskStatusMap(index, "task.submit_response.status_map", task.SubmitResponse.StatusMap); err != nil {
+		return err
+	}
 
 	pollMethod := strings.ToUpper(strings.TrimSpace(task.Poll.Method))
 	if pollMethod == "" {
@@ -618,14 +621,18 @@ func validateAdvancedCustomTask(index int, task *AdvancedCustomTask) error {
 	if len(response.StatusMap) == 0 {
 		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.status_map is required", index)
 	}
-	for upstream, canonical := range response.StatusMap {
+	return validateAdvancedCustomTaskStatusMap(index, "task.poll.response.status_map", response.StatusMap)
+}
+
+func validateAdvancedCustomTaskStatusMap(index int, field string, statusMap map[string]string) error {
+	for upstream, canonical := range statusMap {
 		if strings.TrimSpace(upstream) == "" {
-			return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.status_map contains an empty upstream status", index)
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].%s contains an empty upstream status", index, field)
 		}
 		switch strings.ToUpper(strings.TrimSpace(canonical)) {
 		case "SUBMITTED", "QUEUED", "IN_PROGRESS", "SUCCESS", "FAILURE":
 		default:
-			return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.status_map has invalid target status: %s", index, canonical)
+			return fmt.Errorf("advanced_custom.advanced_routes[%d].%s has invalid target status: %s", index, field, canonical)
 		}
 	}
 	return nil

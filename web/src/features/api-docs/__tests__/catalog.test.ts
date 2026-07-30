@@ -87,4 +87,16 @@ describe('customer API catalog', () => {
       )
     )
   })
+
+  test('documents the video resolution tier used by conditional per-second pricing', () => {
+    const endpoint = apiEndpoints.find((item) => item.id === 'video-create')
+
+    assert.ok(endpoint)
+    assert.ok(
+      endpoint.parameters.some(
+        (parameter) =>
+          parameter.name === 'resolution_name' && parameter.location === 'form'
+      )
+    )
+  })
 })

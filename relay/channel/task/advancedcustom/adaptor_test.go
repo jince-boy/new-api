@@ -149,3 +149,103 @@ func TestExtractTaskStringSupportsNestedArrayPath(t *testing.T) {
 	assert.Equal(t, "https://cdn.example.com/video.mp4", extractTaskString(body, "outputs.0.url"))
 	assert.Equal(t, "", extractTaskString([]byte(strings.TrimSpace(`{"data":{}}`)), "data.id"))
 }
+
+func TestDoResponseUsesConfiguredSubmitFailureMappingBeforeTaskID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	info := &relaycommon.RelayInfo{
+		TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "task_public"},
+	}
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			SubmitResponse: relaykitdto.AdvancedCustomTaskResponse{
+				TaskIDPath: "task_id",
+				StatusPath: "status",
+				ErrorPath:  "error.message",
+				StatusMap:  map[string]string{"failed": "FAILURE"},
+			},
+		}},
+	}
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(`{"status":"failed","error":{"message":"content rejected"}}`)),
+	}
+
+	taskID, _, taskErr := adaptor.DoResponse(context, response, info)
+
+	require.NotNil(t, taskErr)
+	assert.Empty(t, taskID)
+	assert.Equal(t, "upstream_task_failed", taskErr.Code)
+	assert.Equal(t, "content rejected", taskErr.Message)
+	require.NotNil(t, info.TaskUpstreamDiagnostics)
+	assert.Equal(t, "failed", info.TaskUpstreamDiagnostics.UpstreamStatus)
+	assert.Equal(t, "FAILURE", info.TaskUpstreamDiagnostics.MappedStatus)
+	assert.True(t, info.TaskUpstreamDiagnostics.StatusMappingApplied)
+	assert.True(t, info.TaskUpstreamDiagnostics.ErrorPathMatched)
+}
+
+func TestMapTaskErrorResponseExtractsConfiguredMessageWithoutRawBody(t *testing.T) {
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			SubmitResponse: relaykitdto.AdvancedCustomTaskResponse{
+				StatusPath: "status",
+				ErrorPath:  "error.message",
+				StatusMap:  map[string]string{"failed": "FAILURE"},
+			},
+		}},
+	}
+	info := &relaycommon.RelayInfo{}
+	body := []byte(`{"status":"failed","error":{"message":"invalid prompt","debug":"must not leak"}}`)
+
+	taskErr := adaptor.MapTaskErrorResponse(nil, http.StatusBadRequest, body, info)
+
+	require.NotNil(t, taskErr)
+	assert.Equal(t, http.StatusBadRequest, taskErr.StatusCode)
+	assert.Equal(t, "upstream_task_failed", taskErr.Code)
+	assert.Equal(t, "invalid prompt", taskErr.Message)
+	assert.NotContains(t, taskErr.Message, "must not leak")
+	require.NotNil(t, info.TaskUpstreamDiagnostics)
+	assert.Equal(t, http.StatusBadRequest, info.TaskUpstreamDiagnostics.HTTPStatus)
+}
+
+func TestMapTaskErrorResponseDoesNotExposeStructuredErrorValue(t *testing.T) {
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			SubmitResponse: relaykitdto.AdvancedCustomTaskResponse{
+				ErrorPath: "error",
+			},
+		}},
+	}
+	info := &relaycommon.RelayInfo{}
+	body := []byte(`{"error":{"message":"invalid prompt","debug":"private upstream details"}}`)
+
+	taskErr := adaptor.MapTaskErrorResponse(nil, http.StatusBadRequest, body, info)
+
+	require.NotNil(t, taskErr)
+	assert.Equal(t, "upstream task submission failed with HTTP status 400", taskErr.Message)
+	assert.NotContains(t, taskErr.Message, "private upstream details")
+	require.NotNil(t, info.TaskUpstreamDiagnostics)
+	assert.False(t, info.TaskUpstreamDiagnostics.ErrorPathMatched)
+}
+
+func TestParseTaskResultProvidesFailureReasonWhenErrorPathIsEmpty(t *testing.T) {
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			Poll: relaykitdto.AdvancedCustomTaskPoll{Response: relaykitdto.AdvancedCustomTaskResponse{
+				StatusPath: "status",
+				ErrorPath:  "error.message",
+				StatusMap:  map[string]string{"failed": "FAILURE"},
+			}},
+		}},
+	}
+
+	result, err := adaptor.ParseTaskResult([]byte(`{"status":"failed"}`))
+
+	require.NoError(t, err)
+	assert.Equal(t, string(model.TaskStatusFailure), result.Status)
+	assert.Equal(t, "upstream task failed with status failed", result.Reason)
+}

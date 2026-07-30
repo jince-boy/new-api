@@ -80,6 +80,22 @@ type TokenCountMeta struct {
 	estimatePromptTokens int
 }
 
+// TaskUpstreamDiagnostics records only the configured mapping outcome. It
+// deliberately excludes the raw upstream response body and credentials.
+type TaskUpstreamDiagnostics struct {
+	HTTPStatus                     int
+	UpstreamStatus                 string
+	MappedStatus                   string
+	StatusMappingApplied           bool
+	ErrorPathMatched               bool
+	GatewayStatusBeforeMapping     int
+	GatewayStatusAfterMapping      int
+	StatusCodeMappingConfigured    bool
+	StatusCodeMappingApplied       bool
+	ErrorResponseMappingConfigured bool
+	ErrorResponseMappingApplied    bool
+}
+
 type RelayInfo struct {
 	TokenId           int
 	TokenKey          string
@@ -156,7 +172,10 @@ type RelayInfo struct {
 	// *bytes.Reader/Buffer/strings.Reader). 0 means "let net/http decide".
 	UpstreamRequestBodySize int64
 
-	PriceData hosttypes.PriceData
+	PriceData                   hosttypes.PriceData
+	PerSecondPricingRule        string
+	PerSecondPricingRuleMatched bool
+	TaskUpstreamDiagnostics     *TaskUpstreamDiagnostics
 
 	// QuotaClamp is set (non-nil) when a quota conversion saturated at the
 	// int32 bound (or NaN fallback) while computing this request's charge.
@@ -841,6 +860,7 @@ type TaskSubmitReq struct {
 	Image          string                 `json:"image,omitempty"`
 	Images         []string               `json:"images,omitempty"`
 	Size           string                 `json:"size,omitempty"`
+	ResolutionName string                 `json:"resolution_name,omitempty"`
 	Duration       int                    `json:"duration,omitempty"`
 	Seconds        string                 `json:"seconds,omitempty"`
 	InputReference string                 `json:"input_reference,omitempty"`

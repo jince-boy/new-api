@@ -20,6 +20,7 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	relaykitdto "github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -104,6 +105,7 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 		common.SetContextKey(c, constant.ContextKeyChannelType, ch.Type)
 		common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, ch.GetBaseURL())
 		common.SetContextKey(c, constant.ContextKeyChannelId, originTask.ChannelId)
+		common.SetContextKey(c, constant.ContextKeyChannelStatusCodeMapping, ch.GetStatusCodeMapping())
 		common.SetContextKey(c, constant.ContextKeyChannelErrorResponseMapping, ch.GetErrorResponseMapping())
 
 		info.ChannelBaseUrl = ch.GetBaseURL()
@@ -151,6 +153,7 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 // 控制器负责 defer Refund 和成功后 Settle。
 func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitResult, *dto.TaskError) {
 	info.InitChannelMeta(c)
+	info.TaskUpstreamDiagnostics = nil
 
 	// 1. 确定 platform → 创建适配器 → 验证请求
 	platform := constant.TaskPlatform(c.GetString("platform"))
@@ -219,6 +222,10 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if matchedRule != "" {
 		c.Set("per_second_pricing_rule", matchedRule)
 	}
+	if billing_setting.GetBillingMode(modelName) == billing_setting.BillingModePerSecond {
+		info.PerSecondPricingRule = matchedRule
+		info.PerSecondPricingRuleMatched = matchedRule != ""
+	}
 
 	// 5. 计费估算：让适配器根据用户请求提供 OtherRatios（时长、分辨率等）
 	//    必须在 ModelPriceHelperPerCall 之后调用（它会重建 PriceData）。
@@ -264,7 +271,18 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 	if resp != nil && (resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices) {
 		responseBody, _ := io.ReadAll(resp.Body)
-		return nil, service.TaskErrorWrapper(fmt.Errorf("%s", string(responseBody)), "fail_to_fetch_task", resp.StatusCode)
+		_ = resp.Body.Close()
+		var taskErr *dto.TaskError
+		if mapper, ok := adaptor.(channel.TaskErrorResponseMapper); ok {
+			taskErr = mapper.MapTaskErrorResponse(c, resp.StatusCode, responseBody, info)
+		} else {
+			taskErr = service.TaskErrorWrapper(
+				fmt.Errorf("upstream task request failed with HTTP status %d", resp.StatusCode),
+				"fail_to_fetch_task",
+				resp.StatusCode,
+			)
+		}
+		return nil, applyTaskErrorMappings(c, info, taskErr)
 	}
 
 	// 10. 返回 OtherRatios 给下游（header 必须在 DoResponse 写 body 之前设置）
@@ -278,7 +296,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	// 11. 解析响应
 	upstreamTaskID, taskData, taskErr := adaptor.DoResponse(c, resp, info)
 	if taskErr != nil {
-		return nil, taskErr
+		return nil, applyTaskErrorMappings(c, info, taskErr)
 	}
 
 	// 11. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios
@@ -315,6 +333,46 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		Quota:          finalQuota,
 		TaskRoute:      taskRoute,
 	}, nil
+}
+
+func applyTaskErrorMappings(c *gin.Context, info *relaycommon.RelayInfo, taskErr *dto.TaskError) *dto.TaskError {
+	if c == nil || info == nil || taskErr == nil || taskErr.LocalError {
+		return taskErr
+	}
+
+	statusCodeMapping := strings.TrimSpace(c.GetString(string(constant.ContextKeyChannelStatusCodeMapping)))
+	errorResponseMapping := strings.TrimSpace(c.GetString(string(constant.ContextKeyChannelErrorResponseMapping)))
+	diagnostics := info.TaskUpstreamDiagnostics
+	if diagnostics == nil {
+		diagnostics = &relaycommon.TaskUpstreamDiagnostics{HTTPStatus: taskErr.StatusCode}
+		info.TaskUpstreamDiagnostics = diagnostics
+	}
+	diagnostics.GatewayStatusBeforeMapping = taskErr.StatusCode
+	diagnostics.StatusCodeMappingConfigured = statusCodeMapping != "" && statusCodeMapping != "{}"
+	diagnostics.ErrorResponseMappingConfigured = errorResponseMapping != "" && errorResponseMapping != "{}"
+
+	mappedError := types.NewOpenAIError(errors.New(taskErr.Message), types.ErrorCode(taskErr.Code), taskErr.StatusCode)
+	service.ResetStatusCode(mappedError, statusCodeMapping)
+	diagnostics.StatusCodeMappingApplied = mappedError.StatusCode != taskErr.StatusCode
+
+	beforeErrorResponse := mappedError.ToOpenAIError()
+	statusAfterStatusCodeMapping := mappedError.StatusCode
+	service.ApplyErrorResponseMapping(mappedError, errorResponseMapping, taskErr.StatusCode)
+	afterErrorResponse := mappedError.ToOpenAIError()
+	diagnostics.ErrorResponseMappingApplied =
+		mappedError.StatusCode != statusAfterStatusCodeMapping ||
+			afterErrorResponse.Message != beforeErrorResponse.Message ||
+			afterErrorResponse.Type != beforeErrorResponse.Type ||
+			fmt.Sprint(afterErrorResponse.Code) != fmt.Sprint(beforeErrorResponse.Code)
+	diagnostics.GatewayStatusAfterMapping = mappedError.StatusCode
+
+	taskErr.StatusCode = mappedError.StatusCode
+	taskErr.Message = afterErrorResponse.Message
+	if code := strings.TrimSpace(fmt.Sprint(afterErrorResponse.Code)); code != "" && code != "<nil>" {
+		taskErr.Code = code
+	}
+	taskErr.Error = errors.New(taskErr.Message)
+	return taskErr
 }
 
 func filterConditionalPerSecondRatios(ratios map[string]float64, enabled bool) map[string]float64 {

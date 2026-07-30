@@ -55,6 +55,7 @@ export type PricingModel = {
   billing_mode?: string
   /** Raw expression describing dynamic / tiered billing */
   billing_expr?: string
+  per_second_rules?: PerSecondPricingRule[]
   /** Pricing version returned by backend, useful for cache busting */
   pricing_version?: string
   /**
@@ -69,6 +70,28 @@ export type PricingModel = {
   input_modalities?: Modality[]
   output_modalities?: Modality[]
   capabilities?: ModelCapability[]
+}
+
+export type PerSecondPricingOperator =
+  | 'eq'
+  | 'not_eq'
+  | 'contains'
+  | 'not_contains'
+  | 'exists'
+  | 'not_exists'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+
+export type PerSecondPricingRule = {
+  name: string
+  price: number
+  conditions: Array<{
+    path: string
+    operator: PerSecondPricingOperator
+    value?: string
+  }>
 }
 
 /** Input/output modalities supported by a model. */

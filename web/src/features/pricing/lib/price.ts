@@ -194,15 +194,28 @@ export function formatFixedPrice(
   }
 
   const ratio = getConfiguredGroupRatio(groupRatio, group)
-  let priceInUSD = (model.model_price || 0) * ratio
-
-  priceInUSD = applyRechargeRate(
-    priceInUSD,
+  return formatFixedUnitPrice(
+    model.model_price || 0,
+    ratio,
     showWithRecharge,
     priceRate,
     usdExchangeRate
   )
+}
 
+export function formatFixedUnitPrice(
+  unitPriceUSD: number,
+  groupRatio = 1,
+  showWithRecharge = false,
+  priceRate = 1,
+  usdExchangeRate = 1
+): string {
+  const priceInUSD = applyRechargeRate(
+    unitPriceUSD * groupRatio,
+    showWithRecharge,
+    priceRate,
+    usdExchangeRate
+  )
   return formatCurrencyFromUSD(priceInUSD, {
     digitsLarge: 4,
     digitsSmall: 4,

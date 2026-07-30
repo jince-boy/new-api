@@ -153,6 +153,35 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	}
 	_ = resp.Body.Close()
 
+	upstreamStatus, mappedStatus, errorMessage, errorPathMatched := inspectConfiguredTaskResponse(
+		responseBody,
+		a.route.Task.SubmitResponse,
+	)
+	info.TaskUpstreamDiagnostics = &relaycommon.TaskUpstreamDiagnostics{
+		HTTPStatus:           resp.StatusCode,
+		UpstreamStatus:       upstreamStatus,
+		MappedStatus:         mappedStatus,
+		StatusMappingApplied: upstreamStatus != "" && mappedStatus != "",
+		ErrorPathMatched:     errorPathMatched,
+	}
+	if upstreamStatus != "" && len(a.route.Task.SubmitResponse.StatusMap) > 0 && mappedStatus == "" {
+		return "", responseBody, service.TaskErrorWrapper(
+			fmt.Errorf("unmapped upstream task status %q at path %s", upstreamStatus, a.route.Task.SubmitResponse.StatusPath),
+			"invalid_response",
+			http.StatusBadGateway,
+		)
+	}
+	if mappedStatus == string(model.TaskStatusFailure) {
+		if errorMessage == "" {
+			errorMessage = fmt.Sprintf("upstream task submission failed with status %s", upstreamStatus)
+		}
+		return "", responseBody, service.TaskErrorWrapper(
+			fmt.Errorf("%s", errorMessage),
+			"upstream_task_failed",
+			http.StatusBadGateway,
+		)
+	}
+
 	taskID := extractTaskString(responseBody, a.route.Task.SubmitResponse.TaskIDPath)
 	if taskID == "" {
 		return "", responseBody, service.TaskErrorWrapper(
@@ -167,13 +196,33 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 	video.TaskID = info.PublicTaskID
 	video.Model = info.OriginModelName
 	video.CreatedAt = time.Now().Unix()
-	if status := extractTaskString(responseBody, a.route.Task.SubmitResponse.StatusPath); status != "" {
-		if mapped := mapConfiguredTaskStatus(status, a.route.Task.SubmitResponse.StatusMap); mapped != "" {
-			video.Status = model.TaskStatus(mapped).ToVideoStatus()
-		}
+	if mappedStatus != "" {
+		video.Status = model.TaskStatus(mappedStatus).ToVideoStatus()
 	}
 	c.JSON(http.StatusOK, video)
 	return taskID, responseBody, nil
+}
+
+func (a *TaskAdaptor) MapTaskErrorResponse(_ *gin.Context, statusCode int, responseBody []byte, info *relaycommon.RelayInfo) *taskdto.TaskError {
+	upstreamStatus, mappedStatus, errorMessage, errorPathMatched := inspectConfiguredTaskResponse(
+		responseBody,
+		a.route.Task.SubmitResponse,
+	)
+	info.TaskUpstreamDiagnostics = &relaycommon.TaskUpstreamDiagnostics{
+		HTTPStatus:           statusCode,
+		UpstreamStatus:       upstreamStatus,
+		MappedStatus:         mappedStatus,
+		StatusMappingApplied: upstreamStatus != "" && mappedStatus != "",
+		ErrorPathMatched:     errorPathMatched,
+	}
+	if errorMessage == "" {
+		errorMessage = fmt.Sprintf("upstream task submission failed with HTTP status %d", statusCode)
+	}
+	code := "fail_to_fetch_task"
+	if mappedStatus == string(model.TaskStatusFailure) {
+		code = "upstream_task_failed"
+	}
+	return service.TaskErrorWrapper(fmt.Errorf("%s", errorMessage), code, statusCode)
 }
 
 func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy string) (*http.Response, error) {
@@ -275,6 +324,9 @@ func (a *TaskAdaptor) ParseTaskResult(responseBody []byte) (*relaycommon.TaskInf
 		Progress: normalizeTaskProgress(gjson.GetBytes(responseBody, mapping.ProgressPath)),
 		Reason:   extractTaskString(responseBody, mapping.ErrorPath),
 	}
+	if canonicalStatus == string(model.TaskStatusFailure) && result.Reason == "" {
+		result.Reason = fmt.Sprintf("upstream task failed with status %s", upstreamStatus)
+	}
 	if canonicalStatus == string(model.TaskStatusSuccess) {
 		result.Url = extractTaskString(responseBody, mapping.ResultURLPath)
 		if result.Url == "" {
@@ -289,6 +341,13 @@ func (a *TaskAdaptor) ParseTaskResult(responseBody []byte) (*relaycommon.TaskInf
 		}
 	}
 	return result, nil
+}
+
+func inspectConfiguredTaskResponse(responseBody []byte, mapping relaykitdto.AdvancedCustomTaskResponse) (string, string, string, bool) {
+	upstreamStatus := extractTaskString(responseBody, mapping.StatusPath)
+	mappedStatus := mapConfiguredTaskStatus(upstreamStatus, mapping.StatusMap)
+	errorMessage := extractTaskString(responseBody, mapping.ErrorPath)
+	return upstreamStatus, mappedStatus, errorMessage, errorMessage != ""
 }
 
 func (a *TaskAdaptor) ConvertToOpenAIVideo(task *model.Task) ([]byte, error) {
@@ -416,6 +475,9 @@ func extractTaskString(body []byte, path string) string {
 	}
 	result := gjson.GetBytes(body, path)
 	if !result.Exists() {
+		return ""
+	}
+	if result.IsArray() || result.IsObject() {
 		return ""
 	}
 	return strings.TrimSpace(result.String())

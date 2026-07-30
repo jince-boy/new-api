@@ -19,15 +19,69 @@ For commercial licensing, please contact support@quantumnous.com
 package relay
 
 import (
+	"errors"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/QuantumNous/new-api/dto"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestApplyTaskErrorMappingsRecordsChannelMappingOutcome(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Set("status_code_mapping", `{"400":422}`)
+	context.Set("error_response_mapping", `{"400":{"message":"request rejected","type":"invalid_request_error","code":"mapped_request_error"}}`)
+	info := &relaycommon.RelayInfo{
+		TaskUpstreamDiagnostics: &relaycommon.TaskUpstreamDiagnostics{
+			HTTPStatus:       http.StatusBadRequest,
+			UpstreamStatus:   "failed",
+			MappedStatus:     "FAILURE",
+			ErrorPathMatched: true,
+		},
+	}
+	taskErr := &dto.TaskError{
+		Code:       "upstream_task_failed",
+		Message:    "invalid prompt",
+		StatusCode: http.StatusBadRequest,
+		Error:      errors.New("invalid prompt"),
+	}
+
+	mapped := applyTaskErrorMappings(context, info, taskErr)
+
+	require.NotNil(t, mapped)
+	assert.Equal(t, http.StatusUnprocessableEntity, mapped.StatusCode)
+	assert.Equal(t, "request rejected", mapped.Message)
+	assert.Equal(t, "mapped_request_error", mapped.Code)
+	diagnostics := info.TaskUpstreamDiagnostics
+	require.NotNil(t, diagnostics)
+	assert.Equal(t, http.StatusBadRequest, diagnostics.GatewayStatusBeforeMapping)
+	assert.Equal(t, http.StatusUnprocessableEntity, diagnostics.GatewayStatusAfterMapping)
+	assert.True(t, diagnostics.StatusCodeMappingConfigured)
+	assert.True(t, diagnostics.StatusCodeMappingApplied)
+	assert.True(t, diagnostics.ErrorResponseMappingConfigured)
+	assert.True(t, diagnostics.ErrorResponseMappingApplied)
+}
+
+func TestPerSecondTierQuotaUsesUnitPriceTimesDuration(t *testing.T) {
+	info := &relaycommon.RelayInfo{
+		PriceData: types.PriceData{
+			ModelPrice: 0.04,
+			Quota:      20000,
+		},
+	}
+
+	quota, ok := recalcQuotaFromRatios(info, map[string]float64{"seconds": 8})
+
+	require.True(t, ok)
+	assert.Equal(t, 160000, quota)
+}
 
 func TestPrepareTaskBillingRatiosAppliesPerSecondDuration(t *testing.T) {
 	gin.SetMode(gin.TestMode)

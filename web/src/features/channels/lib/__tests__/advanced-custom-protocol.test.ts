@@ -62,6 +62,14 @@ describe('advanced custom configurable protocols', () => {
     assert.deepEqual(normalized.advanced_routes?.[0].headers, {
       'X-Version': '2026-01-01',
     })
+    assert.equal(
+      normalized.advanced_routes?.[0].task?.submit_response.error_path,
+      'error.message'
+    )
+    assert.equal(
+      normalized.advanced_routes?.[0].task?.submit_response.status_map?.failed,
+      'FAILURE'
+    )
   })
 
   test('accepts synchronous JSON templates for non-streaming model routes', () => {
@@ -107,6 +115,27 @@ describe('advanced custom configurable protocols', () => {
     assert.deepEqual(validateAdvancedCustomConfig(config), {
       routeIndex: 0,
       message: 'Poll upstream path must contain {task_id}',
+    })
+  })
+
+  test('rejects an invalid submit status mapping', () => {
+    const task = createAdvancedCustomTask()
+    task.submit_response.status_map = { failed: 'SUCCESS' }
+    Object.assign(task.submit_response.status_map, { broken: 'INVALID' })
+    const config: AdvancedCustomConfig = {
+      advanced_routes: [
+        {
+          incoming_path: '/v1/videos',
+          upstream_path: '/v1/videos/generations',
+          converter: 'none',
+          task,
+        },
+      ],
+    }
+
+    assert.deepEqual(validateAdvancedCustomConfig(config), {
+      routeIndex: 0,
+      message: 'Submit status map contains an invalid status',
     })
   })
 

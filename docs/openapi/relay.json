@@ -580,6 +580,20 @@
                     "example": "8",
                     "type": "string"
                   },
+                  "size": {
+                    "description": "模型支持的画面宽高",
+                    "example": "1280x720",
+                    "type": "string"
+                  },
+                  "resolution_name": {
+                    "description": "模型能力和条件按秒计费使用的分辨率档位",
+                    "enum": [
+                      "480p",
+                      "720p"
+                    ],
+                    "example": "720p",
+                    "type": "string"
+                  },
                   "input_reference": {
                     "format": "binary",
                     "type": "string",

@@ -141,6 +141,19 @@ export interface LogOtherData {
       original: number
       clamped: number
     }
+    task_upstream?: {
+      http_status?: number
+      upstream_status?: string
+      mapped_status?: string
+      status_mapping_applied?: boolean
+      error_path_matched?: boolean
+      gateway_status_before_mapping?: number
+      gateway_status_after_mapping?: number
+      status_code_mapping_configured?: boolean
+      status_code_mapping_applied?: boolean
+      error_response_mapping_configured?: boolean
+      error_response_mapping_applied?: boolean
+    }
   }
   // Language-independent operation descriptor (audit/login logs).
   // Frontend renders localized content from action + params via i18n templates.
@@ -194,6 +207,9 @@ export interface LogOtherData {
   usage_semantic?: string
   expr_b64?: string
   matched_tier?: string
+  per_second_pricing_rule?: string
+  per_second_pricing_rule_matched?: boolean
+  seconds?: number
   reasoning_effort?: string
   image?: boolean
   image_ratio?: number

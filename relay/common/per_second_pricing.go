@@ -70,7 +70,7 @@ func perSecondRuleCandidatePaths(path string) []string {
 	path = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(path), "request."))
 	switch strings.ToLower(path) {
 	case "resolution":
-		return []string{"resolution", "size", "metadata.resolution", "metadata.size"}
+		return []string{"resolution_name", "resolution", "metadata.resolution_name", "metadata.resolution", "size", "metadata.size"}
 	case "quality":
 		return []string{"quality", "metadata.quality"}
 	case "mode":

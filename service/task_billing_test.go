@@ -5,20 +5,142 @@ import (
 	"encoding/json"
 	"math"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	taskdto "github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/types"
+	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
+
+func TestRecordTaskSubmissionFailurePersistsZeroCostTaskAndErrorLog(t *testing.T) {
+	truncate(t)
+	gin.SetMode(gin.TestMode)
+	seedUser(t, 91, 1000)
+	seedChannel(t, 92)
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = request
+	context.Set("username", "test_user")
+	context.Set(common.RequestIdKey, "req-task-failure")
+	info := &relaycommon.RelayInfo{
+		UserId:          91,
+		TokenId:         93,
+		UsingGroup:      "default",
+		OriginModelName: "video-model",
+		ChannelMeta:     &relaycommon.ChannelMeta{ChannelId: 92},
+		TaskRelayInfo: &relaycommon.TaskRelayInfo{
+			PublicTaskID: "task_failed_submit",
+			Action:       "generate",
+		},
+		TaskUpstreamDiagnostics: &relaycommon.TaskUpstreamDiagnostics{
+			HTTPStatus:                 http.StatusBadRequest,
+			UpstreamStatus:             "failed",
+			MappedStatus:               "FAILURE",
+			StatusMappingApplied:       true,
+			ErrorPathMatched:           true,
+			GatewayStatusBeforeMapping: http.StatusBadRequest,
+			GatewayStatusAfterMapping:  http.StatusBadRequest,
+		},
+	}
+	info.PriceData.ModelPrice = 0.04
+	info.PriceData.GroupRatioInfo.GroupRatio = 1.5
+	taskErr := &taskdto.TaskError{
+		Code:       "upstream_task_failed",
+		Message:    "invalid prompt",
+		StatusCode: http.StatusBadRequest,
+	}
+
+	RecordTaskSubmissionFailure(context, info, constant.TaskPlatform("advanced_custom"), taskErr)
+
+	var task model.Task
+	require.NoError(t, model.DB.Where("task_id = ?", "task_failed_submit").First(&task).Error)
+	assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), task.Status)
+	assert.Equal(t, "100%", task.Progress)
+	assert.Equal(t, "invalid prompt", task.FailReason)
+	assert.Zero(t, task.Quota)
+
+	var logEntry model.Log
+	require.NoError(t, model.DB.Where("request_id = ?", "req-task-failure").First(&logEntry).Error)
+	assert.Equal(t, model.LogTypeError, logEntry.Type)
+	assert.Zero(t, logEntry.Quota)
+	assert.Equal(t, "invalid prompt", logEntry.Content)
+	var other map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(logEntry.Other, &other))
+	assert.Equal(t, "task_failed_submit", other["task_id"])
+	assert.NotContains(t, logEntry.Other, "raw_response")
+	adminInfo, ok := other["admin_info"].(map[string]any)
+	require.True(t, ok)
+	diagnostics, ok := adminInfo["task_upstream"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "FAILURE", diagnostics["mapped_status"])
+	assert.Equal(t, false, diagnostics["status_code_mapping_configured"])
+	assert.Equal(t, false, diagnostics["error_response_mapping_configured"])
+}
+
+func TestLogTaskConsumptionRecordsResolvedPerSecondTier(t *testing.T) {
+	truncate(t)
+	gin.SetMode(gin.TestMode)
+	seedUser(t, 94, 1000)
+	seedChannel(t, 95)
+
+	saved := map[string]string{}
+	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
+		saved[key] = value
+		return nil
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
+	})
+	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
+		"billing_setting.billing_mode": `{"video-model":"per_second"}`,
+	}))
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos", nil)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = request
+	context.Set(common.RequestIdKey, "req-per-second-tier")
+	info := &relaycommon.RelayInfo{
+		UserId:                      94,
+		UsingGroup:                  "default",
+		OriginModelName:             "video-model",
+		ChannelMeta:                 &relaycommon.ChannelMeta{ChannelId: 95},
+		TaskRelayInfo:               &relaycommon.TaskRelayInfo{Action: "textGenerate"},
+		PerSecondPricingRule:        "720p",
+		PerSecondPricingRuleMatched: true,
+	}
+	info.PriceData.ModelPrice = 0.04
+	info.PriceData.Quota = 160000
+	info.PriceData.GroupRatioInfo.GroupRatio = 1
+	info.PriceData.AddOtherRatio("seconds", 8)
+
+	LogTaskConsumption(context, info)
+
+	var logEntry model.Log
+	require.NoError(t, model.DB.Where("request_id = ?", "req-per-second-tier").First(&logEntry).Error)
+	assert.Equal(t, model.LogTypeConsume, logEntry.Type)
+	assert.Equal(t, 160000, logEntry.Quota)
+	var other map[string]any
+	require.NoError(t, common.UnmarshalJsonStr(logEntry.Other, &other))
+	assert.Equal(t, "per_second", other["billing_mode"])
+	assert.Equal(t, 0.04, other["model_price"])
+	assert.Equal(t, "720p", other["per_second_pricing_rule"])
+	assert.Equal(t, true, other["per_second_pricing_rule_matched"])
+	assert.Equal(t, float64(8), other["seconds"])
+}
 
 func TestMain(m *testing.M) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

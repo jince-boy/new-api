@@ -67,6 +67,10 @@ export function PerSecondPricingRulesEditor(
   props: PerSecondPricingRulesEditorProps
 ) {
   const { t } = useTranslation()
+  const operatorItems = perSecondOperators.map((operator) => ({
+    value: operator.value,
+    label: t(operator.labelKey),
+  }))
 
   const updateRule = (index: number, patch: Partial<PerSecondRuleDraft>) => {
     props.onChange(
@@ -234,6 +238,7 @@ export function PerSecondPricingRulesEditor(
                     <Field>
                       <FieldLabel>{t('Operator')}</FieldLabel>
                       <Select
+                        items={operatorItems}
                         value={condition.operator}
                         onValueChange={(value) => {
                           if (typeof value !== 'string') return
@@ -248,12 +253,12 @@ export function PerSecondPricingRulesEditor(
                         </SelectTrigger>
                         <SelectContent alignItemWithTrigger={false}>
                           <SelectGroup>
-                            {perSecondOperators.map((operator) => (
+                            {operatorItems.map((operator) => (
                               <SelectItem
                                 key={operator.value}
                                 value={operator.value}
                               >
-                                {t(operator.labelKey)}
+                                {operator.label}
                               </SelectItem>
                             ))}
                           </SelectGroup>

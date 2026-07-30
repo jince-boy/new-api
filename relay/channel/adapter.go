@@ -89,3 +89,10 @@ type OpenAIVideoConverter interface {
 type TaskRouteSnapshotProvider interface {
 	TaskRouteSnapshot() *dto.AdvancedCustomRoute
 }
+
+// TaskErrorResponseMapper lets configurable task adaptors extract a safe,
+// user-facing error from a non-2xx upstream response without exposing the raw
+// response body.
+type TaskErrorResponseMapper interface {
+	MapTaskErrorResponse(c *gin.Context, statusCode int, responseBody []byte, info *relaycommon.RelayInfo) *taskdto.TaskError
+}

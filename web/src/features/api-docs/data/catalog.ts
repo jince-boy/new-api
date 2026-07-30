@@ -1145,6 +1145,14 @@ export const apiEndpoints: ApiEndpoint[] = [
         description: 'Requested frame size supported by the model.',
       },
       {
+        name: 'resolution_name',
+        location: 'form',
+        type: 'string',
+        required: false,
+        description:
+          'Requested resolution tier, such as 480p or 720p. When omitted, the configured model default is used.',
+      },
+      {
         name: 'input_reference',
         location: 'form',
         type: 'file | string',
@@ -1158,6 +1166,7 @@ export const apiEndpoints: ApiEndpoint[] = [
         prompt: 'A slow aerial shot above a futuristic coastal city',
         seconds: '4',
         size: '1280x720',
+        resolution_name: '720p',
       },
     },
     responseExample: `{
