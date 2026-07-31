@@ -350,7 +350,7 @@ export const ADVANCED_CUSTOM_TEMPLATE_OPTIONS: AdvancedCustomTemplateOption[] =
 export function cloneAdvancedCustomConfig(
   config: AdvancedCustomConfig
 ): AdvancedCustomConfig {
-  return JSON.parse(JSON.stringify(config)) as AdvancedCustomConfig
+  return structuredClone(config)
 }
 
 export function getAdvancedCustomTemplateConfig(
@@ -374,7 +374,6 @@ export function createAdvancedCustomRoute(): AdvancedCustomRoute {
 export function createAdvancedCustomTask(): AdvancedCustomTask {
   return {
     submit_method: 'POST',
-    request_mode: 'passthrough',
     submit_response: {
       task_id_path: 'data.task_id',
       status_path: 'data.status',
@@ -822,19 +821,56 @@ function normalizeAdvancedCustomRoute(
     nextRoute.headers = { ...route.headers }
   }
   if (route.task) {
-    nextRoute.task = JSON.parse(JSON.stringify(route.task))
+    nextRoute.task = normalizeAdvancedCustomTask(route.task)
   }
   if (route.request_body_template !== undefined) {
-    nextRoute.request_body_template = JSON.parse(
-      JSON.stringify(route.request_body_template)
+    nextRoute.request_body_template = structuredClone(
+      route.request_body_template
     )
   }
   if (route.response_body_template !== undefined) {
-    nextRoute.response_body_template = JSON.parse(
-      JSON.stringify(route.response_body_template)
+    nextRoute.response_body_template = structuredClone(
+      route.response_body_template
     )
   }
   return nextRoute
+}
+
+function normalizeAdvancedCustomTask(
+  task: AdvancedCustomTask
+): AdvancedCustomTask {
+  const normalized = structuredClone(task)
+
+  for (const request of [normalized, normalized.poll]) {
+    if (isLegacyTaskPassThroughScript(request.headers_script, 'header')) {
+      request.headers_script = undefined
+    }
+    if (isLegacyTaskPassThroughScript(request.body_script, 'body')) {
+      request.body_script = undefined
+    }
+    if (request.headers_script?.trim() || request.body_script?.trim()) {
+      request.request_script = undefined
+    }
+    if (request.body_script?.trim()) {
+      request.body_template = undefined
+    }
+  }
+
+  if (
+    normalized.body_script?.trim() ||
+    normalized.request_mode === 'passthrough'
+  ) {
+    normalized.request_mode = undefined
+  }
+
+  return normalized
+}
+
+function isLegacyTaskPassThroughScript(
+  source: string | undefined,
+  variable: 'header' | 'body'
+): boolean {
+  return source?.trim().replace(/;$/, '') === `return ${variable}`
 }
 
 function validateAdvancedCustomTask(

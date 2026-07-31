@@ -171,22 +171,21 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, fmt.Errorf("run submit headers script: %w", err)
 	}
-	legacyRequestScript := a.route.Task.RequestScript
-	if strings.TrimSpace(a.route.Task.HeadersScript) != "" || strings.TrimSpace(a.route.Task.BodyScript) != "" {
-		legacyRequestScript = ""
-	}
-	a.submitScript, err = runTaskRequestScript(legacyRequestScript, taskScriptInput{
-		Body:         rawBody,
-		OriginalBody: scriptInputBody,
-		Headers:      c.Request.Header,
-		Query:        c.Request.URL.Query(),
-		Method:       a.route.Task.SubmitMethod,
-		Path:         c.Request.URL.Path,
-		Model:        info.UpstreamModelName,
-		PublicTaskID: publicTaskID,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("run submit request script: %w", err)
+	a.submitScript = taskRequestScriptResult{}
+	if !hasTaskJavaScriptRequestMapping(a.route.Task.HeadersScript, a.route.Task.BodyScript) {
+		a.submitScript, err = runTaskRequestScript(a.route.Task.RequestScript, taskScriptInput{
+			Body:         rawBody,
+			OriginalBody: scriptInputBody,
+			Headers:      c.Request.Header,
+			Query:        c.Request.URL.Query(),
+			Method:       a.route.Task.SubmitMethod,
+			Path:         c.Request.URL.Path,
+			Model:        info.UpstreamModelName,
+			PublicTaskID: publicTaskID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("run submit request script: %w", err)
+		}
 	}
 	if a.submitScript.BodySet {
 		rawBody = a.submitScript.Body
@@ -419,23 +418,22 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 	if err != nil {
 		return nil, fmt.Errorf("run poll body script: %w", err)
 	}
-	legacyRequestScript := poll.RequestScript
-	if strings.TrimSpace(poll.HeadersScript) != "" || strings.TrimSpace(poll.BodyScript) != "" {
-		legacyRequestScript = ""
-	}
-	scriptResult, err := runTaskRequestScript(legacyRequestScript, taskScriptInput{
-		Body:         requestBodyBytes,
-		OriginalBody: pollContextBody,
-		Headers:      req.Header,
-		Query:        req.URL.Query(),
-		Method:       method,
-		Path:         req.URL.Path,
-		Model:        modelName,
-		TaskID:       taskID,
-		PublicTaskID: publicTaskID,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("run poll request script: %w", err)
+	scriptResult := taskRequestScriptResult{}
+	if !hasTaskJavaScriptRequestMapping(poll.HeadersScript, poll.BodyScript) {
+		scriptResult, err = runTaskRequestScript(poll.RequestScript, taskScriptInput{
+			Body:         requestBodyBytes,
+			OriginalBody: pollContextBody,
+			Headers:      req.Header,
+			Query:        req.URL.Query(),
+			Method:       method,
+			Path:         req.URL.Path,
+			Model:        modelName,
+			TaskID:       taskID,
+			PublicTaskID: publicTaskID,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("run poll request script: %w", err)
+		}
 	}
 	if scriptResult.Method != "" {
 		req.Method = scriptResult.Method
@@ -531,20 +529,20 @@ type configuredTaskResponseInspection struct {
 func inspectConfiguredTaskResponse(responseBody []byte, scriptInput taskScriptInput, mapping relaykitdto.AdvancedCustomTaskResponse) (configuredTaskResponseInspection, error) {
 	inspection := inspectLegacyConfiguredTaskResponse(responseBody, mapping)
 	scriptInput.Body = responseBody
-	legacyResponseScript := mapping.Script
 	if strings.TrimSpace(mapping.ResponseScript) != "" {
-		legacyResponseScript = ""
+		result, err := runTaskResponseJavaScript(mapping.ResponseScript, scriptInput)
+		if err != nil {
+			return configuredTaskResponseInspection{}, fmt.Errorf("run JavaScript response script: %w", err)
+		}
+		applyTaskResponseScriptResult(&inspection, result)
+		return inspection, nil
 	}
-	scriptResult, err := runTaskResponseScript(legacyResponseScript, scriptInput)
+
+	result, err := runTaskResponseScript(mapping.Script, scriptInput)
 	if err != nil {
 		return configuredTaskResponseInspection{}, fmt.Errorf("run response script: %w", err)
 	}
-	applyTaskResponseScriptResult(&inspection, scriptResult)
-	javaScriptResult, err := runTaskResponseJavaScript(mapping.ResponseScript, scriptInput)
-	if err != nil {
-		return configuredTaskResponseInspection{}, fmt.Errorf("run JavaScript response script: %w", err)
-	}
-	applyTaskResponseScriptResult(&inspection, javaScriptResult)
+	applyTaskResponseScriptResult(&inspection, result)
 	return inspection, nil
 }
 

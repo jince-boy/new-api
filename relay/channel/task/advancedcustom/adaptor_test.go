@@ -517,6 +517,87 @@ func TestSubmitJavaScriptTransformsHeadersAndBody(t *testing.T) {
 	assert.Equal(t, "client-token", upstreamRequest.Header.Get("Token"))
 }
 
+func TestLegacyPassThroughActionScriptsDoNotOverrideSubmitRequestMapping(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{"model":"client-video","prompt":"draw a fox"}`))
+	request.Header.Set("Authorization", "Bearer client-token")
+	request.Header.Set("Content-Type", "application/problem+json")
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = request
+	var parsed map[string]any
+	require.NoError(t, common.UnmarshalBodyReusable(context, &parsed))
+
+	adaptor := &TaskAdaptor{
+		apiKey:       "provider-secret",
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{
+			Auth: &relaykitdto.AdvancedCustomRouteAuth{
+				Type:  relaykitdto.AdvancedCustomAuthTypeHeader,
+				Name:  "Authorization",
+				Value: "Bearer {api_key}",
+			},
+			Task: &relaykitdto.AdvancedCustomTask{
+				RequestMode:   relaykitdto.AdvancedCustomTaskRequestModePassthrough,
+				HeadersScript: `return header`,
+				BodyScript:    `return body`,
+				RequestScript: `{"body":{"text":body.prompt,"model":model}}`,
+			},
+		},
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "provider-video"},
+	}
+
+	bodyReader, err := adaptor.BuildRequestBody(context, info)
+	require.NoError(t, err)
+	body, err := io.ReadAll(bodyReader)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"model":"provider-video","text":"draw a fox"}`, string(body))
+
+	upstreamRequest := httptest.NewRequest(http.MethodPost, "https://provider.example/submit", nil)
+	require.NoError(t, adaptor.BuildRequestHeader(context, upstreamRequest, info))
+	assert.Equal(t, "Bearer provider-secret", upstreamRequest.Header.Get("Authorization"))
+	assert.Equal(t, "application/json", upstreamRequest.Header.Get("Content-Type"))
+}
+
+func TestLegacyPassThroughActionScriptsDoNotOverridePollRequestMapping(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, http.MethodGet, r.Method)
+		assert.Equal(t, "Bearer provider-secret", r.Header.Get("Authorization"))
+		assert.Equal(t, "upstream-123", r.URL.Query().Get("task"))
+		body, err := io.ReadAll(r.Body)
+		assert.NoError(t, err)
+		assert.Empty(t, body)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	route := relaykitdto.AdvancedCustomRoute{
+		Auth: &relaykitdto.AdvancedCustomRouteAuth{
+			Type:  relaykitdto.AdvancedCustomAuthTypeHeader,
+			Name:  "Authorization",
+			Value: "Bearer {api_key}",
+		},
+		Task: &relaykitdto.AdvancedCustomTask{
+			Poll: relaykitdto.AdvancedCustomTaskPoll{
+				Method:        http.MethodGet,
+				UpstreamPath:  "/tasks/{task_id}",
+				HeadersScript: `return header`,
+				BodyScript:    `return body`,
+				RequestScript: `{"query":{"task":task_id}}`,
+			},
+		},
+	}
+	adaptor := &TaskAdaptor{}
+	response, err := adaptor.FetchTask(server.URL, "provider-secret", map[string]any{
+		"task_id":                    "upstream-123",
+		"model":                      "video-model",
+		"advanced_custom_task_route": &route,
+	}, "")
+	require.NoError(t, err)
+	require.NoError(t, response.Body.Close())
+}
+
 func TestParseTaskResultResponseUsesPollResponseScript(t *testing.T) {
 	adaptor := &TaskAdaptor{
 		routeMatched: true,

@@ -50,7 +50,7 @@ type taskResponseScriptResult struct {
 }
 
 func runTaskHeadersJavaScript(source string, input taskScriptInput) (map[string]*string, error) {
-	if strings.TrimSpace(source) == "" {
+	if strings.TrimSpace(source) == "" || isLegacyTaskPassThroughScript(source, "header") {
 		return nil, nil
 	}
 	output, err := routejs.RunFunction(source, newTaskRequestJavaScriptEnvironment(input), "header", "body")
@@ -64,7 +64,7 @@ func runTaskHeadersJavaScript(source string, input taskScriptInput) (map[string]
 }
 
 func runTaskBodyJavaScript(source string, input taskScriptInput) ([]byte, bool, error) {
-	if strings.TrimSpace(source) == "" {
+	if strings.TrimSpace(source) == "" || isLegacyTaskPassThroughScript(source, "body") {
 		return nil, false, nil
 	}
 	output, err := routejs.RunFunction(source, newTaskRequestJavaScriptEnvironment(input), "header", "body")
@@ -83,6 +83,17 @@ func runTaskBodyJavaScript(source string, input taskScriptInput) ([]byte, bool, 
 		return nil, false, fmt.Errorf("body script result exceeds %d bytes", maxTaskScriptBodyBytes)
 	}
 	return encoded, true, nil
+}
+
+func isLegacyTaskPassThroughScript(source, variable string) bool {
+	normalized := strings.TrimSuffix(strings.TrimSpace(source), ";")
+	return normalized == "return "+variable
+}
+
+func hasTaskJavaScriptRequestMapping(headersScript, bodyScript string) bool {
+	headersConfigured := strings.TrimSpace(headersScript) != "" && !isLegacyTaskPassThroughScript(headersScript, "header")
+	bodyConfigured := strings.TrimSpace(bodyScript) != "" && !isLegacyTaskPassThroughScript(bodyScript, "body")
+	return headersConfigured || bodyConfigured
 }
 
 func runTaskRequestScript(source string, input taskScriptInput) (taskRequestScriptResult, error) {

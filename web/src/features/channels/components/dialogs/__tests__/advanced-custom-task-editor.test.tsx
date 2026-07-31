@@ -264,6 +264,13 @@ describe('advanced custom protocol editor layout', () => {
 
   test('aligns entered code line numbers and offers pass-through actions', async () => {
     const task = createAdvancedCustomTask()
+    task.headers_script = `return { token: header.key }`
+    task.body_script = `return { prompt: body.prompt }`
+    task.body_template = { prompt: '{request.prompt}' }
+    task.request_mode = 'template'
+    task.poll.headers_script = `return { token: header.key }`
+    task.poll.body_script = `return { task_id: body.task_id }`
+    task.poll.body_template = { task_id: '{task_id}' }
     task.submit_response.response_script = '第一行\n第二行'
     const patches: Partial<AdvancedCustomRoute>[] = []
     const rendered = await renderEditor(
@@ -295,9 +302,16 @@ describe('advanced custom protocol editor layout', () => {
     assert.equal(getComputedStyle(gutters).paddingTop, '0px')
     assert.equal(passThroughButtons.length, 4)
     await act(async () => passThroughButtons[0].click())
-    assert.equal(patches.at(-1)?.task?.headers_script, 'return header')
+    assert.equal(patches.at(-1)?.task?.headers_script, undefined)
     await act(async () => passThroughButtons[1].click())
-    assert.equal(patches.at(-1)?.task?.body_script, 'return body')
+    assert.equal(patches.at(-1)?.task?.body_script, undefined)
+    assert.equal(patches.at(-1)?.task?.body_template, undefined)
+    assert.equal(patches.at(-1)?.task?.request_mode, undefined)
+    await act(async () => passThroughButtons[2].click())
+    assert.equal(patches.at(-1)?.task?.poll.headers_script, undefined)
+    await act(async () => passThroughButtons[3].click())
+    assert.equal(patches.at(-1)?.task?.poll.body_script, undefined)
+    assert.equal(patches.at(-1)?.task?.poll.body_template, undefined)
 
     await unmountEditor(rendered)
   })

@@ -62,7 +62,6 @@ import type {
   AdvancedCustomRouteAuth,
   AdvancedCustomTask,
   AdvancedCustomTaskMethod,
-  AdvancedCustomTaskResponse,
 } from '../../types'
 import { AdvancedCustomTemplateHelp } from './advanced-custom-template-help'
 
@@ -224,16 +223,8 @@ export function AdvancedCustomTaskEditor(props: AdvancedCustomTaskEditorProps) {
   const updateTask = (patch: Partial<AdvancedCustomTask>) => {
     props.onChange({ task: { ...task, ...patch } })
   }
-  const updateSubmitResponse = (patch: Partial<AdvancedCustomTaskResponse>) => {
-    updateTask({
-      submit_response: { ...task.submit_response, ...patch },
-    })
-  }
   const updatePoll = (patch: Partial<AdvancedCustomTask['poll']>) => {
     updateTask({ poll: { ...task.poll, ...patch } })
-  }
-  const updatePollResponse = (patch: Partial<AdvancedCustomTaskResponse>) => {
-    updatePoll({ response: { ...task.poll.response, ...patch } })
   }
 
   return (
@@ -281,23 +272,40 @@ export function AdvancedCustomTaskEditor(props: AdvancedCustomTaskEditorProps) {
         </TaskField>
         <ScriptEditor
           label={t('Submit headers code')}
-          passThroughVariable='header'
+          onPassThrough={() =>
+            updateTask({
+              headers_script: undefined,
+              request_script: undefined,
+            })
+          }
           value={task.headers_script}
-          placeholder='return header'
+          placeholder={`return {
+  'X-Provider-Version': header['x-provider-version'],
+}`}
           onChange={(value) =>
             updateTask({ headers_script: value, request_script: undefined })
           }
         />
         <ScriptEditor
           label={t('Submit body code')}
-          passThroughVariable='body'
+          onPassThrough={() =>
+            updateTask({
+              body_script: undefined,
+              body_template: undefined,
+              request_mode: undefined,
+              request_script: undefined,
+            })
+          }
           value={task.body_script}
-          placeholder='return body'
+          placeholder={`return {
+  prompt: body.prompt,
+  images: body.images,
+}`}
           onChange={(value) =>
             updateTask({
               body_script: value,
               body_template: undefined,
-              request_mode: 'passthrough',
+              request_mode: undefined,
               request_script: undefined,
             })
           }
@@ -314,7 +322,9 @@ return {
   status: 'SUBMITTED',
 }`}
           onChange={(value) =>
-            updateSubmitResponse({ response_script: value, script: undefined })
+            updateTask({
+              submit_response: value ? { response_script: value } : {},
+            })
           }
         />
         <ResponseScriptHelp phase='submit' />
@@ -339,27 +349,45 @@ return {
               }
             />
           </TaskField>
-          <PathInput
-            label={t('Poll upstream path')}
-            value={task.poll.upstream_path}
-            placeholder='/v1/videos/tasks/{task_id}'
-            onChange={(value) => updatePoll({ upstream_path: value })}
-          />
+          <TaskField label={t('Poll upstream path')}>
+            <Input
+              value={task.poll.upstream_path}
+              placeholder='/v1/videos/tasks/{task_id}'
+              onChange={(event) =>
+                updatePoll({ upstream_path: event.target.value })
+              }
+            />
+          </TaskField>
         </div>
         <ScriptEditor
           label={t('Poll headers code')}
-          passThroughVariable='header'
+          onPassThrough={() =>
+            updatePoll({
+              headers_script: undefined,
+              request_script: undefined,
+            })
+          }
           value={task.poll.headers_script}
-          placeholder='return header'
+          placeholder={`return {
+  'X-Task-ID': body.task_id,
+}`}
           onChange={(value) =>
             updatePoll({ headers_script: value, request_script: undefined })
           }
         />
         <ScriptEditor
           label={t('Poll body code')}
-          passThroughVariable='body'
+          onPassThrough={() =>
+            updatePoll({
+              body_script: undefined,
+              body_template: undefined,
+              request_script: undefined,
+            })
+          }
           value={task.poll.body_script}
-          placeholder='return body'
+          placeholder={`return {
+  task_id: body.task_id,
+}`}
           onChange={(value) =>
             updatePoll({
               body_script: value,
@@ -388,7 +416,9 @@ return {
   message: data?.error,
 }`}
           onChange={(value) =>
-            updatePollResponse({ response_script: value, script: undefined })
+            updatePoll({
+              response: value ? { response_script: value } : {},
+            })
           }
         />
         <ResponseScriptHelp phase='poll' />
@@ -560,23 +590,6 @@ function TaskField(props: { label: string; children: ReactNode }) {
   )
 }
 
-function PathInput(props: {
-  label: string
-  value?: string
-  placeholder: string
-  onChange: (value: string) => void
-}) {
-  return (
-    <TaskField label={props.label}>
-      <Input
-        value={props.value || ''}
-        placeholder={props.placeholder}
-        onChange={(event) => props.onChange(event.target.value)}
-      />
-    </TaskField>
-  )
-}
-
 function MethodSelect(props: {
   value: AdvancedCustomTaskMethod
   onChange: (value: AdvancedCustomTaskMethod) => void
@@ -606,7 +619,7 @@ function MethodSelect(props: {
 
 function ScriptEditor(props: {
   label: string
-  passThroughVariable?: 'header' | 'body'
+  onPassThrough?: () => void
   value?: string
   placeholder: string
   onChange: (value: string | undefined) => void
@@ -618,11 +631,9 @@ function ScriptEditor(props: {
     <TaskField label={props.label}>
       <CodeBlockEditor
         actions={
-          props.passThroughVariable ? (
+          props.onPassThrough ? (
             <Button
-              onClick={() =>
-                props.onChange(`return ${props.passThroughVariable}`)
-              }
+              onClick={props.onPassThrough}
               size='sm'
               type='button'
               variant='ghost'
