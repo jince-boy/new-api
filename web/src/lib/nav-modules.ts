@@ -20,6 +20,11 @@ import { getStatus } from '@/lib/api'
 
 export type ModuleAccess = { enabled: boolean; requireAuth: boolean }
 export type DocsNavigation = { enabled: boolean; openInNewTab: boolean }
+export type CanvasNavigation = {
+  enabled: boolean
+  url: string
+  openInNewTab: boolean
+}
 
 export type HeaderNavModule = 'rankings' | 'pricing'
 
@@ -29,8 +34,9 @@ export type HeaderNavModules = {
   pricing: ModuleAccess
   rankings: ModuleAccess
   docs: DocsNavigation
+  canvas: CanvasNavigation
   about: boolean
-  [key: string]: boolean | ModuleAccess | DocsNavigation
+  [key: string]: boolean | ModuleAccess | DocsNavigation | CanvasNavigation
 }
 
 const DEFAULT_HEADER_NAV_MODULES: HeaderNavModules = {
@@ -39,6 +45,7 @@ const DEFAULT_HEADER_NAV_MODULES: HeaderNavModules = {
   pricing: { enabled: true, requireAuth: false },
   rankings: { enabled: true, requireAuth: false },
   docs: { enabled: true, openInNewTab: false },
+  canvas: { enabled: false, url: '', openInNewTab: false },
   about: true,
 }
 
@@ -53,6 +60,7 @@ function cloneHeaderNavDefaults(): HeaderNavModules {
     pricing: { ...DEFAULT_HEADER_NAV_MODULES.pricing },
     rankings: { ...DEFAULT_HEADER_NAV_MODULES.rankings },
     docs: { ...DEFAULT_HEADER_NAV_MODULES.docs },
+    canvas: { ...DEFAULT_HEADER_NAV_MODULES.canvas },
   }
 }
 
@@ -119,6 +127,24 @@ function parseDocs(raw: unknown, fallback: DocsNavigation): DocsNavigation {
   return { ...fallback }
 }
 
+function parseCanvas(
+  raw: unknown,
+  fallback: CanvasNavigation
+): CanvasNavigation {
+  if (raw && typeof raw === 'object') {
+    const record = raw as Record<string, unknown>
+    return {
+      enabled: parseHeaderNavBoolean(record.enabled, fallback.enabled),
+      url: typeof record.url === 'string' ? record.url : fallback.url,
+      openInNewTab: parseHeaderNavBoolean(
+        record.openInNewTab,
+        fallback.openInNewTab
+      ),
+    }
+  }
+  return { ...fallback }
+}
+
 function parseHeaderNavRecord(raw: unknown): Record<string, unknown> | null {
   if (!raw || String(raw).trim() === '') return null
   if (raw && typeof raw === 'object') return raw as Record<string, unknown>
@@ -146,6 +172,10 @@ export function parseHeaderNavModules(raw: unknown): HeaderNavModules {
     }
     if (key === 'docs') {
       result.docs = parseDocs(value, result.docs)
+      return
+    }
+    if (key === 'canvas') {
+      result.canvas = parseCanvas(value, result.canvas)
       return
     }
     const fallback = result[key]

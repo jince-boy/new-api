@@ -50,20 +50,52 @@ import {
   serializeHeaderNavModules,
 } from './config'
 
-const headerNavSchema = z.object({
-  home: z.boolean(),
-  console: z.boolean(),
-  pricingEnabled: z.boolean(),
-  pricingRequireAuth: z.boolean(),
-  rankingsEnabled: z.boolean(),
-  rankingsRequireAuth: z.boolean(),
-  docsEnabled: z.boolean(),
-  docsLink: z.string(),
-  docsOpenInNewTab: z.boolean(),
-  about: z.boolean(),
-})
+const createHeaderNavSchema = (t: (key: string) => string) =>
+  z
+    .object({
+      home: z.boolean(),
+      console: z.boolean(),
+      pricingEnabled: z.boolean(),
+      pricingRequireAuth: z.boolean(),
+      rankingsEnabled: z.boolean(),
+      rankingsRequireAuth: z.boolean(),
+      docsEnabled: z.boolean(),
+      docsLink: z.string(),
+      docsOpenInNewTab: z.boolean(),
+      canvasEnabled: z.boolean(),
+      canvasLink: z
+        .string()
+        .trim()
+        .refine(
+          (value) =>
+            value === '' ||
+            value.startsWith('http://') ||
+            value.startsWith('https://'),
+          { error: t('URL must start with http:// or https://') }
+        )
+        .refine((value) => {
+          if (!value) return true
+          try {
+            const parsed = new URL(value)
+            return Boolean(parsed.hostname)
+          } catch {
+            return false
+          }
+        }, t('Must be a valid URL')),
+      canvasOpenInNewTab: z.boolean(),
+      about: z.boolean(),
+    })
+    .superRefine((values, context) => {
+      if (values.canvasEnabled && !values.canvasLink) {
+        context.addIssue({
+          code: 'custom',
+          path: ['canvasLink'],
+          message: t('Please enter canvas URL'),
+        })
+      }
+    })
 
-type HeaderNavFormValues = z.infer<typeof headerNavSchema>
+type HeaderNavFormValues = z.infer<ReturnType<typeof createHeaderNavSchema>>
 
 type HeaderNavigationSectionProps = {
   config: HeaderNavModulesConfig
@@ -106,6 +138,15 @@ const toFormValues = (
     config.docs?.openInNewTab === undefined
       ? HEADER_NAV_DEFAULT.docs.openInNewTab
       : Boolean(config.docs.openInNewTab),
+  canvasEnabled:
+    config.canvas?.enabled === undefined
+      ? HEADER_NAV_DEFAULT.canvas.enabled
+      : Boolean(config.canvas.enabled),
+  canvasLink: config.canvas?.url ?? HEADER_NAV_DEFAULT.canvas.url,
+  canvasOpenInNewTab:
+    config.canvas?.openInNewTab === undefined
+      ? HEADER_NAV_DEFAULT.canvas.openInNewTab
+      : Boolean(config.canvas.openInNewTab),
   about:
     config.about === undefined
       ? HEADER_NAV_DEFAULT.about
@@ -115,6 +156,7 @@ const toFormValues = (
 export function HeaderNavigationSection(props: HeaderNavigationSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
+  const headerNavSchema = createHeaderNavSchema(t)
   const formDefaults = useMemo(
     () => toFormValues(props.config, props.initialDocsLink),
     [props.config, props.initialDocsLink]
@@ -137,6 +179,11 @@ export function HeaderNavigationSection(props: HeaderNavigationSectionProps) {
       docs: {
         enabled: values.docsEnabled,
         openInNewTab: values.docsOpenInNewTab,
+      },
+      canvas: {
+        enabled: values.canvasEnabled,
+        url: values.canvasLink.trim(),
+        openInNewTab: values.canvasOpenInNewTab,
       },
       about: values.about,
       pricing: {
@@ -319,6 +366,78 @@ export function HeaderNavigationSection(props: HeaderNavigationSectionProps) {
                       <FormDescription>
                         {t(
                           'Turn this off to open the user guide in the current page.'
+                        )}
+                      </FormDescription>
+                    </SettingsSwitchContent>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </SettingsSwitchItem>
+                )}
+              />
+            </SettingsControlChildren>
+          </SettingsControlGroup>
+
+          <SettingsControlGroup>
+            <FormField
+              control={form.control}
+              name='canvasEnabled'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>{t('Canvas')}</FormLabel>
+                    <FormDescription>
+                      {t('Show an external canvas in the top navigation.')}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </SettingsSwitchItem>
+              )}
+            />
+
+            <SettingsControlChildren className='grid gap-4 py-2 md:grid-cols-2'>
+              <FormField
+                control={form.control}
+                name='canvasLink'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Canvas URL')}</FormLabel>
+                    <FormControl>
+                      <Input
+                        type='url'
+                        autoComplete='url'
+                        placeholder={t('https://canvas.example.com')}
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t('Link to your canvas workspace or application.')}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='canvasOpenInNewTab'
+                render={({ field }) => (
+                  <SettingsSwitchItem className='py-2'>
+                    <SettingsSwitchContent>
+                      <FormLabel>{t('Open in new tab')}</FormLabel>
+                      <FormDescription>
+                        {t(
+                          'Turn this off to open the canvas in the current page.'
                         )}
                       </FormDescription>
                     </SettingsSwitchContent>

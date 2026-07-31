@@ -19,7 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { buildUserGuideLinks } from '@/hooks/use-top-nav-links'
+import {
+  buildCanvasLinks,
+  buildUserGuideLinks,
+} from '@/hooks/use-top-nav-links'
 
 import { parseHeaderNavModules, serializeHeaderNavModules } from '../config'
 
@@ -40,6 +43,18 @@ describe('header navigation configuration', () => {
 
     assert.deepEqual(JSON.parse(serializeHeaderNavModules(config)).docs, {
       enabled: true,
+      openInNewTab: true,
+    })
+  })
+
+  test('preserves canvas URL and opening behavior when serialized', () => {
+    const config = parseHeaderNavModules(
+      '{"canvas":{"enabled":true,"url":"https://canvas.example.com","openInNewTab":true}}'
+    )
+
+    assert.deepEqual(JSON.parse(serializeHeaderNavModules(config)).canvas, {
+      enabled: true,
+      url: 'https://canvas.example.com',
       openInNewTab: true,
     })
   })
@@ -73,5 +88,42 @@ describe('header navigation configuration', () => {
     )
 
     assert.deepEqual(links, [])
+  })
+
+  test('builds a canvas link only for an enabled valid URL', () => {
+    assert.deepEqual(
+      buildCanvasLinks(
+        {
+          enabled: true,
+          url: 'https://canvas.example.com/workspace',
+          openInNewTab: false,
+        },
+        (key) => key
+      ),
+      [
+        {
+          title: 'Canvas',
+          href: 'https://canvas.example.com/workspace',
+          external: true,
+          openInNewTab: false,
+        },
+      ]
+    )
+
+    assert.deepEqual(
+      buildCanvasLinks(
+        { enabled: true, url: '/canvas', openInNewTab: false },
+        (key) => key
+      ),
+      []
+    )
+
+    assert.deepEqual(
+      buildCanvasLinks(
+        { enabled: true, url: 'https://', openInNewTab: false },
+        (key) => key
+      ),
+      []
+    )
   })
 })

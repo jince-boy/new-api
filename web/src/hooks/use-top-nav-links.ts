@@ -21,6 +21,7 @@ import { useTranslation } from 'react-i18next'
 
 import { useStatus } from '@/hooks/use-status'
 import {
+  type CanvasNavigation,
   type DocsNavigation,
   parseHeaderNavModulesFromStatus,
 } from '@/lib/nav-modules'
@@ -57,6 +58,34 @@ export function buildUserGuideLinks(
       href: docsLink,
       external: true,
       openInNewTab: docsNavigation.openInNewTab,
+    },
+  ]
+}
+
+export function buildCanvasLinks(
+  canvasNavigation: CanvasNavigation,
+  translate: (key: string) => string
+): TopNavLink[] {
+  const url = canvasNavigation.url.trim()
+  let hasValidUrl = url.startsWith('http://') || url.startsWith('https://')
+  if (hasValidUrl) {
+    try {
+      hasValidUrl = Boolean(new URL(url).hostname)
+    } catch {
+      hasValidUrl = false
+    }
+  }
+
+  if (!canvasNavigation.enabled || !hasValidUrl) {
+    return []
+  }
+
+  return [
+    {
+      title: translate('Canvas'),
+      href: url,
+      external: true,
+      openInNewTab: canvasNavigation.openInNewTab,
     },
   ]
 }
@@ -173,6 +202,7 @@ export function useTopNavLinks(): TopNavLink[] {
   }
 
   links.push(...buildUserGuideLinks(docsLink, modules.docs, t))
+  links.push(...buildCanvasLinks(modules.canvas, t))
 
   // About
   if (modules?.about !== false) {
