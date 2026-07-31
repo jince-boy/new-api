@@ -861,11 +861,20 @@ function validateAdvancedCustomTask(
   }
   const submitScriptError = validateRouteScript(task.submit_response?.script)
   if (submitScriptError) return submitScriptError
+  const submitResponseScriptError = validateRouteScript(
+    task.submit_response?.response_script
+  )
+  if (submitResponseScriptError) return submitResponseScriptError
+  const submitHeadersScriptError = validateRouteScript(task.headers_script)
+  if (submitHeadersScriptError) return submitHeadersScriptError
+  const submitBodyScriptError = validateRouteScript(task.body_script)
+  if (submitBodyScriptError) return submitBodyScriptError
   const submitRequestScriptError = validateRouteScript(task.request_script)
   if (submitRequestScriptError) return submitRequestScriptError
   if (
     !task.submit_response?.task_id_path?.trim() &&
-    !task.submit_response?.script?.trim()
+    !task.submit_response?.script?.trim() &&
+    !task.submit_response?.response_script?.trim()
   ) {
     return 'Submit task ID path is required'
   }
@@ -892,6 +901,10 @@ function validateAdvancedCustomTask(
   }
   const pollRequestScriptError = validateRouteScript(task.poll.request_script)
   if (pollRequestScriptError) return pollRequestScriptError
+  const pollHeadersScriptError = validateRouteScript(task.poll.headers_script)
+  if (pollHeadersScriptError) return pollHeadersScriptError
+  const pollBodyScriptError = validateRouteScript(task.poll.body_script)
+  if (pollBodyScriptError) return pollBodyScriptError
   const pollAuthError = validateRouteAuth(task.poll.auth)
   if (pollAuthError) return pollAuthError
   const pollHeadersError = validateHeaders(task.poll.headers)
@@ -900,8 +913,10 @@ function validateAdvancedCustomTask(
   const response = task.poll.response
   const pollResponseScriptError = validateRouteScript(response?.script)
   if (pollResponseScriptError) return pollResponseScriptError
+  const pollJavaScriptError = validateRouteScript(response?.response_script)
+  if (pollJavaScriptError) return pollJavaScriptError
   const statusMap = response.status_map || {}
-  if (!response?.script?.trim()) {
+  if (!response?.script?.trim() && !response?.response_script?.trim()) {
     if (!response?.status_path?.trim()) return 'Poll status path is required'
     if (!response.result_url_path?.trim()) {
       return 'Poll result URL path is required'

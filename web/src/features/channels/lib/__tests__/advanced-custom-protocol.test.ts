@@ -222,6 +222,38 @@ describe('advanced custom configurable protocols', () => {
     )
   })
 
+  test('accepts JavaScript request and response code without fixed response paths', () => {
+    const task = createAdvancedCustomTask()
+    task.headers_script = 'return { token: header.key }'
+    task.body_script = 'return { prompt: body.prompt }'
+    task.submit_response.task_id_path = ''
+    task.submit_response.response_script =
+      'return { task_id: row_response.body.id, status: "SUBMITTED" }'
+    task.poll.headers_script = 'return { "X-Task-ID": body.task_id }'
+    task.poll.response.status_path = ''
+    task.poll.response.result_url_path = ''
+    task.poll.response.status_map = {}
+    task.poll.response.response_script =
+      'return { status: row_response.body.status, result_url: row_response.body.url }'
+    const config: AdvancedCustomConfig = {
+      advanced_routes: [
+        {
+          incoming_path: '/v1/videos',
+          upstream_path: '/v1/videos/generations',
+          converter: 'none',
+          task,
+        },
+      ],
+    }
+
+    assert.equal(validateAdvancedCustomConfig(config), null)
+    assert.equal(
+      normalizeAdvancedCustomConfig(config).advanced_routes?.[0].task
+        ?.submit_response.response_script,
+      task.submit_response.response_script
+    )
+  })
+
   test('rejects empty and oversized route expression scripts', () => {
     const emptyTask = createAdvancedCustomTask()
     emptyTask.request_script = '   '

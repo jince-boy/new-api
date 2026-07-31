@@ -363,6 +363,42 @@ func TestDoResponseScriptDoesNotReturnStructuredUpstreamMessage(t *testing.T) {
 	assert.NotContains(t, taskErr.Message, "private detail")
 }
 
+func TestDoResponseJavaScriptReadsRowResponse(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	context, _ := gin.CreateTestContext(recorder)
+	info := &relaycommon.RelayInfo{
+		OriginModelName: "video-model",
+		TaskRelayInfo:   &relaycommon.TaskRelayInfo{PublicTaskID: "task_public"},
+	}
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			SubmitResponse: relaykitdto.AdvancedCustomTaskResponse{
+				Script: `{"task_id":"legacy-task","status":"SUBMITTED"}`,
+				ResponseScript: `
+					const response = row_response as any
+					if (response.status_code !== 202 || response.header["x-provider"] !== "video") {
+						return { status: "FAILURE", message: "Unexpected provider response." }
+					}
+					return { task_id: response.body.data.id, status: "SUBMITTED" }
+				`,
+			},
+		}},
+	}
+	response := &http.Response{
+		StatusCode: http.StatusAccepted,
+		Header:     http.Header{"X-Provider": []string{"video"}},
+		Body:       io.NopCloser(strings.NewReader(`{"data":{"id":"upstream-123"}}`)),
+	}
+
+	taskID, _, taskErr := adaptor.DoResponse(context, response, info)
+
+	require.Nil(t, taskErr)
+	assert.Equal(t, "upstream-123", taskID)
+	assert.Equal(t, http.StatusOK, recorder.Code)
+}
+
 func TestMapTaskErrorResponseScriptCanInspectHTTPStatusAndHeader(t *testing.T) {
 	adaptor := &TaskAdaptor{
 		routeMatched: true,
@@ -431,6 +467,56 @@ func TestSubmitRequestScriptTransformsBodyHeadersMethodAndQuery(t *testing.T) {
 	assert.Equal(t, "PUT", adaptor.submitScript.Method)
 }
 
+func TestSubmitJavaScriptTransformsHeadersAndBody(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos", strings.NewReader(`{"prompt":"draw a fox","images":["a","b"]}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Key", "client-token")
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = request
+	var parsed map[string]any
+	require.NoError(t, common.UnmarshalBodyReusable(context, &parsed))
+
+	adaptor := &TaskAdaptor{
+		baseURL:      "https://provider.example",
+		apiKey:       "secret",
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{
+			UpstreamPath: "/submit",
+			Task: &relaykitdto.AdvancedCustomTask{
+				SubmitMethod:  "POST",
+				RequestMode:   relaykitdto.AdvancedCustomTaskRequestModePassthrough,
+				RequestScript: `{"body":{"text":"legacy"}}`,
+				HeadersScript: `
+					const result: Record<string, string> = {}
+					for (const [name, value] of Object.entries(header as Record<string, string>)) {
+						if (name === "key") result.Token = value
+					}
+					return result
+				`,
+				BodyScript: `
+					const images: string[] = Array.isArray((body as any).images) ? (body as any).images : []
+					return { text: (body as any).prompt, image_count: images.length }
+				`,
+			},
+		},
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta:   &relaycommon.ChannelMeta{UpstreamModelName: "provider-video"},
+		TaskRelayInfo: &relaycommon.TaskRelayInfo{PublicTaskID: "public-task"},
+	}
+
+	bodyReader, err := adaptor.BuildRequestBody(context, info)
+	require.NoError(t, err)
+	body, err := io.ReadAll(bodyReader)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"text":"draw a fox","image_count":2}`, string(body))
+
+	upstreamRequest := httptest.NewRequest(http.MethodPost, "https://provider.example/submit", nil)
+	require.NoError(t, adaptor.BuildRequestHeader(context, upstreamRequest, info))
+	assert.Equal(t, "client-token", upstreamRequest.Header.Get("Token"))
+}
+
 func TestParseTaskResultResponseUsesPollResponseScript(t *testing.T) {
 	adaptor := &TaskAdaptor{
 		routeMatched: true,
@@ -446,6 +532,37 @@ func TestParseTaskResultResponseUsesPollResponseScript(t *testing.T) {
 		http.StatusOK,
 		http.Header{"X-Provider": []string{"video"}},
 		[]byte(`{"code":0,"state":"SUCCESS","percent":0.75,"output":"/video.mp4"}`),
+	)
+
+	require.NoError(t, err)
+	assert.Equal(t, string(model.TaskStatusSuccess), result.Status)
+	assert.Equal(t, "75%", result.Progress)
+	assert.Equal(t, "https://provider.example/video.mp4", result.Url)
+}
+
+func TestParseTaskResultResponseUsesJavaScriptRowResponse(t *testing.T) {
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		baseURL:      "https://provider.example",
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			Poll: relaykitdto.AdvancedCustomTaskPoll{Response: relaykitdto.AdvancedCustomTaskResponse{
+				ResponseScript: `
+					const data = (row_response as any).body.data
+					const statuses: Record<string, string> = { done: "SUCCESS", failed: "FAILURE" }
+					return {
+						status: statuses[data.state],
+						progress: data.percent,
+						result_url: data.output,
+					}
+				`,
+			}},
+		}},
+	}
+
+	result, err := adaptor.ParseTaskResultResponse(
+		http.StatusOK,
+		http.Header{"X-Provider": []string{"video"}},
+		[]byte(`{"data":{"state":"done","percent":0.75,"output":"/video.mp4"}}`),
 	)
 
 	require.NoError(t, err)

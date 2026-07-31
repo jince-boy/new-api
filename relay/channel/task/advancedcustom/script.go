@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	relaykitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/routeexpr"
+	"github.com/QuantumNous/new-api/relaykit/routejs"
 	"github.com/tidwall/gjson"
 )
 
@@ -46,6 +47,42 @@ type taskResponseScriptResult struct {
 	Message        string
 	Progress       string
 	ResultURL      string
+}
+
+func runTaskHeadersJavaScript(source string, input taskScriptInput) (map[string]*string, error) {
+	if strings.TrimSpace(source) == "" {
+		return nil, nil
+	}
+	output, err := routejs.RunFunction(source, newTaskRequestJavaScriptEnvironment(input), "header", "body")
+	if err != nil {
+		return nil, err
+	}
+	if output == nil {
+		return nil, fmt.Errorf("headers script must return an object")
+	}
+	return taskScriptStringOverrides("headers", output)
+}
+
+func runTaskBodyJavaScript(source string, input taskScriptInput) ([]byte, bool, error) {
+	if strings.TrimSpace(source) == "" {
+		return nil, false, nil
+	}
+	output, err := routejs.RunFunction(source, newTaskRequestJavaScriptEnvironment(input), "header", "body")
+	if err != nil {
+		return nil, false, err
+	}
+	object, ok := output.(map[string]any)
+	if !ok {
+		return nil, false, fmt.Errorf("body script must return an object, got %T", output)
+	}
+	encoded, err := common.Marshal(object)
+	if err != nil {
+		return nil, false, fmt.Errorf("encode body script result: %w", err)
+	}
+	if len(encoded) > maxTaskScriptBodyBytes {
+		return nil, false, fmt.Errorf("body script result exceeds %d bytes", maxTaskScriptBodyBytes)
+	}
+	return encoded, true, nil
 }
 
 func runTaskRequestScript(source string, input taskScriptInput) (taskRequestScriptResult, error) {
@@ -132,11 +169,30 @@ func runTaskResponseScript(source string, input taskScriptInput) (*taskResponseS
 	if output == nil {
 		return nil, nil
 	}
+	return parseTaskResponseScriptResult(output)
+}
+
+func runTaskResponseJavaScript(source string, input taskScriptInput) (*taskResponseScriptResult, error) {
+	if strings.TrimSpace(source) == "" {
+		return nil, nil
+	}
+	output, err := routejs.RunFunction(source, newTaskResponseJavaScriptEnvironment(input), "row_response")
+	if err != nil {
+		return nil, err
+	}
+	if output == nil {
+		return nil, fmt.Errorf("response script must return an object")
+	}
+	return parseTaskResponseScriptResult(output)
+}
+
+func parseTaskResponseScriptResult(output any) (*taskResponseScriptResult, error) {
 	object, ok := output.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("response script must return an object or nil, got %T", output)
+		return nil, fmt.Errorf("response script must return an object, got %T", output)
 	}
 	result := &taskResponseScriptResult{}
+	var err error
 	for key, value := range object {
 		var target *string
 		switch key {
@@ -155,13 +211,16 @@ func runTaskResponseScript(source string, input taskScriptInput) (*taskResponseS
 		default:
 			return nil, fmt.Errorf("response script returned unsupported field %q", key)
 		}
+		if value == nil {
+			continue
+		}
 		*target, err = taskScriptScalarString(key, value)
 		if err != nil {
 			return nil, err
 		}
 	}
 	if len(object) == 0 {
-		return nil, fmt.Errorf("response script returned an empty object; return nil when it does not match")
+		return nil, fmt.Errorf("response script returned an empty object")
 	}
 	if result.Status != "" {
 		result.Status = strings.ToUpper(strings.TrimSpace(result.Status))
@@ -170,6 +229,36 @@ func runTaskResponseScript(source string, input taskScriptInput) (*taskResponseS
 		}
 	}
 	return result, nil
+}
+
+func newTaskRequestJavaScriptEnvironment(input taskScriptInput) map[string]any {
+	return map[string]any{
+		"header": taskScriptHeaders(input.Headers),
+		"body":   decodeTaskScriptBody(input.Body),
+	}
+}
+
+func newTaskResponseJavaScriptEnvironment(input taskScriptInput) map[string]any {
+	var body any
+	if len(input.Body) == 0 || common.Unmarshal(input.Body, &body) != nil {
+		body = string(input.Body)
+	}
+	return map[string]any{
+		"row_response": map[string]any{
+			"status_code": input.HTTPStatus,
+			"header":      taskScriptHeaders(input.Headers),
+			"body":        body,
+			"raw_body":    string(input.Body),
+		},
+	}
+}
+
+func taskScriptHeaders(header http.Header) map[string]any {
+	headers := make(map[string]any, len(header))
+	for name, values := range header {
+		headers[strings.ToLower(name)] = strings.Join(values, ", ")
+	}
+	return headers
 }
 
 func newTaskScriptEnvironment(input taskScriptInput) map[string]any {
@@ -234,7 +323,7 @@ func taskScriptStringOverrides(field string, value any) (map[string]*string, err
 	result := make(map[string]*string, len(object))
 	for name, item := range object {
 		name = strings.TrimSpace(name)
-		if name == "" || strings.ContainsAny(name, "\r\n") {
+		if name == "" || strings.ContainsAny(name, ":\r\n") {
 			return nil, fmt.Errorf("request script %s contains an invalid name", field)
 		}
 		if item == nil {

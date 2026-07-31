@@ -67,8 +67,6 @@ await i18next.use(initReactI18next).init({
         'Scan with WeChat or long-press the QR code on mobile.':
           'Scan with WeChat or long-press the QR code on mobile.',
         'WeChat user group QR code': 'WeChat user group QR code',
-        'Only signed-in users can view this QR code.':
-          'Only signed-in users can view this QR code.',
         'The QR code expires at {{time}}': 'The QR code expires at {{time}}',
       },
     },

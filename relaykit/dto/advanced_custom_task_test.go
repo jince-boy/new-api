@@ -93,6 +93,23 @@ func TestAdvancedCustomTaskRouteAcceptsScriptsInsteadOfFixedResponsePaths(t *tes
 	require.NoError(t, (&AdvancedCustomConfig{Routes: []AdvancedCustomRoute{route}}).Validate())
 }
 
+func TestAdvancedCustomTaskRouteAcceptsJavaScriptInsteadOfFixedResponsePaths(t *testing.T) {
+	route := validAdvancedCustomTaskRoute()
+	route.Task.RequestMode = AdvancedCustomTaskRequestModePassthrough
+	route.Task.BodyTemplate = nil
+	route.Task.HeadersScript = `return { token: header.key }`
+	route.Task.BodyScript = `for (const item of body.items ?? []) { if (item.skip) continue }; return { prompt: body.prompt }`
+	route.Task.SubmitResponse.TaskIDPath = ""
+	route.Task.SubmitResponse.ResponseScript = `return { task_id: row_response.body.data.id, status: "SUBMITTED" }`
+	route.Task.Poll.HeadersScript = `return { "X-Task-ID": body.task_id }`
+	route.Task.Poll.Response.StatusPath = ""
+	route.Task.Poll.Response.ResultURLPath = ""
+	route.Task.Poll.Response.StatusMap = nil
+	route.Task.Poll.Response.ResponseScript = `return { status: row_response.body.state, result_url: row_response.body.url }`
+
+	require.NoError(t, (&AdvancedCustomConfig{Routes: []AdvancedCustomRoute{route}}).Validate())
+}
+
 func TestAdvancedCustomTaskRouteRejectsIncompleteProtocols(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -105,6 +122,22 @@ func TestAdvancedCustomTaskRouteRejectsIncompleteProtocols(t *testing.T) {
 				route.Task.BodyTemplate = json.RawMessage(`{"model":`)
 			},
 			want: "body_template must be valid JSON",
+		},
+		{
+			name: "submit body template and code",
+			mutate: func(route *AdvancedCustomRoute) {
+				route.Task.BodyScript = `return body`
+			},
+			want: "task.body_script cannot be combined with body_template",
+		},
+		{
+			name: "poll body template and code",
+			mutate: func(route *AdvancedCustomRoute) {
+				route.Task.Poll.Method = "POST"
+				route.Task.Poll.BodyTemplate = json.RawMessage(`{"task_id":"{task_id}"}`)
+				route.Task.Poll.BodyScript = `return body`
+			},
+			want: "task.poll.body_script cannot be combined with body_template",
 		},
 		{
 			name: "missing submit task id",

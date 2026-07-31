@@ -31,15 +31,16 @@ var taskTemplatePlaceholder = regexp.MustCompile(`\{(model|request(?:\.[^{}]+)?|
 
 type TaskAdaptor struct {
 	taskcommon.BaseBilling
-	config       *relaykitdto.AdvancedCustomConfig
-	route        relaykitdto.AdvancedCustomRoute
-	routeMatched bool
-	baseURL      string
-	apiKey       string
-	submitScript taskRequestScriptResult
-	pollModel    string
-	pollTaskID   string
-	pollPublicID string
+	config        *relaykitdto.AdvancedCustomConfig
+	route         relaykitdto.AdvancedCustomRoute
+	routeMatched  bool
+	baseURL       string
+	apiKey        string
+	submitScript  taskRequestScriptResult
+	submitHeaders map[string]*string
+	pollModel     string
+	pollTaskID    string
+	pollPublicID  string
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
@@ -97,6 +98,7 @@ func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info
 		return err
 	}
 	applyTaskScriptHeaderOverrides(req.Header, a.submitScript.Headers)
+	applyTaskScriptHeaderOverrides(req.Header, a.submitHeaders)
 	return nil
 }
 
@@ -109,7 +111,6 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, err
 	}
-	originalRawBody := append([]byte(nil), rawBody...)
 	publicTaskID := ""
 	if info.TaskRelayInfo != nil {
 		publicTaskID = info.PublicTaskID
@@ -124,6 +125,7 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 			return nil, err
 		}
 	}
+	scriptInputBody := append([]byte(nil), rawBody...)
 
 	requestMode := strings.ToLower(strings.TrimSpace(a.route.Task.RequestMode))
 	if requestMode == "" {
@@ -160,9 +162,22 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 			return nil, err
 		}
 	}
-	a.submitScript, err = runTaskRequestScript(a.route.Task.RequestScript, taskScriptInput{
+	javaScriptInput := taskScriptInput{
+		Body:         scriptInputBody,
+		OriginalBody: scriptInputBody,
+		Headers:      c.Request.Header,
+	}
+	a.submitHeaders, err = runTaskHeadersJavaScript(a.route.Task.HeadersScript, javaScriptInput)
+	if err != nil {
+		return nil, fmt.Errorf("run submit headers script: %w", err)
+	}
+	legacyRequestScript := a.route.Task.RequestScript
+	if strings.TrimSpace(a.route.Task.HeadersScript) != "" || strings.TrimSpace(a.route.Task.BodyScript) != "" {
+		legacyRequestScript = ""
+	}
+	a.submitScript, err = runTaskRequestScript(legacyRequestScript, taskScriptInput{
 		Body:         rawBody,
-		OriginalBody: originalRawBody,
+		OriginalBody: scriptInputBody,
 		Headers:      c.Request.Header,
 		Query:        c.Request.URL.Query(),
 		Method:       a.route.Task.SubmitMethod,
@@ -175,6 +190,13 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	}
 	if a.submitScript.BodySet {
 		rawBody = a.submitScript.Body
+	}
+	javaScriptBody, bodySet, err := runTaskBodyJavaScript(a.route.Task.BodyScript, javaScriptInput)
+	if err != nil {
+		return nil, fmt.Errorf("run submit body script: %w", err)
+	}
+	if bodySet {
+		rawBody = javaScriptBody
 	}
 	return bytes.NewReader(rawBody), nil
 }
@@ -219,7 +241,11 @@ func (a *TaskAdaptor) DoResponse(c *gin.Context, resp *http.Response, info *rela
 		StatusMappingApplied: inspection.UpstreamStatus != "" && inspection.Status != "",
 		ErrorPathMatched:     inspection.ErrorPathMatched,
 	}
-	if inspection.UpstreamStatus != "" && len(a.route.Task.SubmitResponse.StatusMap) > 0 && inspection.Status == "" && strings.TrimSpace(a.route.Task.SubmitResponse.Script) == "" {
+	if inspection.UpstreamStatus != "" &&
+		len(a.route.Task.SubmitResponse.StatusMap) > 0 &&
+		inspection.Status == "" &&
+		strings.TrimSpace(a.route.Task.SubmitResponse.Script) == "" &&
+		strings.TrimSpace(a.route.Task.SubmitResponse.ResponseScript) == "" {
 		return "", responseBody, service.TaskErrorWrapper(
 			fmt.Errorf("unmapped upstream task status %q at path %s", inspection.UpstreamStatus, a.route.Task.SubmitResponse.StatusPath),
 			"invalid_response",
@@ -372,9 +398,34 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 	if err := synccustom.ApplyTaskRouteHeaders(req.Header, headers, auth, key, modelName, taskID); err != nil {
 		return nil, err
 	}
-	scriptResult, err := runTaskRequestScript(poll.RequestScript, taskScriptInput{
+	pollContextBody, err := common.Marshal(map[string]any{
+		"task_id":        taskID,
+		"public_task_id": publicTaskID,
+		"model":          modelName,
+	})
+	if err != nil {
+		return nil, err
+	}
+	javaScriptInput := taskScriptInput{
+		Body:         pollContextBody,
+		OriginalBody: pollContextBody,
+		Headers:      req.Header,
+	}
+	javaScriptHeaders, err := runTaskHeadersJavaScript(poll.HeadersScript, javaScriptInput)
+	if err != nil {
+		return nil, fmt.Errorf("run poll headers script: %w", err)
+	}
+	javaScriptBody, bodySet, err := runTaskBodyJavaScript(poll.BodyScript, javaScriptInput)
+	if err != nil {
+		return nil, fmt.Errorf("run poll body script: %w", err)
+	}
+	legacyRequestScript := poll.RequestScript
+	if strings.TrimSpace(poll.HeadersScript) != "" || strings.TrimSpace(poll.BodyScript) != "" {
+		legacyRequestScript = ""
+	}
+	scriptResult, err := runTaskRequestScript(legacyRequestScript, taskScriptInput{
 		Body:         requestBodyBytes,
-		OriginalBody: requestBodyBytes,
+		OriginalBody: pollContextBody,
 		Headers:      req.Header,
 		Query:        req.URL.Query(),
 		Method:       method,
@@ -390,16 +441,23 @@ func (a *TaskAdaptor) FetchTask(baseURL, key string, body map[string]any, proxy 
 		req.Method = scriptResult.Method
 	}
 	if scriptResult.BodySet {
-		req.Body = io.NopCloser(bytes.NewReader(scriptResult.Body))
-		req.ContentLength = int64(len(scriptResult.Body))
-		if len(scriptResult.Body) == 0 {
+		requestBodyBytes = scriptResult.Body
+	}
+	if bodySet {
+		requestBodyBytes = javaScriptBody
+	}
+	if bodySet || scriptResult.BodySet {
+		req.Body = io.NopCloser(bytes.NewReader(requestBodyBytes))
+		req.ContentLength = int64(len(requestBodyBytes))
+		if len(requestBodyBytes) == 0 {
 			req.Body = http.NoBody
 		}
-		if req.Header.Get("Content-Type") == "" && len(scriptResult.Body) > 0 {
+		if req.Header.Get("Content-Type") == "" && len(requestBodyBytes) > 0 {
 			req.Header.Set("Content-Type", "application/json")
 		}
 	}
 	applyTaskScriptHeaderOverrides(req.Header, scriptResult.Headers)
+	applyTaskScriptHeaderOverrides(req.Header, javaScriptHeaders)
 	if len(scriptResult.Query) > 0 {
 		query := req.URL.Query()
 		applyTaskScriptQueryOverrides(query, scriptResult.Query)
@@ -473,12 +531,26 @@ type configuredTaskResponseInspection struct {
 func inspectConfiguredTaskResponse(responseBody []byte, scriptInput taskScriptInput, mapping relaykitdto.AdvancedCustomTaskResponse) (configuredTaskResponseInspection, error) {
 	inspection := inspectLegacyConfiguredTaskResponse(responseBody, mapping)
 	scriptInput.Body = responseBody
-	scriptResult, err := runTaskResponseScript(mapping.Script, scriptInput)
+	legacyResponseScript := mapping.Script
+	if strings.TrimSpace(mapping.ResponseScript) != "" {
+		legacyResponseScript = ""
+	}
+	scriptResult, err := runTaskResponseScript(legacyResponseScript, scriptInput)
 	if err != nil {
 		return configuredTaskResponseInspection{}, fmt.Errorf("run response script: %w", err)
 	}
+	applyTaskResponseScriptResult(&inspection, scriptResult)
+	javaScriptResult, err := runTaskResponseJavaScript(mapping.ResponseScript, scriptInput)
+	if err != nil {
+		return configuredTaskResponseInspection{}, fmt.Errorf("run JavaScript response script: %w", err)
+	}
+	applyTaskResponseScriptResult(&inspection, javaScriptResult)
+	return inspection, nil
+}
+
+func applyTaskResponseScriptResult(inspection *configuredTaskResponseInspection, scriptResult *taskResponseScriptResult) {
 	if scriptResult == nil {
-		return inspection, nil
+		return
 	}
 	if scriptResult.TaskID != "" {
 		inspection.TaskID = strings.TrimSpace(scriptResult.TaskID)
@@ -501,7 +573,6 @@ func inspectConfiguredTaskResponse(responseBody []byte, scriptInput taskScriptIn
 	if scriptResult.ResultURL != "" {
 		inspection.ResultURL = strings.TrimSpace(scriptResult.ResultURL)
 	}
-	return inspection, nil
 }
 
 func inspectLegacyConfiguredTaskResponse(responseBody []byte, mapping relaykitdto.AdvancedCustomTaskResponse) configuredTaskResponseInspection {

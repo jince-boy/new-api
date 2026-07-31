@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 /* eslint-disable react-refresh/only-export-components */
 'use client'
 
+import { javascript } from '@codemirror/lang-javascript'
 import { markdown } from '@codemirror/lang-markdown'
 import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { EditorState, type Extension } from '@codemirror/state'
@@ -75,9 +76,11 @@ type CodeBlockEditorProps = Omit<
 > & {
   actions?: ReactNode
   ariaLabel: string
+  autoFocus?: boolean
   language: BundledLanguage | string
   onChange: (value: string) => void
   onKeyDown?: (event: globalThis.KeyboardEvent) => void
+  placeholder?: string
   rows?: number
   title?: ReactNode
   value: string
@@ -89,6 +92,7 @@ type CodeMirrorCodeViewProps = {
   language: BundledLanguage | string
   onChange?: (value: string) => void
   onKeyDown?: (event: globalThis.KeyboardEvent) => void
+  placeholder?: string
   readOnly?: boolean
   rows?: number
   showLineNumbers?: boolean
@@ -153,7 +157,7 @@ const codeMirrorTheme = EditorView.theme({
     fontFamily: 'var(--font-mono)',
     fontSize: '13px',
     lineHeight: '1.5rem',
-    padding: '1rem 1rem 1rem 0',
+    padding: '0',
   },
   '.cm-gutters:empty': {
     display: 'none',
@@ -215,6 +219,16 @@ function getRequestedCodeLanguage(language?: string) {
 
 function getCodeMirrorLanguageExtension(language: BundledLanguage | string) {
   const requestedLanguage = getRequestedCodeLanguage(language)
+
+  if (requestedLanguage === 'javascript' || requestedLanguage === 'jsx') {
+    return javascript({ jsx: requestedLanguage === 'jsx' })
+  }
+  if (requestedLanguage === 'typescript' || requestedLanguage === 'tsx') {
+    return javascript({
+      jsx: requestedLanguage === 'tsx',
+      typescript: true,
+    })
+  }
   if (
     requestedLanguage === 'markdown' ||
     requestedLanguage === 'md' ||
@@ -292,7 +306,6 @@ function getCodeMirrorExtensions(options: {
       })
     )
   }
-
   return extensions
 }
 
@@ -302,6 +315,7 @@ function CodeMirrorCodeView({
   language,
   onChange,
   onKeyDown,
+  placeholder,
   readOnly = false,
   rows = 8,
   showLineNumbers = true,
@@ -311,7 +325,12 @@ function CodeMirrorCodeView({
   const editorViewRef = useRef<EditorView | null>(null)
   const initialValueRef = useRef(value)
   const onChangeRef = useRef(onChange)
+  const suppressChangeRef = useRef(false)
+  const [isFocused, setIsFocused] = useState(false)
+  onChangeRef.current = onChange
   const editorMinHeight = `${Math.max(4, rows) * 1.5 + 2}rem`
+  const placeholderLines = placeholder?.split('\n') || []
+  const showPlaceholder = Boolean(placeholder && !value && !isFocused)
   const editorExtensions = useMemo(
     () =>
       getCodeMirrorExtensions({
@@ -324,10 +343,6 @@ function CodeMirrorCodeView({
   )
 
   useEffect(() => {
-    onChangeRef.current = onChange
-  }, [onChange])
-
-  useEffect(() => {
     const editorHost = editorHostRef.current
     if (!editorHost) {
       return
@@ -337,8 +352,18 @@ function CodeMirrorCodeView({
       doc: initialValueRef.current,
       extensions: [
         ...editorExtensions,
+        EditorView.domEventHandlers({
+          focus() {
+            setIsFocused(true)
+            return false
+          },
+          blur() {
+            setIsFocused(false)
+            return false
+          },
+        }),
         EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
+          if (update.docChanged && !suppressChangeRef.current) {
             onChangeRef.current?.(update.state.doc.toString())
           }
         }),
@@ -362,11 +387,11 @@ function CodeMirrorCodeView({
       return
     }
 
-    const currentValue = editorView.state.doc.toString()
-    if (currentValue === value) {
+    if (editorView.state.doc.toString() === value) {
       return
     }
 
+    suppressChangeRef.current = true
     editorView.dispatch({
       changes: {
         from: 0,
@@ -374,21 +399,47 @@ function CodeMirrorCodeView({
         insert: value,
       },
     })
+    suppressChangeRef.current = false
   }, [value])
 
   return (
     <div
-      aria-label={ariaLabel}
-      aria-readonly={readOnly}
-      className='min-h-(--code-editor-min-height)'
-      ref={editorHostRef}
-      role='textbox'
+      className={cn(
+        'relative min-h-(--code-editor-min-height)',
+        showPlaceholder && '[&_.cm-content]:opacity-0 [&_.cm-gutters]:opacity-0'
+      )}
       style={
         {
           '--code-editor-min-height': editorMinHeight,
         } as CSSProperties
       }
-    />
+    >
+      <div
+        aria-label={ariaLabel}
+        aria-placeholder={placeholder}
+        aria-readonly={readOnly}
+        className='min-h-(--code-editor-min-height)'
+        ref={editorHostRef}
+        role='textbox'
+      />
+      {showPlaceholder ? (
+        <div
+          aria-hidden='true'
+          className='text-muted-foreground pointer-events-none absolute inset-0 flex overflow-hidden font-mono text-[13px] leading-6 opacity-60'
+          data-code-placeholder='true'
+        >
+          <pre
+            className='m-0 w-10 shrink-0 py-4 pr-4 text-right font-mono leading-6 whitespace-pre'
+            data-code-placeholder-line-numbers='true'
+          >
+            {placeholderLines.map((_, index) => index + 1).join('\n')}
+          </pre>
+          <pre className='m-0 min-w-max flex-1 p-4 font-mono leading-6 whitespace-pre'>
+            {placeholder}
+          </pre>
+        </div>
+      ) : null}
+    </div>
   )
 }
 
@@ -570,10 +621,12 @@ export const CodeBlock = ({
 export const CodeBlockEditor = ({
   actions,
   ariaLabel,
+  autoFocus = true,
   className,
   language,
   onChange,
   onKeyDown,
+  placeholder,
   rows = 8,
   title,
   value,
@@ -590,10 +643,11 @@ export const CodeBlockEditor = ({
     >
       <CodeMirrorCodeView
         ariaLabel={ariaLabel}
-        autoFocus
+        autoFocus={autoFocus}
         language={language}
         onChange={onChange}
         onKeyDown={onKeyDown}
+        placeholder={placeholder}
         rows={rows}
         showLineNumbers
         value={value}

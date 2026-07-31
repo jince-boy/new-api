@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/relaykit/routeexpr"
+	"github.com/QuantumNous/new-api/relaykit/routejs"
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
 
@@ -149,6 +150,8 @@ type AdvancedCustomTask struct {
 	SubmitMethod   string                      `json:"submit_method,omitempty"`
 	RequestMode    string                      `json:"request_mode,omitempty"`
 	BodyTemplate   json.RawMessage             `json:"body_template,omitempty"`
+	HeadersScript  string                      `json:"headers_script,omitempty"`
+	BodyScript     string                      `json:"body_script,omitempty"`
 	RequestScript  string                      `json:"request_script,omitempty"`
 	SubmitResponse AdvancedCustomTaskResponse  `json:"submit_response"`
 	Poll           AdvancedCustomTaskPoll      `json:"poll"`
@@ -161,6 +164,8 @@ type AdvancedCustomTaskPoll struct {
 	Auth          *AdvancedCustomRouteAuth   `json:"auth,omitempty"`
 	Headers       map[string]string          `json:"headers,omitempty"`
 	BodyTemplate  json.RawMessage            `json:"body_template,omitempty"`
+	HeadersScript string                     `json:"headers_script,omitempty"`
+	BodyScript    string                     `json:"body_script,omitempty"`
 	RequestScript string                     `json:"request_script,omitempty"`
 	Response      AdvancedCustomTaskResponse `json:"response"`
 }
@@ -186,6 +191,7 @@ type AdvancedCustomTaskResponse struct {
 	ErrorCodePath       string            `json:"error_code_path,omitempty"`
 	ErrorMessageMap     map[string]string `json:"error_message_map,omitempty"`
 	DefaultErrorMessage string            `json:"default_error_message,omitempty"`
+	ResponseScript      string            `json:"response_script,omitempty"`
 	Script              string            `json:"script,omitempty"`
 }
 
@@ -576,10 +582,24 @@ func validateAdvancedCustomTask(index int, task *AdvancedCustomTask) error {
 	if err := validateAdvancedCustomRouteExpression(index, "task.request_script", task.RequestScript); err != nil {
 		return err
 	}
-	if strings.TrimSpace(task.SubmitResponse.TaskIDPath) == "" && strings.TrimSpace(task.SubmitResponse.Script) == "" {
+	if err := validateAdvancedCustomRouteJavaScript(index, "task.headers_script", task.HeadersScript, "header", "body"); err != nil {
+		return err
+	}
+	if err := validateAdvancedCustomRouteJavaScript(index, "task.body_script", task.BodyScript, "header", "body"); err != nil {
+		return err
+	}
+	if strings.TrimSpace(task.BodyScript) != "" && len(task.BodyTemplate) > 0 {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.body_script cannot be combined with body_template", index)
+	}
+	if strings.TrimSpace(task.SubmitResponse.TaskIDPath) == "" &&
+		strings.TrimSpace(task.SubmitResponse.Script) == "" &&
+		strings.TrimSpace(task.SubmitResponse.ResponseScript) == "" {
 		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.submit_response.task_id_path is required when no response script is configured", index)
 	}
 	if err := validateAdvancedCustomRouteExpression(index, "task.submit_response.script", task.SubmitResponse.Script); err != nil {
+		return err
+	}
+	if err := validateAdvancedCustomRouteJavaScript(index, "task.submit_response.response_script", task.SubmitResponse.ResponseScript, "row_response"); err != nil {
 		return err
 	}
 	if err := validateAdvancedCustomTaskStatusMap(index, "task.submit_response.status_map", task.SubmitResponse.StatusMap); err != nil {
@@ -615,6 +635,15 @@ func validateAdvancedCustomTask(index int, task *AdvancedCustomTask) error {
 	if err := validateAdvancedCustomRouteExpression(index, "task.poll.request_script", task.Poll.RequestScript); err != nil {
 		return err
 	}
+	if err := validateAdvancedCustomRouteJavaScript(index, "task.poll.headers_script", task.Poll.HeadersScript, "header", "body"); err != nil {
+		return err
+	}
+	if err := validateAdvancedCustomRouteJavaScript(index, "task.poll.body_script", task.Poll.BodyScript, "header", "body"); err != nil {
+		return err
+	}
+	if strings.TrimSpace(task.Poll.BodyScript) != "" && len(task.Poll.BodyTemplate) > 0 {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.body_script cannot be combined with body_template", index)
+	}
 	if err := validateAdvancedCustomRouteAuth(index, task.Poll.Auth); err != nil {
 		return err
 	}
@@ -634,7 +663,10 @@ func validateAdvancedCustomTask(index int, task *AdvancedCustomTask) error {
 	if err := validateAdvancedCustomRouteExpression(index, "task.poll.response.script", response.Script); err != nil {
 		return err
 	}
-	if strings.TrimSpace(response.Script) == "" {
+	if err := validateAdvancedCustomRouteJavaScript(index, "task.poll.response.response_script", response.ResponseScript, "row_response"); err != nil {
+		return err
+	}
+	if strings.TrimSpace(response.Script) == "" && strings.TrimSpace(response.ResponseScript) == "" {
 		if strings.TrimSpace(response.StatusPath) == "" {
 			return fmt.Errorf("advanced_custom.advanced_routes[%d].task.poll.response.status_path is required when no response script is configured", index)
 		}
@@ -687,6 +719,13 @@ func validateAdvancedCustomTaskErrorMessages(index int, field string, response A
 
 func validateAdvancedCustomRouteExpression(index int, field string, source string) error {
 	if err := routeexpr.Validate(source); err != nil {
+		return fmt.Errorf("advanced_custom.advanced_routes[%d].%s is invalid: %w", index, field, err)
+	}
+	return nil
+}
+
+func validateAdvancedCustomRouteJavaScript(index int, field string, source string, parameterNames ...string) error {
+	if err := routejs.ValidateFunction(source, parameterNames...); err != nil {
 		return fmt.Errorf("advanced_custom.advanced_routes[%d].%s is invalid: %w", index, field, err)
 	}
 	return nil

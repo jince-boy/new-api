@@ -63,8 +63,7 @@ await i18n.use(initReactI18next).init({
     en: { translation: {} },
     zh: {
       translation: {
-        'JSON template': 'JSON 模板',
-        'Pass through': '原样透传',
+        'Submit headers code': '提交请求头代码',
       },
     },
   },
@@ -85,7 +84,8 @@ type RenderedEditor = {
 
 async function renderEditor(
   route: AdvancedCustomRoute,
-  language = 'en'
+  language = 'en',
+  onChange: (patch: Partial<AdvancedCustomRoute>) => void = noop
 ): Promise<RenderedEditor> {
   await i18n.changeLanguage(language)
   const container = document.createElement('div')
@@ -95,7 +95,7 @@ async function renderEditor(
   await act(async () => {
     root.render(
       <I18nextProvider i18n={i18n}>
-        <AdvancedCustomTaskEditor route={route} onChange={noop} />
+        <AdvancedCustomTaskEditor route={route} onChange={onChange} />
       </I18nextProvider>
     )
   })
@@ -172,36 +172,132 @@ describe('advanced custom protocol editor layout', () => {
     await unmountEditor(rendered)
   })
 
-  test('shows the translated request mapping value in a Chinese async editor', async () => {
+  test('shows translated code fields in a Chinese async editor', async () => {
     const task = createAdvancedCustomTask()
-    task.request_mode = 'template'
     const rendered = await renderEditor({ ...baseRoute(), task }, 'zh')
-    const selectedValues = new Set(
-      [
-        ...rendered.container.querySelectorAll('[data-slot="select-value"]'),
-      ].map((element) => element.textContent?.trim())
-    )
+    const visibleText = rendered.container.textContent || ''
 
-    assert.equal(selectedValues.has('JSON 模板'), true)
-    assert.equal(selectedValues.has('JSON template'), false)
+    assert.equal(visibleText.includes('提交请求头代码'), true)
+    assert.equal(visibleText.includes('Submit headers code'), false)
 
     await unmountEditor(rendered)
   })
 
-  test('lists request, task, and authentication variables by async field', async () => {
+  test('documents the two request variables and row_response result contracts', async () => {
     const task = createAdvancedCustomTask()
-    task.request_mode = 'template'
     const rendered = await renderEditor({ ...baseRoute(), task })
     const visibleText = rendered.container.textContent || ''
 
-    assert.equal(visibleText.includes('{request.<path>}'), true)
-    assert.equal(visibleText.includes('{public_task_id}'), true)
-    assert.equal(visibleText.includes('{task_id}'), true)
-    assert.equal(visibleText.includes('{api_key}'), true)
-    assert.equal(visibleText.includes('Submit request expression'), true)
-    assert.equal(visibleText.includes('Submit response expression'), true)
-    assert.equal(visibleText.includes('Poll request expression'), true)
-    assert.equal(visibleText.includes('Poll response expression'), true)
+    assert.equal(visibleText.includes('Submit headers code'), true)
+    assert.equal(visibleText.includes('Submit body code'), true)
+    assert.equal(visibleText.includes('Poll headers code'), true)
+    assert.equal(visibleText.includes('Poll body code'), true)
+    assert.equal(
+      visibleText.includes('The only variables are header and body.'),
+      true
+    )
+    assert.equal(visibleText.includes('row_response'), true)
+    assert.equal(visibleText.includes('task_id is required'), true)
+    assert.equal(visibleText.includes('result_url is required'), true)
+    assert.equal(visibleText.includes('Submit request expression'), false)
+
+    await unmountEditor(rendered)
+  })
+
+  test('syntax-highlights JavaScript and TypeScript code', async () => {
+    const task = createAdvancedCustomTask()
+    task.headers_script = `const token: string = header.key\nreturn { token }`
+    const rendered = await renderEditor({ ...baseRoute(), task })
+    const highlightedTokens = rendered.container.querySelectorAll(
+      '.cm-content span[class]'
+    )
+
+    assert.equal(highlightedTokens.length > 0, true)
+
+    await unmountEditor(rendered)
+  })
+
+  test('renders multiline placeholders with matching line numbers without saving them', async () => {
+    let changeCount = 0
+    const rendered = await renderEditor(
+      {
+        ...baseRoute(),
+        task: createAdvancedCustomTask(),
+      },
+      'en',
+      () => {
+        changeCount += 1
+      }
+    )
+    const editor = rendered.container.querySelector(
+      '[role="textbox"][aria-label="Poll response code"]'
+    )
+
+    assert.ok(editor)
+    const placeholder = editor.parentElement?.querySelector(
+      '[data-code-placeholder="true"]'
+    )
+    const placeholderLineNumbers =
+      placeholder?.querySelector('[data-code-placeholder-line-numbers="true"]')
+        ?.textContent || ''
+    const placeholderCode = placeholder?.querySelector('pre')?.textContent || ''
+
+    assert.ok(placeholder)
+    assert.equal(editor.querySelectorAll('.cm-line').length, 1)
+    assert.equal(
+      placeholderLineNumbers.split('\n').length,
+      placeholderCode.split('\n').length
+    )
+
+    const content = editor.querySelector<HTMLElement>('.cm-content')
+    assert.ok(content)
+    await act(async () => content.focus())
+
+    assert.equal(
+      editor.parentElement?.querySelector('[data-code-placeholder="true"]'),
+      null
+    )
+    assert.equal(changeCount, 0)
+
+    await unmountEditor(rendered)
+  })
+
+  test('aligns entered code line numbers and offers pass-through actions', async () => {
+    const task = createAdvancedCustomTask()
+    task.submit_response.response_script = '第一行\n第二行'
+    const patches: Partial<AdvancedCustomRoute>[] = []
+    const rendered = await renderEditor(
+      { ...baseRoute(), task },
+      'en',
+      (patch) => patches.push(patch)
+    )
+    const editor = rendered.container.querySelector(
+      '[role="textbox"][aria-label="Submit response code"]'
+    )
+    const passThroughButtons = [
+      ...rendered.container.querySelectorAll('button'),
+    ].filter(
+      (button) =>
+        button.textContent?.trim() === 'Pass through' &&
+        !button.matches('[data-slot="select-trigger"]')
+    )
+    const lineNumbers = [
+      ...(editor?.querySelectorAll(
+        '.cm-lineNumbers .cm-gutterElement:not([style*="visibility: hidden"])'
+      ) || []),
+    ].filter((element) => /^\d+$/.test(element.textContent || ''))
+    const gutters = editor?.querySelector<HTMLElement>('.cm-gutters')
+
+    assert.ok(editor)
+    assert.ok(gutters)
+    assert.equal(editor.querySelectorAll('.cm-line').length, 2)
+    assert.equal(lineNumbers.length, 2)
+    assert.equal(getComputedStyle(gutters).paddingTop, '0px')
+    assert.equal(passThroughButtons.length, 4)
+    await act(async () => passThroughButtons[0].click())
+    assert.equal(patches.at(-1)?.task?.headers_script, 'return header')
+    await act(async () => passThroughButtons[1].click())
+    assert.equal(patches.at(-1)?.task?.body_script, 'return body')
 
     await unmountEditor(rendered)
   })

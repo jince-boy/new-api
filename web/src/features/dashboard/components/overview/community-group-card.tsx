@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
-import { ArrowRight, LockKeyhole, QrCode } from 'lucide-react'
+import { ArrowRight, QrCode } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -169,10 +169,6 @@ export function CommunityGroupCardContent(
           {qrCodeContent}
         </div>
         <div className='flex max-w-sm flex-col items-center gap-1.5 text-center'>
-          <p className='text-muted-foreground flex items-center gap-1.5 text-xs'>
-            <LockKeyhole className='size-3.5' aria-hidden='true' />
-            {t('Only signed-in users can view this QR code.')}
-          </p>
           {expirationText ? (
             <p className='text-muted-foreground text-xs'>{expirationText}</p>
           ) : null}

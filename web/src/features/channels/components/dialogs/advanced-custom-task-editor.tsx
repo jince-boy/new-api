@@ -26,6 +26,7 @@ import { HugeiconsIcon } from '@hugeicons/react'
 import { type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { CodeBlockEditor } from '@/components/ai-elements/code-block'
 import {
   Accordion,
   AccordionContent,
@@ -61,7 +62,6 @@ import type {
   AdvancedCustomRouteAuth,
   AdvancedCustomTask,
   AdvancedCustomTaskMethod,
-  AdvancedCustomTaskRequestMode,
   AdvancedCustomTaskResponse,
 } from '../../types'
 import { AdvancedCustomTemplateHelp } from './advanced-custom-template-help'
@@ -273,123 +273,51 @@ export function AdvancedCustomTaskEditor(props: AdvancedCustomTaskEditorProps) {
         )}
       >
         <TaskSubheading>{t('Request sent upstream')}</TaskSubheading>
-        <AdvancedCustomTemplateHelp scope='submit' />
-        <div className='grid gap-3 md:grid-cols-2'>
-          <TaskField label={t('HTTP method')}>
-            <MethodSelect
-              value={task.submit_method || 'POST'}
-              onChange={(value) => updateTask({ submit_method: value })}
-            />
-          </TaskField>
-          <TaskField label={t('Request mapping')}>
-            <Select
-              value={task.request_mode || 'passthrough'}
-              onValueChange={(value) => {
-                const requestMode = value as AdvancedCustomTaskRequestMode
-                updateTask({
-                  request_mode: requestMode,
-                  body_template:
-                    requestMode === 'template'
-                      ? task.body_template || {
-                          model: '{model}',
-                          prompt: '{request.prompt}',
-                        }
-                      : undefined,
-                })
-              }}
-            >
-              <SelectTrigger className='w-full'>
-                <SelectValue>
-                  {t(
-                    (task.request_mode || 'passthrough') === 'template'
-                      ? 'JSON template'
-                      : 'Pass through'
-                  )}
-                </SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value='passthrough'>
-                    {t('Pass through')}
-                  </SelectItem>
-                  <SelectItem value='template'>{t('JSON template')}</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
-          </TaskField>
-        </div>
-        {task.request_mode === 'template' ? (
-          <JsonTextarea
-            label={t('Submit body template')}
-            value={task.body_template}
-            placeholder='{"prompt":"{request.prompt}","duration":"{request.seconds}"}'
-            onChange={(value) => updateTask({ body_template: value })}
+        <TaskField label={t('HTTP method')}>
+          <MethodSelect
+            value={task.submit_method || 'POST'}
+            onChange={(value) => updateTask({ submit_method: value })}
           />
-        ) : null}
-        <JsonTextarea
-          label={t('Submit headers')}
-          value={props.route.headers}
-          objectOnly
-          optional
-          placeholder='{"X-Provider-Version":"2026-01-01"}'
+        </TaskField>
+        <ScriptEditor
+          label={t('Submit headers code')}
+          passThroughVariable='header'
+          value={task.headers_script}
+          placeholder='return header'
           onChange={(value) =>
-            props.onChange({
-              headers: value as Record<string, string> | undefined,
+            updateTask({ headers_script: value, request_script: undefined })
+          }
+        />
+        <ScriptEditor
+          label={t('Submit body code')}
+          passThroughVariable='body'
+          value={task.body_script}
+          placeholder='return body'
+          onChange={(value) =>
+            updateTask({
+              body_script: value,
+              body_template: undefined,
+              request_mode: 'passthrough',
+              request_script: undefined,
             })
           }
         />
-        <ExpressionScriptTextarea
-          label={t('Submit request expression')}
-          value={task.request_script}
-          placeholder='{"body":{"prompt":body.prompt,"model":model},"headers":{"X-Region":header("X-Region")},"query":{"mode":"fast"}}'
-          onChange={(value) => updateTask({ request_script: value })}
-        />
-        <RequestExpressionHelp />
+        <RequestScriptHelp />
         <Separator />
         <TaskSubheading>{t('Values read from submit response')}</TaskSubheading>
-        <div className='grid gap-3 md:grid-cols-2'>
-          <PathInput
-            label={t('Task ID path')}
-            value={task.submit_response.task_id_path}
-            placeholder='data.task_id'
-            onChange={(value) => updateSubmitResponse({ task_id_path: value })}
-          />
-          <PathInput
-            label={t('Initial status path')}
-            value={task.submit_response.status_path}
-            placeholder='data.status'
-            onChange={(value) => updateSubmitResponse({ status_path: value })}
-          />
-          <PathInput
-            label={t('Error message path')}
-            value={task.submit_response.error_path}
-            placeholder='error.message'
-            onChange={(value) => updateSubmitResponse({ error_path: value })}
-          />
-        </div>
-        <JsonTextarea
-          label={t('Status map')}
-          value={task.submit_response.status_map}
-          objectOnly
-          optional
-          placeholder='{"submitted":"SUBMITTED","failed":"FAILURE"}'
+        <ScriptEditor
+          label={t('Submit response code')}
+          value={task.submit_response.response_script}
+          placeholder={`const data = row_response.body?.data
+return {
+  task_id: data?.task_id,
+  status: 'SUBMITTED',
+}`}
           onChange={(value) =>
-            updateSubmitResponse({
-              status_map: value as AdvancedCustomTaskResponse['status_map'],
-            })
+            updateSubmitResponse({ response_script: value, script: undefined })
           }
         />
-        <SafeErrorMessageFields
-          response={task.submit_response}
-          onChange={updateSubmitResponse}
-        />
-        <ExpressionScriptTextarea
-          label={t('Submit response expression')}
-          value={task.submit_response.script}
-          placeholder='raw_body contains "500063" ? {"status":"FAILURE","message":"Content was blocked."} : nil'
-          onChange={(value) => updateSubmitResponse({ script: value })}
-        />
-        <ResponseExpressionHelp />
+        <ResponseScriptHelp phase='submit' />
       </TaskSection>
 
       <TaskSection
@@ -400,7 +328,6 @@ export function AdvancedCustomTaskEditor(props: AdvancedCustomTaskEditorProps) {
         )}
       >
         <TaskSubheading>{t('Request sent while waiting')}</TaskSubheading>
-        <AdvancedCustomTemplateHelp scope='poll' />
         <div className='grid gap-3 md:grid-cols-[10rem_minmax(0,1fr)]'>
           <TaskField label={t('HTTP method')}>
             <MethodSelect
@@ -408,8 +335,6 @@ export function AdvancedCustomTaskEditor(props: AdvancedCustomTaskEditorProps) {
               onChange={(value) =>
                 updatePoll({
                   method: value,
-                  body_template:
-                    value === 'GET' ? undefined : task.poll.body_template,
                 })
               }
             />
@@ -421,96 +346,52 @@ export function AdvancedCustomTaskEditor(props: AdvancedCustomTaskEditorProps) {
             onChange={(value) => updatePoll({ upstream_path: value })}
           />
         </div>
-        {task.poll.method && task.poll.method !== 'GET' ? (
-          <JsonTextarea
-            label={t('Poll body template')}
-            value={task.poll.body_template}
-            optional
-            placeholder='{"task_id":"{task_id}"}'
-            onChange={(value) => updatePoll({ body_template: value })}
-          />
-        ) : null}
-        <div className='grid gap-3 md:grid-cols-2'>
-          <JsonTextarea
-            label={t('Poll auth')}
-            value={task.poll.auth}
-            objectOnly
-            optional
-            placeholder='{"type":"header","name":"Authorization","value":"Bearer {api_key}"}'
-            onChange={(value) =>
-              updatePoll({ auth: value as AdvancedCustomRouteAuth | undefined })
-            }
-          />
-          <JsonTextarea
-            label={t('Poll headers')}
-            value={task.poll.headers}
-            objectOnly
-            optional
-            placeholder='{"X-Task-ID":"{task_id}"}'
-            onChange={(value) =>
-              updatePoll({
-                headers: value as Record<string, string> | undefined,
-              })
-            }
-          />
-        </div>
-        <ExpressionScriptTextarea
-          label={t('Poll request expression')}
-          value={task.poll.request_script}
-          placeholder='{"headers":{"X-Task-ID":task_id},"query":{"task":task_id}}'
-          onChange={(value) => updatePoll({ request_script: value })}
-        />
-        <RequestExpressionHelp />
-        <Separator />
-        <TaskSubheading>{t('Values read from poll response')}</TaskSubheading>
-        <div className='grid gap-3 md:grid-cols-2'>
-          <PathInput
-            label={t('Status path')}
-            value={task.poll.response.status_path}
-            placeholder='data.status'
-            onChange={(value) => updatePollResponse({ status_path: value })}
-          />
-          <PathInput
-            label={t('Progress path')}
-            value={task.poll.response.progress_path}
-            placeholder='data.progress'
-            onChange={(value) => updatePollResponse({ progress_path: value })}
-          />
-          <PathInput
-            label={t('Result URL path')}
-            value={task.poll.response.result_url_path}
-            placeholder='data.url'
-            onChange={(value) => updatePollResponse({ result_url_path: value })}
-          />
-          <PathInput
-            label={t('Error message path')}
-            value={task.poll.response.error_path}
-            placeholder='data.error.message'
-            onChange={(value) => updatePollResponse({ error_path: value })}
-          />
-        </div>
-        <JsonTextarea
-          label={t('Status map')}
-          value={task.poll.response.status_map}
-          objectOnly
-          placeholder='{"pending":"QUEUED","running":"IN_PROGRESS","done":"SUCCESS","failed":"FAILURE"}'
+        <ScriptEditor
+          label={t('Poll headers code')}
+          passThroughVariable='header'
+          value={task.poll.headers_script}
+          placeholder='return header'
           onChange={(value) =>
-            updatePollResponse({
-              status_map: value as AdvancedCustomTaskResponse['status_map'],
+            updatePoll({ headers_script: value, request_script: undefined })
+          }
+        />
+        <ScriptEditor
+          label={t('Poll body code')}
+          passThroughVariable='body'
+          value={task.poll.body_script}
+          placeholder='return body'
+          onChange={(value) =>
+            updatePoll({
+              body_script: value,
+              body_template: undefined,
+              request_script: undefined,
             })
           }
         />
-        <SafeErrorMessageFields
-          response={task.poll.response}
-          onChange={updatePollResponse}
+        <RequestScriptHelp poll />
+        <Separator />
+        <TaskSubheading>{t('Values read from poll response')}</TaskSubheading>
+        <ScriptEditor
+          label={t('Poll response code')}
+          value={task.poll.response.response_script}
+          placeholder={`const data = row_response.body?.data
+const statusMap: Record<string, string> = {
+  pending: 'QUEUED',
+  running: 'IN_PROGRESS',
+  done: 'SUCCESS',
+  failed: 'FAILURE',
+}
+return {
+  status: statusMap[data?.status],
+  progress: data?.progress,
+  result_url: data?.url,
+  message: data?.error,
+}`}
+          onChange={(value) =>
+            updatePollResponse({ response_script: value, script: undefined })
+          }
         />
-        <ExpressionScriptTextarea
-          label={t('Poll response expression')}
-          value={task.poll.response.script}
-          placeholder='body.code == 0 ? {"status":body.status,"progress":body.progress,"result_url":body.url} : nil'
-          onChange={(value) => updatePollResponse({ script: value })}
-        />
-        <ResponseExpressionHelp />
+        <ResponseScriptHelp phase='poll' />
       </TaskSection>
 
       <TaskSection
@@ -723,99 +604,96 @@ function MethodSelect(props: {
   )
 }
 
-function SafeErrorMessageFields(props: {
-  response: AdvancedCustomTaskResponse
-  onChange: (patch: Partial<AdvancedCustomTaskResponse>) => void
+function ScriptEditor(props: {
+  label: string
+  passThroughVariable?: 'header' | 'body'
+  value?: string
+  placeholder: string
+  onChange: (value: string | undefined) => void
 }) {
+  const { t } = useTranslation()
+  const value = props.value || ''
+
+  return (
+    <TaskField label={props.label}>
+      <CodeBlockEditor
+        actions={
+          props.passThroughVariable ? (
+            <Button
+              onClick={() =>
+                props.onChange(`return ${props.passThroughVariable}`)
+              }
+              size='sm'
+              type='button'
+              variant='ghost'
+            >
+              {t('Pass through')}
+            </Button>
+          ) : undefined
+        }
+        ariaLabel={props.label}
+        autoFocus={false}
+        language='typescript'
+        onChange={(nextValue) => props.onChange(nextValue || undefined)}
+        placeholder={props.placeholder}
+        rows={7}
+        title={t('TypeScript / JavaScript')}
+        value={value}
+      />
+      {!value ? (
+        <p className='text-muted-foreground text-xs'>
+          {t('The sample is a placeholder and is not saved until you edit it.')}
+        </p>
+      ) : null}
+    </TaskField>
+  )
+}
+
+function RequestScriptHelp(props: { poll?: boolean }) {
   const { t } = useTranslation()
 
   return (
-    <div className='space-y-3 rounded-lg border p-3'>
-      <div>
-        <p className='text-sm font-medium'>{t('Safe business errors')}</p>
-        <p className='text-muted-foreground mt-1 text-xs'>
-          {t(
-            'Map business error codes to fixed safe messages. These messages take precedence over the upstream error message, and unknown codes use the default.'
-          )}
-        </p>
-      </div>
-      <PathInput
-        label={t('Business error code path')}
-        value={props.response.error_code_path}
-        placeholder='code'
-        onChange={(value) => props.onChange({ error_code_path: value })}
-      />
-      <JsonTextarea
-        label={t('Safe error message map')}
-        value={props.response.error_message_map}
-        objectOnly
-        optional
-        placeholder='{"-2000":"Invalid request parameters."}'
-        onChange={(value) =>
-          props.onChange({
-            error_message_map: value as Record<string, string> | undefined,
-          })
-        }
-      />
-      <TaskField label={t('Default safe error message')}>
-        <Input
-          value={props.response.default_error_message || ''}
-          placeholder={t(
-            'The request could not be processed. Please try again later.'
-          )}
-          onChange={(event) =>
-            props.onChange({ default_error_message: event.target.value })
-          }
-        />
-      </TaskField>
-      <p className='text-muted-foreground text-xs'>
+    <div className='bg-muted/30 space-y-1 rounded-lg border p-3 text-xs'>
+      <p className='font-medium'>{t('Request code contract')}</p>
+      <p className='text-muted-foreground'>
+        {props.poll
+          ? t(
+              'The only variables are header and body. For polling, body contains task_id, public_task_id, and model.'
+            )
+          : t(
+              'The only variables are header and body. They contain the client request headers and parsed JSON body.'
+            )}
+      </p>
+      <p className='text-muted-foreground'>
         {t(
-          'Use a response expression below when matching requires HTTP status, headers, nested fields, or text contained in a non-JSON response.'
+          'Header code must return an object whose values are strings, numbers, booleans, or null. Body code must return a JSON object.'
         )}
       </p>
     </div>
   )
 }
 
-function ExpressionScriptTextarea(props: {
-  label: string
-  value?: string
-  placeholder: string
-  onChange: (value: string | undefined) => void
-}) {
-  return (
-    <TaskField label={props.label}>
-      <Textarea
-        value={props.value || ''}
-        placeholder={props.placeholder}
-        className='min-h-28 font-mono text-xs'
-        onChange={(event) => props.onChange(event.target.value || undefined)}
-      />
-    </TaskField>
-  )
-}
-
-function RequestExpressionHelp() {
+function ResponseScriptHelp(props: { phase: 'submit' | 'poll' }) {
   const { t } = useTranslation()
 
   return (
-    <p className='text-muted-foreground text-xs'>
-      {t(
-        'Request expressions can read body, original_body, raw_body, headers, query, method, path, model, task_id and public_task_id. Return an object with optional body or raw_body, headers, query and method fields; null header or query values delete them.'
-      )}
-    </p>
-  )
-}
-
-function ResponseExpressionHelp() {
-  const { t } = useTranslation()
-
-  return (
-    <p className='text-muted-foreground text-xs'>
-      {t(
-        'Response expressions can also read http_status and response headers. Return nil when unmatched, or an object with task_id, upstream_status, status, message, progress or result_url. Expressions run before fixed paths and maps; only return an upstream message when you explicitly choose it.'
-      )}
-    </p>
+    <div className='bg-muted/30 space-y-1 rounded-lg border p-3 text-xs'>
+      <p className='font-medium'>{t('Response code contract')}</p>
+      <p className='text-muted-foreground'>
+        {t(
+          'The only variable is row_response: { status_code, header, body, raw_body }. body is parsed JSON when possible; header keys are lowercase.'
+        )}
+      </p>
+      <p className='text-muted-foreground'>
+        {props.phase === 'submit'
+          ? t(
+              'Return { task_id, status?, upstream_status?, message? }. task_id is required unless status is FAILURE.'
+            )
+          : t(
+              'Return { status, progress?, result_url?, message?, upstream_status? }. status must be SUBMITTED, QUEUED, IN_PROGRESS, SUCCESS, or FAILURE; result_url is required for SUCCESS.'
+            )}
+      </p>
+    </div>
   )
 }
 
