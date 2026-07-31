@@ -309,14 +309,25 @@ export interface TaskLog {
   platform: string // suno, kling, runway, etc.
   task_id: string
   action: string // MUSIC, LYRICS, GENERATE, TEXT_GENERATE, etc.
+  group?: string
   channel_id: number
+  quota?: number
   ip?: string
   submit_time: number // seconds
+  start_time?: number // seconds
   finish_time?: number // seconds
   progress?: string
   progress_message_en?: string
-  data?: string // JSON string
+  properties?:
+    | {
+        input?: string
+        upstream_model_name?: string
+        origin_model_name?: string
+      }
+    | string
+  data?: unknown
   fail_reason?: string
+  result_url?: string
   status: string // NOT_START, SUBMITTED, IN_PROGRESS, SUCCESS, FAILURE, QUEUED, UNKNOWN
   other?: string
   created_at?: number

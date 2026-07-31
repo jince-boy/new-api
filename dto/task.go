@@ -41,7 +41,7 @@ type TaskDto struct {
 	Quota      int             `json:"quota"`
 	Action     string          `json:"action"`
 	Status     string          `json:"status"`
-	FailReason string          `json:"fail_reason"`
+	FailReason string          `json:"fail_reason,omitempty"`
 	ResultURL  string          `json:"result_url,omitempty"` // 任务结果 URL（视频地址等）
 	SubmitTime int64           `json:"submit_time"`
 	StartTime  int64           `json:"start_time"`
@@ -49,7 +49,7 @@ type TaskDto struct {
 	Progress   string          `json:"progress"`
 	Properties any             `json:"properties"`
 	Username   string          `json:"username,omitempty"`
-	Data       json.RawMessage `json:"data"`
+	Data       json.RawMessage `json:"data,omitempty"`
 }
 
 type FetchReq struct {

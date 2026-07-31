@@ -60,7 +60,7 @@ describe('TaskDetailsCell', () => {
     domWindow.close()
   })
 
-  test('shows the protected preview link for successful video tasks without a legacy URL in fail_reason', async () => {
+  test('opens task details for a successful video without rendering a video link', async () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -68,6 +68,7 @@ describe('TaskDetailsCell', () => {
     await act(async () => {
       root.render(
         <TaskDetailsCell
+          isAdmin={false}
           log={{
             id: 1,
             user_id: 2,
@@ -76,27 +77,46 @@ describe('TaskDetailsCell', () => {
             action: 'generate',
             channel_id: 3,
             submit_time: 100,
+            finish_time: 105,
             progress: '100%',
             status: 'SUCCESS',
             fail_reason: '',
+            group: 'default',
+            quota: 1200,
+            properties: {
+              origin_model_name: 'video-public-model',
+              upstream_model_name: 'provider-secret-model',
+            },
+            data: { status: 'completed', resolution: '480p' },
           }}
         />
       )
     })
 
-    const link = container.querySelector('a')
-    assert.ok(link)
-    assert.equal(
-      link.getAttribute('href'),
-      '/v1/videos/task_public_video/content'
-    )
-    assert.match(link.textContent || '', /Click to preview video/)
+    const button = container.querySelector('button')
+    assert.ok(button)
+    assert.match(button.textContent || '', /View/)
+    assert.equal(container.querySelector('a'), null)
+
+    await act(async () => button.click())
+
+    const dialog = document.querySelector('[role="dialog"]')
+    assert.ok(dialog)
+    assert.match(dialog.textContent || '', /task_public_video/)
+    assert.match(dialog.textContent || '', /video-public-model/)
+    assert.match(dialog.textContent || '', /default/)
+    assert.match(dialog.textContent || '', /5s/)
+    assert.doesNotMatch(dialog.textContent || '', /provider-secret-model/)
+    assert.doesNotMatch(dialog.textContent || '', /480p/)
+    assert.doesNotMatch(dialog.textContent || '', /completed/)
+    assert.equal(dialog.querySelector('video'), null)
+    assert.equal(dialog.querySelector('a'), null)
 
     await act(async () => root.unmount())
     container.remove()
   })
 
-  test('shows the mapped failure reason for failed tasks', async () => {
+  test('hides failure and upstream details from ordinary users', async () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -104,6 +124,7 @@ describe('TaskDetailsCell', () => {
     await act(async () => {
       root.render(
         <TaskDetailsCell
+          isAdmin={false}
           log={{
             id: 2,
             user_id: 2,
@@ -116,19 +137,32 @@ describe('TaskDetailsCell', () => {
             progress: '100%',
             status: 'FAILURE',
             fail_reason: 'content rejected',
+            properties: {
+              origin_model_name: 'video-public-model',
+              upstream_model_name: 'provider-secret-model',
+            },
+            data: { provider_trace: 'private-trace' },
           }}
         />
       )
     })
 
-    assert.match(container.textContent || '', /content rejected/)
-    assert.ok(container.querySelector('button'))
+    const button = container.querySelector('button')
+    assert.ok(button)
+    await act(async () => button.click())
+
+    const dialog = document.querySelector('[role="dialog"]')
+    assert.ok(dialog)
+    assert.match(dialog.textContent || '', /video-public-model/)
+    assert.doesNotMatch(dialog.textContent || '', /content rejected/)
+    assert.doesNotMatch(dialog.textContent || '', /provider-secret-model/)
+    assert.doesNotMatch(dialog.textContent || '', /private-trace/)
 
     await act(async () => root.unmount())
     container.remove()
   })
 
-  test('shows a placeholder while a task has no result or failure reason', async () => {
+  test('keeps details available while a task is still running', async () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -136,6 +170,7 @@ describe('TaskDetailsCell', () => {
     await act(async () => {
       root.render(
         <TaskDetailsCell
+          isAdmin={false}
           log={{
             id: 3,
             user_id: 2,
@@ -152,9 +187,61 @@ describe('TaskDetailsCell', () => {
       )
     })
 
-    assert.equal((container.textContent || '').trim(), '-')
+    const button = container.querySelector('button')
+    assert.ok(button)
+    assert.match(button.textContent || '', /View/)
     assert.equal(container.querySelector('a'), null)
-    assert.equal(container.querySelector('button'), null)
+
+    await act(async () => button.click())
+    const dialog = document.querySelector('[role="dialog"]')
+    assert.ok(dialog)
+    assert.match(dialog.textContent || '', /task_running_video/)
+    assert.equal(dialog.querySelector('video'), null)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('keeps full task diagnostics available to administrators', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <TaskDetailsCell
+          isAdmin
+          log={{
+            id: 4,
+            user_id: 2,
+            username: 'admin-visible-user',
+            platform: 'advanced_custom',
+            task_id: 'task_admin_video',
+            action: 'textGenerate',
+            channel_id: 3,
+            submit_time: 100,
+            finish_time: 101,
+            status: 'FAILURE',
+            fail_reason: 'content rejected',
+            properties: {
+              origin_model_name: 'video-public-model',
+              upstream_model_name: 'provider-secret-model',
+            },
+            data: { provider_trace: 'private-trace' },
+          }}
+        />
+      )
+    })
+
+    const button = container.querySelector('button')
+    assert.ok(button)
+    await act(async () => button.click())
+
+    const dialog = document.querySelector('[role="dialog"]')
+    assert.ok(dialog)
+    assert.match(dialog.textContent || '', /provider-secret-model/)
+    assert.match(dialog.textContent || '', /content rejected/)
+    assert.match(dialog.textContent || '', /private-trace/)
 
     await act(async () => root.unmount())
     container.remove()

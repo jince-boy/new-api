@@ -63,7 +63,7 @@ func TestResolvePerSecondUnitPricePrefersResolutionNameOverFrameSize(t *testing.
 	assert.Equal(t, "720p premium", ruleName)
 }
 
-func TestResolvePerSecondUnitPriceReadsMultipartResolutionName(t *testing.T) {
+func TestResolvePerSecondUnitPriceReadsConfiguredMultipartFields(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	saved := map[string]string{}
 	require.NoError(t, config.GlobalConfig.SaveToDB(func(key, value string) error {
@@ -74,7 +74,7 @@ func TestResolvePerSecondUnitPriceReadsMultipartResolutionName(t *testing.T) {
 		require.NoError(t, config.GlobalConfig.LoadFromDB(saved))
 	})
 	require.NoError(t, config.GlobalConfig.LoadFromDB(map[string]string{
-		"billing_setting.per_second_rules": `{"video-model":[{"name":"480p","price":0.02,"conditions":[{"path":"resolution","operator":"eq","value":"480p"}]},{"name":"720p","price":0.04,"conditions":[{"path":"resolution","operator":"eq","value":"720p"}]}]}`,
+		"billing_setting.per_second_rules": `{"video-model":[{"name":"480p omni","price":0.02,"conditions":[{"path":"resolution","operator":"eq","value":"480p"},{"path":"functionMode","operator":"eq","value":"omni_reference"},{"path":"image_file_1","operator":"exists"}]},{"name":"720p","price":0.04,"conditions":[{"path":"resolution","operator":"eq","value":"720p"}]}]}`,
 	}))
 
 	var body bytes.Buffer
@@ -83,8 +83,9 @@ func TestResolvePerSecondUnitPriceReadsMultipartResolutionName(t *testing.T) {
 	require.NoError(t, writer.WriteField("prompt", "demo"))
 	require.NoError(t, writer.WriteField("seconds", "8"))
 	require.NoError(t, writer.WriteField("size", "1280x720"))
-	require.NoError(t, writer.WriteField("resolution_name", "720p"))
-	file, err := writer.CreateFormFile("input_reference[]", "reference.png")
+	require.NoError(t, writer.WriteField("resolution", "480p"))
+	require.NoError(t, writer.WriteField("functionMode", "omni_reference"))
+	file, err := writer.CreateFormFile("image_file_1", "reference.png")
 	require.NoError(t, err)
 	_, err = file.Write([]byte("reference image"))
 	require.NoError(t, err)
@@ -99,14 +100,14 @@ func TestResolvePerSecondUnitPriceReadsMultipartResolutionName(t *testing.T) {
 
 	storedRequest, err := GetTaskRequest(context)
 	require.NoError(t, err)
-	assert.Equal(t, "720p", storedRequest.ResolutionName)
+	assert.Empty(t, storedRequest.ResolutionName)
 
-	price, ruleName, configured, err := ResolvePerSecondUnitPrice(context, "video-model", 0.02)
+	price, ruleName, configured, err := ResolvePerSecondUnitPrice(context, "video-model", 0.04)
 
 	require.NoError(t, err)
 	require.True(t, configured)
-	assert.Equal(t, 0.04, price)
-	assert.Equal(t, "720p", ruleName)
+	assert.Equal(t, 0.02, price)
+	assert.Equal(t, "480p omni", ruleName)
 }
 
 func TestResolvePerSecondUnitPriceKeepsLegacySizeAlias(t *testing.T) {

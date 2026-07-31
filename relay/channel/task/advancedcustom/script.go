@@ -91,9 +91,13 @@ func isLegacyTaskPassThroughScript(source, variable string) bool {
 }
 
 func hasTaskJavaScriptRequestMapping(headersScript, bodyScript string) bool {
-	headersConfigured := strings.TrimSpace(headersScript) != "" && !isLegacyTaskPassThroughScript(headersScript, "header")
-	bodyConfigured := strings.TrimSpace(bodyScript) != "" && !isLegacyTaskPassThroughScript(bodyScript, "body")
+	headersConfigured := isTaskJavaScriptRequestMapping(headersScript, "header")
+	bodyConfigured := isTaskJavaScriptRequestMapping(bodyScript, "body")
 	return headersConfigured || bodyConfigured
+}
+
+func isTaskJavaScriptRequestMapping(source, variable string) bool {
+	return strings.TrimSpace(source) != "" && !isLegacyTaskPassThroughScript(source, variable)
 }
 
 func runTaskRequestScript(source string, input taskScriptInput) (taskRequestScriptResult, error) {

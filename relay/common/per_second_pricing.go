@@ -19,6 +19,8 @@ For commercial licensing, please contact support@quantumnous.com
 package common
 
 import (
+	"fmt"
+	"net/url"
 	"strings"
 
 	rootcommon "github.com/QuantumNous/new-api/common"
@@ -28,8 +30,9 @@ import (
 )
 
 // ResolvePerSecondUnitPrice applies the first matching conditional price rule.
-// Rules read the original JSON body first so advanced-custom pass-through
-// fields remain available, then fall back to the normalized task request.
+// Rules read fields from the original JSON, URL-encoded, or multipart request
+// without changing the body sent upstream, then fall back to the normalized
+// task request for protocol aliases.
 func ResolvePerSecondUnitPrice(c *gin.Context, modelName string, defaultPrice float64) (float64, string, bool, error) {
 	rules := billing_setting.GetPerSecondRules(modelName)
 	if len(rules) == 0 {
@@ -40,6 +43,33 @@ func ResolvePerSecondUnitPrice(c *gin.Context, modelName string, defaultPrice fl
 	if storage, err := rootcommon.GetBodyStorage(c); err == nil {
 		rawBody, _ = storage.Bytes()
 	}
+	jsonBody := gjson.ValidBytes(rawBody)
+
+	var formValues url.Values
+	contentType := strings.ToLower(c.GetHeader("Content-Type"))
+	switch {
+	case strings.Contains(contentType, "multipart/form-data"):
+		form, err := rootcommon.ParseMultipartFormReusable(c)
+		if err != nil {
+			return 0, "", true, fmt.Errorf("parse multipart per-second pricing fields: %w", err)
+		}
+		defer form.RemoveAll()
+		formValues = url.Values(form.Value)
+		for field, files := range form.File {
+			if _, exists := formValues[field]; exists {
+				continue
+			}
+			for _, file := range files {
+				formValues[field] = append(formValues[field], file.Filename)
+			}
+		}
+	case strings.Contains(contentType, "application/x-www-form-urlencoded"):
+		values, err := url.ParseQuery(string(rawBody))
+		if err != nil {
+			return 0, "", true, fmt.Errorf("parse form per-second pricing fields: %w", err)
+		}
+		formValues = values
+	}
 
 	var normalizedBody []byte
 	if request, err := GetTaskRequest(c); err == nil {
@@ -48,8 +78,13 @@ func ResolvePerSecondUnitPrice(c *gin.Context, modelName string, defaultPrice fl
 
 	price, ruleName, matched, err := billing_setting.MatchPerSecondRule(rules, func(path string) (any, bool) {
 		for _, candidate := range perSecondRuleCandidatePaths(path) {
-			if result := gjson.GetBytes(rawBody, candidate); result.Exists() {
-				return result.Value(), true
+			if jsonBody {
+				if result := gjson.GetBytes(rawBody, candidate); result.Exists() {
+					return result.Value(), true
+				}
+			}
+			if value, exists := perSecondFormValue(formValues, candidate); exists {
+				return value, true
 			}
 			if result := gjson.GetBytes(normalizedBody, candidate); result.Exists() {
 				return result.Value(), true
@@ -64,6 +99,26 @@ func ResolvePerSecondUnitPrice(c *gin.Context, modelName string, defaultPrice fl
 		return defaultPrice, "", true, nil
 	}
 	return price, ruleName, true, nil
+}
+
+func perSecondFormValue(values url.Values, path string) (any, bool) {
+	if len(values) == 0 {
+		return nil, false
+	}
+	if fieldValues, exists := values[path]; exists && len(fieldValues) > 0 {
+		return fieldValues[0], true
+	}
+
+	root, nestedPath, nested := strings.Cut(path, ".")
+	if !nested {
+		return nil, false
+	}
+	for _, value := range values[root] {
+		if result := gjson.Get(value, nestedPath); result.Exists() {
+			return result.Value(), true
+		}
+	}
+	return nil, false
 }
 
 func perSecondRuleCandidatePaths(path string) []string {

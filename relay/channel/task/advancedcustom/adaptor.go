@@ -31,16 +31,17 @@ var taskTemplatePlaceholder = regexp.MustCompile(`\{(model|request(?:\.[^{}]+)?|
 
 type TaskAdaptor struct {
 	taskcommon.BaseBilling
-	config        *relaykitdto.AdvancedCustomConfig
-	route         relaykitdto.AdvancedCustomRoute
-	routeMatched  bool
-	baseURL       string
-	apiKey        string
-	submitScript  taskRequestScriptResult
-	submitHeaders map[string]*string
-	pollModel     string
-	pollTaskID    string
-	pollPublicID  string
+	config            *relaykitdto.AdvancedCustomConfig
+	route             relaykitdto.AdvancedCustomRoute
+	routeMatched      bool
+	baseURL           string
+	apiKey            string
+	submitScript      taskRequestScriptResult
+	submitHeaders     map[string]*string
+	submitContentType string
+	pollModel         string
+	pollTaskID        string
+	pollPublicID      string
 }
 
 func (a *TaskAdaptor) Init(info *relaycommon.RelayInfo) {
@@ -93,7 +94,11 @@ func (a *TaskAdaptor) BuildRequestURL(info *relaycommon.RelayInfo) (string, erro
 func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, &req.Header)
 	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
+	contentType := a.submitContentType
+	if contentType == "" {
+		contentType = "application/json"
+	}
+	req.Header.Set("Content-Type", contentType)
 	if err := synccustom.ApplyTaskRouteHeaders(req.Header, a.route.Headers, a.route.Auth, a.apiKey, info.UpstreamModelName, ""); err != nil {
 		return err
 	}
@@ -103,6 +108,10 @@ func (a *TaskAdaptor) BuildRequestHeader(c *gin.Context, req *http.Request, info
 }
 
 func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayInfo) (io.Reader, error) {
+	a.submitScript = taskRequestScriptResult{}
+	a.submitHeaders = nil
+	a.submitContentType = ""
+
 	storage, err := common.GetBodyStorage(c)
 	if err != nil {
 		return nil, err
@@ -115,7 +124,48 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if info.TaskRelayInfo != nil {
 		publicTaskID = info.PublicTaskID
 	}
-	if strings.Contains(strings.ToLower(c.GetHeader("Content-Type")), "multipart/form-data") {
+	isMultipart := strings.Contains(strings.ToLower(c.GetHeader("Content-Type")), "multipart/form-data")
+	requestMode := strings.ToLower(strings.TrimSpace(a.route.Task.RequestMode))
+	if requestMode == "" {
+		requestMode = relaykitdto.AdvancedCustomTaskRequestModePassthrough
+	}
+	if isMultipart &&
+		requestMode == relaykitdto.AdvancedCustomTaskRequestModePassthrough &&
+		!isTaskJavaScriptRequestMapping(a.route.Task.BodyScript, "body") &&
+		strings.TrimSpace(a.route.Task.RequestScript) == "" {
+		var fields map[string]any
+		if decodeErr := common.UnmarshalBodyReusable(c, &fields); decodeErr != nil {
+			return nil, fmt.Errorf("read pass-through multipart fields: %w", decodeErr)
+		}
+		multipartBody := rawBody
+		multipartContentType := c.GetHeader("Content-Type")
+		if incomingModel, _ := fields["model"].(string); strings.TrimSpace(incomingModel) != info.UpstreamModelName {
+			payload, rebuildErr := taskcommon.RebuildMultipartForm(c, map[string][]string{
+				"model": {info.UpstreamModelName},
+			})
+			if rebuildErr != nil {
+				return nil, fmt.Errorf("rebuild pass-through multipart request: %w", rebuildErr)
+			}
+			multipartBody = payload.Body
+			multipartContentType = payload.ContentType
+			fields = payload.Values
+		}
+		scriptBody, marshalErr := common.Marshal(fields)
+		if marshalErr != nil {
+			return nil, fmt.Errorf("encode multipart script input: %w", marshalErr)
+		}
+		a.submitHeaders, err = runTaskHeadersJavaScript(a.route.Task.HeadersScript, taskScriptInput{
+			Body:         scriptBody,
+			OriginalBody: scriptBody,
+			Headers:      c.Request.Header,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("run submit headers script: %w", err)
+		}
+		a.submitContentType = multipartContentType
+		return bytes.NewReader(multipartBody), nil
+	}
+	if isMultipart {
 		taskRequest, taskRequestErr := relaycommon.GetTaskRequest(c)
 		if taskRequestErr != nil {
 			return nil, taskRequestErr
@@ -127,10 +177,6 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	}
 	scriptInputBody := append([]byte(nil), rawBody...)
 
-	requestMode := strings.ToLower(strings.TrimSpace(a.route.Task.RequestMode))
-	if requestMode == "" {
-		requestMode = relaykitdto.AdvancedCustomTaskRequestModePassthrough
-	}
 	if requestMode == relaykitdto.AdvancedCustomTaskRequestModePassthrough {
 		var body any
 		if err := common.Unmarshal(rawBody, &body); err != nil {
@@ -171,7 +217,6 @@ func (a *TaskAdaptor) BuildRequestBody(c *gin.Context, info *relaycommon.RelayIn
 	if err != nil {
 		return nil, fmt.Errorf("run submit headers script: %w", err)
 	}
-	a.submitScript = taskRequestScriptResult{}
 	if !hasTaskJavaScriptRequestMapping(a.route.Task.HeadersScript, a.route.Task.BodyScript) {
 		a.submitScript, err = runTaskRequestScript(a.route.Task.RequestScript, taskScriptInput{
 			Body:         rawBody,

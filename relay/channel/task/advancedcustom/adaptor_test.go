@@ -1,9 +1,14 @@
 package advancedcustom
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"strings"
 	"testing"
 
@@ -66,6 +71,149 @@ func TestPassThroughSubmissionPreservesDimensioFieldsAndMapsModel(t *testing.T) 
 	encoded, err := io.ReadAll(body)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"model":"seedance-2.0","prompt":"cinematic tracking shot","ratio":"16:9","resolution":"720p","duration":5,"functionMode":"first_last_frames","file_paths":["https://example.com/frame.png"]}`, string(encoded))
+}
+
+func TestMultipartPassThroughPreservesAllFieldsAndFiles(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	pngContent, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	require.NoError(t, err)
+	var requestBody bytes.Buffer
+	writer := multipart.NewWriter(&requestBody)
+	require.NoError(t, writer.WriteField("model", "client-video"))
+	require.NoError(t, writer.WriteField("prompt", "reference @image_file_1 and @image_file_2"))
+	require.NoError(t, writer.WriteField("ratio", "16:9"))
+	require.NoError(t, writer.WriteField("resolution", "480p"))
+	require.NoError(t, writer.WriteField("duration", "5"))
+	require.NoError(t, writer.WriteField("functionMode", "omni_reference"))
+	fileHeader := textproto.MIMEHeader{
+		"Content-Disposition": {`form-data; name="image_file_1"; filename="first.png"`},
+		"Content-Type":        {"image/png"},
+		"X-Upload-Marker":     {"preserve-me"},
+	}
+	firstImage, err := writer.CreatePart(fileHeader)
+	require.NoError(t, err)
+	_, err = firstImage.Write(pngContent)
+	require.NoError(t, err)
+	secondImage, err := writer.CreatePart(textproto.MIMEHeader{
+		"Content-Disposition": {`form-data; name="image_file_2"; filename="second.png"`},
+		"Content-Type":        {"image/png"},
+	})
+	require.NoError(t, err)
+	_, err = secondImage.Write(pngContent)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	originalContentType := writer.FormDataContentType()
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos", &requestBody)
+	request.Header.Set("Content-Type", originalContentType)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = request
+	var validatedRequest relaycommon.TaskSubmitReq
+	require.NoError(t, common.UnmarshalBodyReusable(context, &validatedRequest))
+
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			RequestMode:   relaykitdto.AdvancedCustomTaskRequestModePassthrough,
+			HeadersScript: `return { "X-Resolution": body.resolution }`,
+			BodyScript:    `return body`,
+		}},
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "seedance-2.0"},
+	}
+
+	body, err := adaptor.BuildRequestBody(context, info)
+	require.NoError(t, err)
+	upstreamRequest := httptest.NewRequest(http.MethodPost, "https://provider.example/submit", body)
+	require.NoError(t, adaptor.BuildRequestHeader(context, upstreamRequest, info))
+	assert.Equal(t, originalContentType, upstreamRequest.Header.Get("Content-Type"))
+	assert.Equal(t, "480p", upstreamRequest.Header.Get("X-Resolution"))
+	require.NoError(t, upstreamRequest.ParseMultipartForm(32<<20))
+	t.Cleanup(func() {
+		if upstreamRequest.MultipartForm != nil {
+			_ = upstreamRequest.MultipartForm.RemoveAll()
+		}
+	})
+
+	assert.Equal(t, "seedance-2.0", upstreamRequest.FormValue("model"))
+	assert.Equal(t, "reference @image_file_1 and @image_file_2", upstreamRequest.FormValue("prompt"))
+	assert.Equal(t, "16:9", upstreamRequest.FormValue("ratio"))
+	assert.Equal(t, "480p", upstreamRequest.FormValue("resolution"))
+	assert.Equal(t, "5", upstreamRequest.FormValue("duration"))
+	assert.Equal(t, "omni_reference", upstreamRequest.FormValue("functionMode"))
+
+	firstFiles := upstreamRequest.MultipartForm.File["image_file_1"]
+	require.Len(t, firstFiles, 1)
+	assert.Equal(t, "image/png", firstFiles[0].Header.Get("Content-Type"))
+	assert.Equal(t, "preserve-me", firstFiles[0].Header.Get("X-Upload-Marker"))
+	assert.Equal(t, fileHeader.Get("Content-Disposition"), firstFiles[0].Header.Get("Content-Disposition"))
+	first, err := firstFiles[0].Open()
+	require.NoError(t, err)
+	firstContent, err := io.ReadAll(first)
+	require.NoError(t, err)
+	require.NoError(t, first.Close())
+	assert.Equal(t, sha256.Sum256(pngContent), sha256.Sum256(firstContent))
+
+	secondFiles := upstreamRequest.MultipartForm.File["image_file_2"]
+	require.Len(t, secondFiles, 1)
+	assert.Equal(t, "image/png", secondFiles[0].Header.Get("Content-Type"))
+	second, err := secondFiles[0].Open()
+	require.NoError(t, err)
+	secondContent, err := io.ReadAll(second)
+	require.NoError(t, err)
+	require.NoError(t, second.Close())
+	assert.Equal(t, sha256.Sum256(pngContent), sha256.Sum256(secondContent))
+}
+
+func TestMultipartPassThroughWithSameModelPreservesWireBodyExactly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	pngContent, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	require.NoError(t, err)
+
+	var requestBody bytes.Buffer
+	writer := multipart.NewWriter(&requestBody)
+	require.NoError(t, writer.SetBoundary("new-api-byte-preservation-boundary"))
+	require.NoError(t, writer.WriteField("model", "seedance-2.0"))
+	require.NoError(t, writer.WriteField("resolution", "480p"))
+	image, err := writer.CreatePart(textproto.MIMEHeader{
+		"Content-Disposition": {`form-data; name="image_file_1"; filename="source.png"`},
+		"Content-Type":        {"image/png"},
+		"X-Upload-Marker":     {"unchanged"},
+	})
+	require.NoError(t, err)
+	_, err = image.Write(pngContent)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	originalBody := bytes.Clone(requestBody.Bytes())
+	originalContentType := writer.FormDataContentType()
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/videos", bytes.NewReader(originalBody))
+	request.Header.Set("Content-Type", originalContentType)
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	context.Request = request
+	var validatedRequest relaycommon.TaskSubmitReq
+	require.NoError(t, common.UnmarshalBodyReusable(context, &validatedRequest))
+
+	adaptor := &TaskAdaptor{
+		routeMatched: true,
+		route: relaykitdto.AdvancedCustomRoute{Task: &relaykitdto.AdvancedCustomTask{
+			RequestMode:   relaykitdto.AdvancedCustomTaskRequestModePassthrough,
+			HeadersScript: `return header`,
+			BodyScript:    `return body`,
+		}},
+	}
+	info := &relaycommon.RelayInfo{
+		ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: "seedance-2.0"},
+	}
+
+	body, err := adaptor.BuildRequestBody(context, info)
+	require.NoError(t, err)
+	forwardedBody, err := io.ReadAll(body)
+	require.NoError(t, err)
+	assert.Equal(t, originalContentType, adaptor.submitContentType)
+	assert.Equal(t, sha256.Sum256(originalBody), sha256.Sum256(forwardedBody))
+	assert.Equal(t, originalBody, forwardedBody)
 }
 
 func TestFetchTaskUsesConfiguredMethodHeadersBodyAndResponseMapping(t *testing.T) {
