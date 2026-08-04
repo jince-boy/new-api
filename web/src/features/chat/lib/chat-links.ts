@@ -17,11 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { API_KEY_STATUS } from '@/features/keys/constants'
-import {
-  FALLBACK_DEFAULT_API_KEY_PURPOSES,
-  type DefaultApiKeyPurpose,
-  type DefaultApiKeyPurposeDefinition,
-} from '@/features/keys/api'
 
 export type ChatLinkType = 'web' | 'custom-protocol' | 'fluent'
 
@@ -47,8 +42,6 @@ export type RawChatConfig =
 export type ResolveChatUrlParams = {
   template: string
   apiKey?: string
-  apiKeys?: Partial<Record<DefaultApiKeyPurpose, string>>
-  purposeDefinitions?: DefaultApiKeyPurposeDefinition[]
   serverAddress: string
   theme?: string
 }
@@ -99,16 +92,7 @@ export function detectChatLinkType(url: string): ChatLinkType {
 }
 
 export function chatLinkRequiresApiKey(url: string): boolean {
-  return chatLinkRequiredApiKeyPurposes(url).length > 0
-}
-
-export function chatLinkRequiredApiKeyPurposes(
-  url: string,
-  purposeDefinitions: DefaultApiKeyPurposeDefinition[] = FALLBACK_DEFAULT_API_KEY_PURPOSES
-): DefaultApiKeyPurpose[] {
-  const purposes = new Set<DefaultApiKeyPurpose>()
-
-  if (
+  return (
     url.includes('{key}') ||
     url.includes('{{key}}') ||
     url.includes('{cherryConfig}') ||
@@ -117,17 +101,7 @@ export function chatLinkRequiredApiKeyPurposes(
     url.includes('{{aionuiConfig}}') ||
     url.includes('{deepchatConfig}') ||
     url.includes('{{deepchatConfig}}')
-  ) {
-    purposes.add('chat')
-  }
-
-  for (const { purpose, token } of purposeDefinitions) {
-    if (url.includes(`{${token}}`) || url.includes(`{{${token}}}`)) {
-      purposes.add(purpose)
-    }
-  }
-
-  return [...purposes]
+  )
 }
 
 export function parseChatPresetValue(value: unknown): ParsedChatEntry | null {
@@ -202,10 +176,7 @@ export function normalizeChatConfigForStorage(
       }
 
       return {
-        [name]: serializeChatPresetValue(
-          parsedEntry.url,
-          parsedEntry.enabled
-        ),
+        [name]: serializeChatPresetValue(parsedEntry.url, parsedEntry.enabled),
       }
     })
     .filter((item): item is Record<string, string> => item !== null)
@@ -292,27 +263,20 @@ function normalizeTheme(theme: string | undefined): string {
 export function resolveChatUrl({
   template,
   apiKey,
-  apiKeys,
-  purposeDefinitions = FALLBACK_DEFAULT_API_KEY_PURPOSES,
   serverAddress,
   theme,
 }: ResolveChatUrlParams): string {
   let url = template
   const safeServerAddress = serverAddress || ''
 
-  const safeChatApiKey = normalizeApiKey(apiKeys?.chat || apiKey || '')
-  const safeApiKeys: Partial<Record<DefaultApiKeyPurpose, string>> = {}
-  for (const { purpose } of purposeDefinitions) {
-    safeApiKeys[purpose] = normalizeApiKey(apiKeys?.[purpose] || '')
-  }
-  safeApiKeys.chat = safeChatApiKey
+  const safeApiKey = normalizeApiKey(apiKey || '')
   const safeTheme = normalizeTheme(theme)
 
   if (url.includes('{cherryConfig}')) {
     const payload = {
       id: 'new-api',
       baseUrl: safeServerAddress,
-      apiKey: safeChatApiKey,
+      apiKey: safeApiKey,
     }
     const encoded = encodeURIComponent(toBase64(JSON.stringify(payload)))
     url = replaceTemplateVariable(url, 'cherryConfig', encoded)
@@ -322,7 +286,7 @@ export function resolveChatUrl({
     const payload = {
       platform: 'new-api',
       baseUrl: safeServerAddress,
-      apiKey: safeChatApiKey,
+      apiKey: safeApiKey,
     }
     const encoded = encodeURIComponent(toBase64(JSON.stringify(payload)))
     url = replaceTemplateVariable(url, 'aionuiConfig', encoded)
@@ -332,7 +296,7 @@ export function resolveChatUrl({
     const payload = {
       id: 'new-api',
       baseUrl: safeServerAddress,
-      apiKey: safeChatApiKey,
+      apiKey: safeApiKey,
     }
     const encoded = encodeURIComponent(toBase64(JSON.stringify(payload)))
     url = replaceTemplateVariable(url, 'deepchatConfig', encoded)
@@ -343,15 +307,8 @@ export function resolveChatUrl({
     url = replaceTemplateVariable(url, 'address', encodedAddress)
   }
 
-  if (safeChatApiKey) {
-    url = replaceTemplateVariable(url, 'key', safeChatApiKey)
-  }
-
-  for (const { purpose, token } of purposeDefinitions) {
-    const safeKey = safeApiKeys[purpose]
-    if (safeKey) {
-      url = replaceTemplateVariable(url, token, safeKey)
-    }
+  if (safeApiKey) {
+    url = replaceTemplateVariable(url, 'key', safeApiKey)
   }
 
   if (safeTheme) {

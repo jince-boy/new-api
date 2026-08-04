@@ -7,31 +7,113 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
 	"github.com/gin-gonic/gin"
 )
 
-func buildMaskedTokenResponse(token *model.Token) *model.Token {
+type tokenAutoGroupsInput struct {
+	Set    bool
+	Groups []string
+}
+
+func (input *tokenAutoGroupsInput) UnmarshalJSON(data []byte) error {
+	input.Set = true
+	if strings.TrimSpace(string(data)) == "null" {
+		input.Groups = nil
+		return nil
+	}
+	return common.Unmarshal(data, &input.Groups)
+}
+
+type tokenRequest struct {
+	model.Token
+	AutoGroups tokenAutoGroupsInput `json:"auto_groups"`
+}
+
+type tokenResponse struct {
+	*model.Token
+	AutoGroups []string `json:"auto_groups"`
+}
+
+func buildMaskedTokenResponse(token *model.Token) *tokenResponse {
 	if token == nil {
 		return nil
 	}
 	maskedToken := *token
 	maskedToken.Key = token.GetMaskedKey()
-	if maskedToken.DefaultPurposes == nil {
-		maskedToken.DefaultPurposes = []string{}
+	autoGroups, err := token.GetAutoGroups()
+	if err != nil {
+		common.SysError(fmt.Sprintf("failed to parse auto groups for token %d: %v", token.Id, err))
+		autoGroups = nil
 	}
-	return &maskedToken
+	if len(autoGroups) == 0 {
+		autoGroups = nil
+	}
+	return &tokenResponse{Token: &maskedToken, AutoGroups: autoGroups}
 }
 
-func buildMaskedTokenResponses(tokens []*model.Token) []*model.Token {
-	maskedTokens := make([]*model.Token, 0, len(tokens))
+func buildMaskedTokenResponses(tokens []*model.Token) []*tokenResponse {
+	maskedTokens := make([]*tokenResponse, 0, len(tokens))
 	for _, token := range tokens {
 		maskedTokens = append(maskedTokens, buildMaskedTokenResponse(token))
 	}
 	return maskedTokens
+}
+
+func getTokenRequestUserGroup(c *gin.Context) (string, error) {
+	if userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup); userGroup != "" {
+		return userGroup, nil
+	}
+	if userGroup := c.GetString("group"); userGroup != "" {
+		return userGroup, nil
+	}
+	return model.GetUserGroup(c.GetInt("id"), false)
+}
+
+func setTokenAutoGroups(c *gin.Context, token *model.Token, groups []string) bool {
+	if len(groups) == 0 {
+		if err := token.SetAutoGroups(nil); err != nil {
+			common.ApiError(c, err)
+			return false
+		}
+		return true
+	}
+
+	maxCount := setting.GetMaxTokenAutoGroups()
+	if len(groups) > maxCount {
+		common.ApiErrorI18n(c, i18n.MsgTokenAutoGroupsTooMany, map[string]any{"Max": maxCount})
+		return false
+	}
+
+	userGroup, err := getTokenRequestUserGroup(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return false
+	}
+	seen := make(map[string]struct{}, len(groups))
+	for _, group := range groups {
+		if _, ok := seen[group]; ok {
+			common.ApiErrorI18n(c, i18n.MsgTokenAutoGroupsDuplicate, map[string]any{"Group": group})
+			return false
+		}
+		seen[group] = struct{}{}
+		if !service.IsUserSelectableGroup(userGroup, group) {
+			common.ApiErrorI18n(c, i18n.MsgTokenAutoGroupsInvalid, map[string]any{"Group": group})
+			return false
+		}
+	}
+
+	if err := token.SetAutoGroups(groups); err != nil {
+		common.ApiError(c, err)
+		return false
+	}
+	return true
 }
 
 func GetAllTokens(c *gin.Context) {
@@ -39,10 +121,6 @@ func GetAllTokens(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
 	tokens, err := model.GetAllUserTokens(userId, pageInfo.GetStartIdx(), pageInfo.GetPageSize())
 	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if err := model.AttachDefaultPurposes(userId, tokens); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -64,10 +142,6 @@ func SearchTokens(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.AttachDefaultPurposes(userId, tokens); err != nil {
-		common.ApiError(c, err)
-		return
-	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(buildMaskedTokenResponses(tokens))
 	common.ApiSuccess(c, pageInfo)
@@ -85,11 +159,19 @@ func GetToken(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.AttachDefaultPurposes(userId, []*model.Token{token}); err != nil {
+	common.ApiSuccess(c, buildMaskedTokenResponse(token))
+}
+
+func GetTokenAutoGroups(c *gin.Context) {
+	userGroup, err := getTokenRequestUserGroup(c)
+	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	common.ApiSuccess(c, buildMaskedTokenResponse(token))
+	common.ApiSuccess(c, gin.H{
+		"groups":    service.GetUserAutoGroup(userGroup),
+		"max_count": setting.GetMaxTokenAutoGroups(),
+	})
 }
 
 func GetTokenKey(c *gin.Context) {
@@ -106,66 +188,6 @@ func GetTokenKey(c *gin.Context) {
 	}
 	common.ApiSuccess(c, gin.H{
 		"key": token.GetFullKey(),
-	})
-}
-
-func SetDefaultChatToken(c *gin.Context) {
-	setDefaultToken(c, model.TokenDefaultPurposeChat)
-}
-
-func SetDefaultToken(c *gin.Context) {
-	setDefaultToken(c, c.Param("purpose"))
-}
-
-func setDefaultToken(c *gin.Context, purpose string) {
-	id, err := strconv.Atoi(c.Param("id"))
-	userId := c.GetInt("id")
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	token, err := model.SetDefaultToken(userId, id, purpose)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if err := model.AttachDefaultPurposes(userId, []*model.Token{token}); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	common.ApiSuccess(c, buildMaskedTokenResponse(token))
-}
-
-func GetDefaultChatTokenKey(c *gin.Context) {
-	getDefaultTokenKey(c, model.TokenDefaultPurposeChat)
-}
-
-func GetDefaultTokenKey(c *gin.Context) {
-	getDefaultTokenKey(c, c.Param("purpose"))
-}
-
-func GetDefaultTokenKeyPurposes(c *gin.Context) {
-	common.ApiSuccess(c, model.GetTokenDefaultPurposeDefinitions())
-}
-
-func getDefaultTokenKey(c *gin.Context, purpose string) {
-	userId := c.GetInt("id")
-	purpose, err := model.NormalizeTokenDefaultPurpose(purpose)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	token, err := model.GetDefaultToken(userId, purpose)
-	if err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	common.ApiSuccess(c, gin.H{
-		"id":               token.Id,
-		"purpose":          purpose,
-		"default_chat":     token.DefaultChat || purpose == model.TokenDefaultPurposeChat,
-		"default_purposes": token.DefaultPurposes,
-		"key":              token.GetFullKey(),
 	})
 }
 
@@ -240,12 +262,13 @@ func GetTokenUsage(c *gin.Context) {
 }
 
 func AddToken(c *gin.Context) {
-	token := model.Token{}
-	err := c.ShouldBindJSON(&token)
+	request := tokenRequest{}
+	err := c.ShouldBindJSON(&request)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
+	token := request.Token
 	if len(token.Name) > 50 {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
@@ -276,6 +299,14 @@ func AddToken(c *gin.Context) {
 		})
 		return
 	}
+	if token.Group == "auto" {
+		if !setTokenAutoGroups(c, &token, request.AutoGroups.Groups) {
+			return
+		}
+	} else {
+		token.CrossGroupRetry = false
+		_ = token.SetAutoGroups(nil)
+	}
 	key, err := common.GenerateKey()
 	if err != nil {
 		common.ApiErrorI18n(c, i18n.MsgTokenGenerateFailed)
@@ -296,6 +327,7 @@ func AddToken(c *gin.Context) {
 		AllowIps:           token.AllowIps,
 		Group:              token.Group,
 		CrossGroupRetry:    token.CrossGroupRetry,
+		AutoGroups:         token.AutoGroups,
 	}
 	err = cleanToken.Insert()
 	if err != nil {
@@ -325,12 +357,13 @@ func DeleteToken(c *gin.Context) {
 func UpdateToken(c *gin.Context) {
 	userId := c.GetInt("id")
 	statusOnly := c.Query("status_only")
-	token := model.Token{}
-	err := c.ShouldBindJSON(&token)
+	request := tokenRequest{}
+	err := c.ShouldBindJSON(&request)
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
+	token := request.Token
 	if len(token.Name) > 50 {
 		common.ApiErrorI18n(c, i18n.MsgTokenNameTooLong)
 		return
@@ -361,13 +394,8 @@ func UpdateToken(c *gin.Context) {
 			return
 		}
 	}
-	shouldClearDefaultPurposes := false
 	if statusOnly != "" {
 		cleanToken.Status = token.Status
-		if token.Status != common.TokenStatusEnabled {
-			cleanToken.DefaultChat = false
-			shouldClearDefaultPurposes = true
-		}
 	} else {
 		// If you add more fields, please also update token.Update()
 		cleanToken.Name = token.Name
@@ -379,17 +407,19 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.AllowIps = token.AllowIps
 		cleanToken.Group = token.Group
 		cleanToken.CrossGroupRetry = token.CrossGroupRetry
+		if token.Group != "auto" {
+			cleanToken.CrossGroupRetry = false
+			_ = cleanToken.SetAutoGroups(nil)
+		} else if request.AutoGroups.Set {
+			if !setTokenAutoGroups(c, cleanToken, request.AutoGroups.Groups) {
+				return
+			}
+		}
 	}
 	err = cleanToken.Update()
 	if err != nil {
 		common.ApiError(c, err)
 		return
-	}
-	if shouldClearDefaultPurposes {
-		if err := model.DeleteTokenDefaultsForToken(cleanToken.Id); err != nil {
-			common.ApiError(c, err)
-			return
-		}
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,

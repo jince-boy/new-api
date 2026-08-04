@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Row } from '@tanstack/react-table'
 import {
   Trash2,
@@ -28,7 +27,6 @@ import {
   Copy,
   Link,
   Loader2,
-  Star,
 } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -51,22 +49,12 @@ import {
 } from '@/components/ui/tooltip'
 import { useTheme } from '@/context/theme-provider'
 import { useChatPresets } from '@/features/chat/hooks/use-chat-presets'
-import {
-  chatLinkRequiredApiKeyPurposes,
-  resolveChatUrl,
-  type ChatPreset,
-} from '@/features/chat/lib/chat-links'
+import { resolveChatUrl, type ChatPreset } from '@/features/chat/lib/chat-links'
 import { sendToFluent } from '@/features/chat/lib/send-to-fluent'
 import { encodeChannelConnectionInfo } from '@/lib/channel-connection-info'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 
-import {
-  setDefaultApiKey,
-  updateApiKeyStatus,
-  fetchDefaultApiKeyPurposes,
-  FALLBACK_DEFAULT_API_KEY_PURPOSES,
-  type DefaultApiKeyPurpose,
-} from '../api'
+import { updateApiKeyStatus } from '../api'
 import { API_KEY_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } from '../constants'
 import { apiKeySchema } from '../types'
 import { useApiKeys } from './api-keys-provider'
@@ -92,7 +80,6 @@ export function DataTableRowActions<TData>({
   row,
 }: DataTableRowActionsProps<TData>) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const apiKey = apiKeySchema.parse(row.original)
   const {
     setOpen,
@@ -106,19 +93,8 @@ export function DataTableRowActions<TData>({
   const isEnabled = apiKey.status === API_KEY_STATUS.ENABLED
   const { chatPresets, serverAddress } = useChatPresets()
   const [isTogglingStatus, setIsTogglingStatus] = useState(false)
-  const [settingDefaultPurpose, setSettingDefaultPurpose] =
-    useState<DefaultApiKeyPurpose | null>(null)
-  const { data: purposeResponse } = useQuery({
-    queryKey: ['default-api-key-purposes'],
-    queryFn: fetchDefaultApiKeyPurposes,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-  })
   const resolvedRealKey = resolvedKeys[apiKey.id]
   const isRealKeyLoading = Boolean(loadingKeys[apiKey.id])
-  const defaultApiKeyPurposes = purposeResponse?.success
-    ? purposeResponse.data || FALLBACK_DEFAULT_API_KEY_PURPOSES
-    : FALLBACK_DEFAULT_API_KEY_PURPOSES
 
   const hasChatPresets = chatPresets.length > 0
   const toggleLabel = isEnabled ? t('Disable') : t('Enable')
@@ -159,18 +135,9 @@ export function DataTableRowActions<TData>({
         return
       }
 
-      const presetApiKeys = Object.fromEntries(
-        chatLinkRequiredApiKeyPurposes(preset.url, defaultApiKeyPurposes).map((purpose) => [
-          purpose,
-          realKey,
-        ])
-      ) as Partial<Record<DefaultApiKeyPurpose, string>>
-
       const resolvedUrl = resolveChatUrl({
         template: preset.url,
         apiKey: realKey,
-        apiKeys: presetApiKeys,
-        purposeDefinitions: defaultApiKeyPurposes,
         serverAddress,
         theme: resolvedTheme,
       })
@@ -188,7 +155,7 @@ export function DataTableRowActions<TData>({
         window.location.href = resolvedUrl
       }
     },
-    [resolveRealKey, apiKey.id, defaultApiKeyPurposes, serverAddress, resolvedTheme, t]
+    [resolveRealKey, apiKey.id, serverAddress, resolvedTheme, t]
   )
 
   const handleToggleStatus = async (
@@ -217,33 +184,6 @@ export function DataTableRowActions<TData>({
       setIsTogglingStatus(false)
     }
   }
-
-  const handleSetDefaultKey = async (purpose: DefaultApiKeyPurpose) => {
-    setSettingDefaultPurpose(purpose)
-    try {
-      const result = await setDefaultApiKey(apiKey.id, purpose)
-      if (result.success) {
-        toast.success(`${t('Default')} ${t('API Key')} ${t('Updated')}`)
-        triggerRefresh()
-        void queryClient.invalidateQueries({
-          queryKey: ['active-api-key', purpose],
-        })
-        if (purpose === 'chat') {
-          void queryClient.invalidateQueries({ queryKey: ['chat-active-key'] })
-        }
-      } else {
-        toast.error(result.message || t('Failed to update API key'))
-      }
-    } catch {
-      toast.error(t(ERROR_MESSAGES.UNEXPECTED))
-    } finally {
-      setSettingDefaultPurpose(null)
-    }
-  }
-
-  const isDefaultPurpose = (purpose: DefaultApiKeyPurpose) =>
-    apiKey.default_purposes.includes(purpose) ||
-    (purpose === 'chat' && apiKey.default_chat)
 
   let statusIcon = <Power className='size-4' />
   if (isTogglingStatus) {
@@ -346,36 +286,6 @@ export function DataTableRowActions<TData>({
             <ArrowRightLeft size={16} />
           </DropdownMenuShortcut>
         </DropdownMenuItem>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger disabled={!isEnabled}>
-            {t('Default')} {t('API Key')}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            {defaultApiKeyPurposes.map((purpose) => {
-              const isDefault = isDefaultPurpose(purpose.purpose)
-              const isSetting = settingDefaultPurpose === purpose.purpose
-              return (
-                <DropdownMenuItem
-                  key={purpose.purpose}
-                  disabled={!isEnabled || isDefault || isSetting}
-                  onClick={() => handleSetDefaultKey(purpose.purpose)}
-                >
-                  {t(purpose.label)}
-                  <DropdownMenuShortcut>
-                    {isSetting ? (
-                      <Loader2 size={16} className='animate-spin' />
-                    ) : (
-                      <Star
-                        size={16}
-                        className={isDefault ? 'fill-current' : undefined}
-                      />
-                    )}
-                  </DropdownMenuShortcut>
-                </DropdownMenuItem>
-              )
-            })}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
         {hasChatPresets && (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>{t('Chat')}</DropdownMenuSubTrigger>

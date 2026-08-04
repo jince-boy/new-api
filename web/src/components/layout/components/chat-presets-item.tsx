@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Link, useLocation } from '@tanstack/react-router'
-import { useQuery } from '@tanstack/react-query'
 import { ExternalLink, Loader2, ChevronRight } from 'lucide-react'
 import { useMemo, useCallback, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -43,18 +42,13 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { useTheme } from '@/context/theme-provider'
-import { fetchActiveApiKey } from '@/features/chat/hooks/use-active-chat-key'
+import { fetchActiveChatKey } from '@/features/chat/hooks/use-active-chat-key'
 import { useChatPresets } from '@/features/chat/hooks/use-chat-presets'
 import {
-  chatLinkRequiredApiKeyPurposes,
+  chatLinkRequiresApiKey,
   resolveChatUrl,
   type ChatPreset,
 } from '@/features/chat/lib/chat-links'
-import {
-  FALLBACK_DEFAULT_API_KEY_PURPOSES,
-  fetchDefaultApiKeyPurposes,
-  type DefaultApiKeyPurpose,
-} from '@/features/keys/api'
 
 import { normalizeHref } from '../lib/url-utils'
 import type { NavChatPresets } from '../types'
@@ -169,15 +163,6 @@ export function ChatPresetsItem({ item }: { item: NavChatPresets }) {
   const href = useLocation({ select: (location) => location.href })
   const [loadingPresetId, setLoadingPresetId] = useState<string | null>(null)
   const loadingPresetIdRef = useRef<string | null>(null)
-  const { data: purposeResponse } = useQuery({
-    queryKey: ['default-api-key-purposes'],
-    queryFn: fetchDefaultApiKeyPurposes,
-    staleTime: 5 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-  })
-  const defaultApiKeyPurposes = purposeResponse?.success
-    ? purposeResponse.data || FALLBACK_DEFAULT_API_KEY_PURPOSES
-    : FALLBACK_DEFAULT_API_KEY_PURPOSES
 
   const visiblePresets = useMemo(
     () => chatPresets.filter((preset) => preset.type !== 'fluent'),
@@ -188,12 +173,8 @@ export function ChatPresetsItem({ item }: { item: NavChatPresets }) {
     async (preset: ChatPreset) => {
       if (preset.type === 'web') return
 
-      const requiredPurposes = chatLinkRequiredApiKeyPurposes(
-        preset.url,
-        defaultApiKeyPurposes
-      )
-      const needsKey = requiredPurposes.length > 0
-      let activeKeys: Partial<Record<DefaultApiKeyPurpose, string>> | undefined
+      const needsKey = chatLinkRequiresApiKey(preset.url)
+      let activeKey: string | undefined
 
       if (needsKey && loadingPresetIdRef.current) {
         toast.info(t('Preparing your chat link, please try again in a moment.'))
@@ -204,17 +185,7 @@ export function ChatPresetsItem({ item }: { item: NavChatPresets }) {
         loadingPresetIdRef.current = preset.id
         setLoadingPresetId(preset.id)
         try {
-          const entries = await Promise.all(
-            requiredPurposes.map(
-              async (purpose): Promise<[DefaultApiKeyPurpose, string]> => [
-                purpose,
-                await fetchActiveApiKey(purpose),
-              ]
-            )
-          )
-          activeKeys = Object.fromEntries(entries) as Partial<
-            Record<DefaultApiKeyPurpose, string>
-          >
+          activeKey = await fetchActiveChatKey()
         } catch (error) {
           const message =
             error instanceof Error
@@ -232,8 +203,7 @@ export function ChatPresetsItem({ item }: { item: NavChatPresets }) {
 
       const url = resolveChatUrl({
         template: preset.url,
-        apiKeys: needsKey ? activeKeys : undefined,
-        purposeDefinitions: defaultApiKeyPurposes,
+        apiKey: needsKey ? activeKey : undefined,
         serverAddress,
         theme: resolvedTheme,
       })
@@ -248,7 +218,7 @@ export function ChatPresetsItem({ item }: { item: NavChatPresets }) {
       window.open(url, '_blank', 'noopener')
       setOpenMobile(false)
     },
-    [defaultApiKeyPurposes, resolvedTheme, serverAddress, setOpenMobile, t]
+    [resolvedTheme, serverAddress, setOpenMobile, t]
   )
 
   const normalizedHref = normalizeHref(href)

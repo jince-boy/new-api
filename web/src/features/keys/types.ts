@@ -34,11 +34,7 @@ export const apiKeySchema = z.object({
   created_time: z.number(),
   accessed_time: z.number(),
   group: z.string().nullish().default(''),
-  default_chat: z.boolean().optional().default(false),
-  default_purposes: z
-    .array(z.string())
-    .nullish()
-    .transform((value) => value ?? []),
+  auto_groups: z.array(z.string()).nullish().default(null),
   cross_group_retry: z
     .preprocess((v) => {
       if (v === 1) return true
@@ -53,6 +49,11 @@ export const apiKeySchema = z.object({
 })
 
 export type ApiKey = z.infer<typeof apiKeySchema>
+
+export interface ApiKeyUsage {
+  today: { quota: number }
+  last_30_days: { quota: number }
+}
 
 // ============================================================================
 // API Request/Response Types
@@ -96,7 +97,13 @@ export interface ApiKeyFormData {
   model_limits: string
   allow_ips: string
   group: string
+  auto_groups: string[]
   cross_group_retry: boolean
+}
+
+export interface TokenAutoGroupsConfig {
+  groups: string[]
+  max_count: number
 }
 
 // ============================================================================

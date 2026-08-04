@@ -128,7 +128,7 @@ func InitOptionMap() {
 	common.OptionMap["Chats"] = setting.Chats2JsonString()
 	common.OptionMap["AutoGroups"] = setting.AutoGroups2JsonString()
 	common.OptionMap["DefaultUseAutoGroup"] = strconv.FormatBool(setting.DefaultUseAutoGroup)
-	common.OptionMap[TokenDefaultKeyPurposesOptionKey] = TokenDefaultPurposeDefinitions2JSONString()
+	common.OptionMap["MaxTokenAutoGroups"] = strconv.Itoa(setting.GetMaxTokenAutoGroups())
 	common.OptionMap["PayMethods"] = operation_setting.PayMethods2JsonString()
 	common.OptionMap["GitHubClientId"] = ""
 	common.OptionMap["GitHubClientSecret"] = ""
@@ -218,8 +218,6 @@ func SyncOptions(frequency int) {
 
 func normalizeOptionValueForStorage(key string, value string) (string, error) {
 	switch key {
-	case TokenDefaultKeyPurposesOptionKey:
-		return NormalizeTokenDefaultPurposeDefinitionsJSONString(value)
 	case "VideoWorkerUrl", "VideoWorkerSecret":
 		return strings.TrimSpace(value), nil
 	default:
@@ -228,17 +226,22 @@ func normalizeOptionValueForStorage(key string, value string) (string, error) {
 }
 
 func validateOptionValue(key string, value string) error {
-	if key == operation_setting.ToolPriceOptionKey {
+	switch key {
+	case operation_setting.ToolPriceOptionKey:
 		return operation_setting.ValidateToolPricesJSON(value)
-	}
-	if key == "VideoWorkerSecret" && value != "" && len(value) < 32 {
-		return fmt.Errorf("video worker secret must be at least 32 characters")
-	}
-	if key == "VideoWorkerUrl" && value != "" {
-		parsedURL, err := url.Parse(value)
-		if err != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
-			return fmt.Errorf("video worker URL must use http or https")
+	case "VideoWorkerSecret":
+		if value != "" && len(value) < 32 {
+			return fmt.Errorf("video worker secret must be at least 32 characters")
 		}
+	case "VideoWorkerUrl":
+		if value != "" {
+			parsedURL, err := url.Parse(value)
+			if err != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+				return fmt.Errorf("video worker URL must use http or https")
+			}
+		}
+	case "MaxTokenAutoGroups":
+		return setting.ValidateMaxTokenAutoGroups(value)
 	}
 	return nil
 }
@@ -464,8 +467,8 @@ func updateOptionMap(key string, value string) (err error) {
 		err = setting.UpdateChatsByJsonString(value)
 	case "AutoGroups":
 		err = setting.UpdateAutoGroupsByJsonString(value)
-	case TokenDefaultKeyPurposesOptionKey:
-		_, err = NormalizeTokenDefaultPurposeDefinitions(value)
+	case "MaxTokenAutoGroups":
+		err = setting.UpdateMaxTokenAutoGroups(value)
 	case "CustomCallbackAddress":
 		operation_setting.CustomCallbackAddress = value
 	case "EpayId":

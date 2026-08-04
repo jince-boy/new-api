@@ -220,16 +220,6 @@ func UpdateOption(c *gin.Context) {
 			})
 			return
 		}
-	case model.TokenDefaultKeyPurposesOptionKey:
-		normalized, err := model.NormalizeTokenDefaultPurposeDefinitionsJSONString(option.Value.(string))
-		if err != nil {
-			c.JSON(http.StatusOK, gin.H{
-				"success": false,
-				"message": err.Error(),
-			})
-			return
-		}
-		option.Value = normalized
 	case "GitHubOAuthEnabled":
 		if option.Value == "true" && common.GitHubClientId == "" {
 			c.JSON(http.StatusOK, gin.H{

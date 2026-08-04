@@ -17,7 +17,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -34,7 +33,6 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Textarea } from '@/components/ui/textarea'
 import {
   normalizeChatConfigForStorage,
   parseChatPresetValue,
@@ -99,141 +97,51 @@ const createChatSchema = (t: (key: string) => string) =>
         })
       }
     }),
-    TokenDefaultKeyPurposes: z.string().superRefine((value, ctx) => {
-      try {
-        const parsed = JSON.parse(value || '[]')
-        if (!Array.isArray(parsed)) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: t('Expected a JSON array.'),
-          })
-          return
-        }
-        let hasChat = false
-        for (const item of parsed) {
-          if (!item || typeof item !== 'object' || Array.isArray(item)) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: t(
-                'Each item must be an object with a single key-value pair.'
-              ),
-            })
-            return
-          }
-          const record = item as Record<string, unknown>
-          if (
-            typeof record.purpose !== 'string' ||
-            typeof record.label !== 'string' ||
-            typeof record.token !== 'string' ||
-            !record.purpose.trim() ||
-            !record.label.trim() ||
-            !record.token.trim()
-          ) {
-            ctx.addIssue({
-              code: z.ZodIssueCode.custom,
-              message: t('Invalid JSON string.'),
-            })
-            return
-          }
-          if (record.purpose.trim().toLowerCase() === 'chat') {
-            hasChat = true
-          }
-        }
-        if (!hasChat) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: t('Invalid JSON string.'),
-          })
-        }
-      } catch {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: t('Invalid JSON string.'),
-        })
-      }
-    }),
   })
 
 type ChatSettingsFormValues = z.infer<ReturnType<typeof createChatSchema>>
 
 type ChatSettingsSectionProps = {
   defaultValue: string
-  defaultKeyPurposes: string
 }
 
 export function ChatSettingsSection({
   defaultValue,
-  defaultKeyPurposes,
 }: ChatSettingsSectionProps) {
   const { t } = useTranslation()
-  const queryClient = useQueryClient()
   const updateOption = useUpdateOption()
   const [editMode, setEditMode] = useState<'visual' | 'json'>('visual')
 
   const chatSchema = createChatSchema(t)
   const formatted = formatJsonForEditor(defaultValue, '[]')
-  const formattedKeyPurposes = formatJsonForEditor(
-    defaultKeyPurposes,
-    '[]'
-  )
   const form = useForm<ChatSettingsFormValues>({
     resolver: zodResolver(chatSchema),
     mode: 'onChange', // Enable real-time validation
     defaultValues: {
       Chats: formatted,
-      TokenDefaultKeyPurposes: formattedKeyPurposes,
     },
   })
 
   const initialNormalizedRef = useRef(
     normalizeChatConfigForStorage(defaultValue, '[]')
   )
-  const initialKeyPurposesRef = useRef(formattedKeyPurposes)
-
   useEffect(() => {
-    const nextKeyPurposes = formatJsonForEditor(defaultKeyPurposes, '[]')
     form.reset({
       Chats: formatJsonForEditor(defaultValue, '[]'),
-      TokenDefaultKeyPurposes: nextKeyPurposes,
     })
     initialNormalizedRef.current = normalizeChatConfigForStorage(
       defaultValue,
       '[]'
     )
-    initialKeyPurposesRef.current = nextKeyPurposes
-  }, [defaultKeyPurposes, defaultValue, form])
+  }, [defaultValue, form])
 
   const onSubmit = async (values: ChatSettingsFormValues) => {
     const normalized = normalizeChatConfigForStorage(values.Chats, '[]')
-    const normalizedKeyPurposes = formatJsonForEditor(
-      values.TokenDefaultKeyPurposes,
-      '[]'
-    )
-    if (
-      normalized === initialNormalizedRef.current &&
-      normalizedKeyPurposes === initialKeyPurposesRef.current
-    ) {
+    if (normalized === initialNormalizedRef.current) {
       return
     }
 
-    const updates = []
-    if (normalized !== initialNormalizedRef.current) {
-      updates.push(updateOption.mutateAsync({ key: 'Chats', value: normalized }))
-    }
-    if (normalizedKeyPurposes !== initialKeyPurposesRef.current) {
-      updates.push(
-        updateOption.mutateAsync({
-          key: 'TokenDefaultKeyPurposes',
-          value: normalizedKeyPurposes,
-        })
-      )
-    }
-    await Promise.all(updates)
-    if (normalizedKeyPurposes !== initialKeyPurposesRef.current) {
-      void queryClient.invalidateQueries({
-        queryKey: ['default-api-key-purposes'],
-      })
-    }
+    await updateOption.mutateAsync({ key: 'Chats', value: normalized })
   }
 
   return (
@@ -305,31 +213,6 @@ export function ChatSettingsSection({
               />
             </TabsContent>
           </Tabs>
-          <FormField
-            control={form.control}
-            name='TokenDefaultKeyPurposes'
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>
-                  {t('Default')} {t('API Key')} {t('Type')}
-                </FormLabel>
-                <FormControl>
-                  <Textarea
-                    rows={8}
-                    placeholder='[{"purpose":"chat","label":"Chat","token":"chatKey"},{"purpose":"image","label":"Image","token":"imageKey"}]'
-                    {...field}
-                  />
-                </FormControl>
-                <FormDescription>
-                  {t('Edit JSON text directly. Format will be validated on save.')}{' '}
-                  <code>purpose</code> / <code>label</code> /{' '}
-                  <code>token</code>; <code>chat</code> -&gt;{' '}
-                  <code>{'{key}'}</code>
-                </FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
         </SettingsForm>
       </Form>
     </SettingsSection>

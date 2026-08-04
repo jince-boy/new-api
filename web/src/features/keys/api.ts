@@ -25,26 +25,8 @@ import type {
   GetApiKeysResponse,
   SearchApiKeysParams,
   ApiKeyFormData,
+  TokenAutoGroupsConfig,
 } from './types'
-
-export type DefaultApiKeyPurpose = string
-
-export type DefaultApiKeyPurposeDefinition = {
-  purpose: DefaultApiKeyPurpose
-  label: string
-  token: string
-}
-
-// Defensive UI fallback only. The source of truth is the backend
-// TokenDefaultKeyPurposes option exposed by /api/token/default_key_purposes.
-export const FALLBACK_DEFAULT_API_KEY_PURPOSES: DefaultApiKeyPurposeDefinition[] =
-  [
-    { purpose: 'chat', label: 'Chat', token: 'chatKey' },
-    { purpose: 'image', label: 'Image', token: 'imageKey' },
-    { purpose: 'video', label: 'Video', token: 'videoKey' },
-    { purpose: 'audio', label: 'Audio', token: 'audioKey' },
-    { purpose: 'embedding', label: 'Embeddings', token: 'embeddingKey' },
-  ]
 
 // ============================================================================
 // API Key Management
@@ -76,6 +58,14 @@ export async function searchApiKeys(
 // Get single API key by ID
 export async function getApiKey(id: number): Promise<ApiResponse<ApiKey>> {
   const res = await api.get(`/api/token/${id}`)
+  return res.data
+}
+
+// Get the current user's global Auto order and the per-token selection limit.
+export async function getTokenAutoGroups(): Promise<
+  ApiResponse<TokenAutoGroupsConfig>
+> {
+  const res = await api.get('/api/token/auto-groups')
   return res.data
 }
 
@@ -116,54 +106,6 @@ export async function updateApiKeyStatus(
 ): Promise<ApiResponse<ApiKey>> {
   const res = await api.put('/api/token/?status_only=true', { id, status })
   return res.data
-}
-
-// Set a token as the default API key for a specific client purpose
-export async function setDefaultApiKey(
-  id: number,
-  purpose: DefaultApiKeyPurpose
-): Promise<ApiResponse<ApiKey>> {
-  const res = await api.put(`/api/token/${id}/default/${purpose}`)
-  return res.data
-}
-
-// Set a token as the default API key used by chat links
-export async function setDefaultChatApiKey(
-  id: number
-): Promise<ApiResponse<ApiKey>> {
-  return setDefaultApiKey(id, 'chat')
-}
-
-// Fetch the real key selected for a purpose: default purpose key first, then fallback
-export async function fetchDefaultApiKey(
-  purpose: DefaultApiKeyPurpose
-): Promise<{
-  success: boolean
-  message?: string
-  data?: {
-    id: number
-    key: string
-    purpose: DefaultApiKeyPurpose
-    default_chat: boolean
-    default_purposes?: string[]
-  }
-}> {
-  const res = await api.get(`/api/token/default_key/${purpose}`)
-  return res.data
-}
-
-export async function fetchDefaultApiKeyPurposes(): Promise<
-  ApiResponse<DefaultApiKeyPurposeDefinition[]>
-> {
-  const res = await api.get('/api/token/default_key_purposes')
-  return res.data
-}
-
-// Fetch the real key selected for chat links: default chat key first, then fallback
-export async function fetchDefaultChatApiKey(): ReturnType<
-  typeof fetchDefaultApiKey
-> {
-  return fetchDefaultApiKey('chat')
 }
 
 // Fetch the real (unmasked) key for a token by ID
