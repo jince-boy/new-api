@@ -131,11 +131,6 @@ func validateGroupOptionSet(overrides map[string]string) error {
 	if err := common.UnmarshalJsonStr(values["TopupGroupRatio"], &topupRatios); err != nil {
 		return err
 	}
-	for userGroup := range userGroups {
-		if _, ok := topupRatios[userGroup]; !ok {
-			return fmt.Errorf("top-up ratio is missing for user group: %s", userGroup)
-		}
-	}
 	for userGroup, ratio := range topupRatios {
 		if _, ok := userGroups[userGroup]; !ok {
 			return fmt.Errorf("top-up ratio references unknown user group: %s", userGroup)

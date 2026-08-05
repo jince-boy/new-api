@@ -24,6 +24,15 @@ func TestValidateGroupOptionSetKeepsUserAndServiceCatalogsSeparate(t *testing.T)
 		"group_ratio_setting.group_special_usable_group": `{"vip":{"+:claude":"Claude"}}`,
 	}
 	require.NoError(t, validateGroupOptionSet(base))
+	withPartialTopup := make(map[string]string, len(base))
+	for key, value := range base {
+		withPartialTopup[key] = value
+	}
+	withPartialTopup["TopupGroupRatio"] = `{"vip":1.2}`
+	require.NoError(t, validateGroupOptionSet(withPartialTopup))
+	withPartialTopup["TopupGroupRatio"] = `{}`
+	require.NoError(t, validateGroupOptionSet(withPartialTopup))
+
 	withVirtualAuto := make(map[string]string, len(base))
 	for key, value := range base {
 		withVirtualAuto[key] = value
@@ -40,7 +49,6 @@ func TestValidateGroupOptionSetKeepsUserAndServiceCatalogsSeparate(t *testing.T)
 		match string
 	}{
 		{name: "service group used as top-up group", key: "TopupGroupRatio", value: `{"default":1,"vip":1.2,"codex":1}`, match: "unknown user group"},
-		{name: "missing user top-up ratio", key: "TopupGroupRatio", value: `{"default":1}`, match: "missing for user group"},
 		{name: "zero top-up ratio", key: "TopupGroupRatio", value: `{"default":1,"vip":0}`, match: "finite positive"},
 		{name: "user group used as description group", key: "GroupDescriptions", value: `{"vip":"VIP"}`, match: "unknown service group"},
 		{name: "user group made globally selectable", key: "UserUsableGroups", value: `{"vip":"VIP"}`, match: "unknown service group"},
