@@ -60,17 +60,26 @@ func TestBuildOpenAIModelFallsBackToCustomForUnknownModels(t *testing.T) {
 	require.Equal(t, "custom", modelItem.OwnedBy)
 }
 
-func TestGetModelListGroupsUsesUserGroupWhenTokenGroupIsEmpty(t *testing.T) {
+func TestGetModelListGroupsUsesDefaultServiceGroupWhenTokenGroupIsEmpty(t *testing.T) {
+	originalUsableGroups := setting.UserUsableGroups2JSONString()
+	originalRatios := ratio_setting.GroupRatio2JSONString()
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"codex":"Codex","claude":"Claude"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"codex":1,"claude":1}`))
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
+	})
+
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
-	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "vip")
 
 	groups, err := getModelListGroups(ctx)
 	require.NoError(t, err)
 
-	require.Equal(t, "default", groups.userGroup)
+	require.Equal(t, "vip", groups.userGroup)
 	require.Empty(t, groups.tokenGroup)
-	require.Equal(t, []string{"default"}, groups.ownerGroups)
+	require.Equal(t, []string{"claude"}, groups.ownerGroups)
 }
 
 func TestGetModelListGroupsUsesExplicitTokenGroup(t *testing.T) {

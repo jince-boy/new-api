@@ -15,6 +15,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -83,6 +84,39 @@ func TestValidateChannelRequiresNewAPIBaseURL(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestParseConfiguredServiceGroupsRejectsUserAndVirtualGroups(t *testing.T) {
+	originalRatios := ratio_setting.GroupRatio2JSONString()
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"codex":1,"claude":1.2}`))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
+	})
+
+	groups, err := parseConfiguredServiceGroups(" codex,claude ")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"codex", "claude"}, groups)
+
+	for _, value := range []string{"", "vip", "auto", "codex,codex", "codex,missing"} {
+		_, err := parseConfiguredServiceGroups(value)
+		assert.Error(t, err, value)
+	}
+}
+
+func TestSetChannelTestServiceGroupKeepsUserGroupSeparate(t *testing.T) {
+	originalRatios := ratio_setting.GroupRatio2JSONString()
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"codex":1,"claude":1.2}`))
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
+	})
+
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "vip")
+
+	require.NoError(t, setChannelTestServiceGroup(ctx, &model.Channel{Group: "codex,claude"}))
+	assert.Equal(t, "vip", common.GetContextKeyString(ctx, constant.ContextKeyUserGroup))
+	assert.Equal(t, "codex", common.GetContextKeyString(ctx, constant.ContextKeyUsingGroup))
 }
 
 func TestNewAPIChannelRegistration(t *testing.T) {

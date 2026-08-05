@@ -761,6 +761,11 @@ func UpdateUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
 		return
 	}
+	updatedUser.Group = strings.TrimSpace(updatedUser.Group)
+	if !setting.IsUserGroup(updatedUser.Group) {
+		common.ApiErrorI18n(c, i18n.MsgUserGroupNotExists, map[string]any{"Group": updatedUser.Group})
+		return
+	}
 	originUser, err := model.GetUserById(updatedUser.Id, false)
 	if err != nil {
 		common.ApiError(c, err)
@@ -1092,6 +1097,14 @@ func CreateUser(c *gin.Context) {
 		common.ApiErrorI18n(c, i18n.MsgUserInputInvalid, map[string]any{"Error": err.Error()})
 		return
 	}
+	user.Group = strings.TrimSpace(user.Group)
+	if user.Group == "" {
+		user.Group = "default"
+	}
+	if !setting.IsUserGroup(user.Group) {
+		common.ApiErrorI18n(c, i18n.MsgUserGroupNotExists, map[string]any{"Group": user.Group})
+		return
+	}
 	if user.DisplayName == "" {
 		user.DisplayName = user.Username
 	}
@@ -1106,6 +1119,7 @@ func CreateUser(c *gin.Context) {
 		Password:    user.Password,
 		DisplayName: user.DisplayName,
 		Role:        user.Role, // 保持管理员设置的角色
+		Group:       user.Group,
 	}
 	authzTouched := false
 	if err := model.DB.Transaction(func(tx *gorm.DB) error {

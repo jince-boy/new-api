@@ -27,6 +27,7 @@ import type {
   SystemOptionsResponse,
   SystemTaskListResponse,
   SystemTaskResponse,
+  UpdateGroupOptionsRequest,
   UpdateOptionRequest,
   UpdateOptionResponse,
   UpstreamChannelsResponse,
@@ -43,6 +44,20 @@ export async function updateSystemOption(request: UpdateOptionRequest) {
     skipBusinessError: true,
     skipErrorHandler: true,
   })
+  return res.data
+}
+
+export async function updateSystemGroupOptions(
+  request: UpdateGroupOptionsRequest
+) {
+  const res = await api.put<UpdateOptionResponse>(
+    '/api/option/group',
+    request,
+    {
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    }
+  )
   return res.data
 }
 

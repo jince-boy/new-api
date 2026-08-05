@@ -1,13 +1,31 @@
 package common
 
 import (
+	"net/http/httptest"
 	"testing"
 
+	rootcommon "github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/relaykit/relayconvert/convmeta"
 	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGenBaseRelayInfoBlankTokenGroupUsesServiceGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	rootcommon.SetContextKey(ctx, constant.ContextKeyUserGroup, "vip")
+	rootcommon.SetContextKey(ctx, constant.ContextKeyUsingGroup, "codex")
+
+	info := genBaseRelayInfo(ctx, nil)
+
+	assert.Equal(t, "vip", info.UserGroup)
+	assert.Equal(t, "codex", info.UsingGroup)
+	assert.Equal(t, "codex", info.TokenGroup)
+}
 
 func TestRelayInfoGetFinalRequestRelayFormatPrefersExplicitFinal(t *testing.T) {
 	info := &RelayInfo{

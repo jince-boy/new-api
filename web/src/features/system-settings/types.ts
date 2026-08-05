@@ -34,6 +34,10 @@ export type UpdateOptionRequest = {
   value: string | boolean | number
 }
 
+export type UpdateGroupOptionsRequest = {
+  options: Record<string, string | boolean | number>
+}
+
 export type UpdateOptionResponse = {
   success: boolean
   message: string
@@ -242,6 +246,8 @@ export type ModelSettings = {
   'tool_price_setting.prices': string
   TopupGroupRatio: string
   GroupRatio: string
+  UserGroups: string
+  GroupDescriptions: string
   UserUsableGroups: string
   GroupGroupRatio: string
   AutoGroups: string
@@ -300,6 +306,8 @@ export type BillingSettings = {
   'tool_price_setting.prices': string
   TopupGroupRatio: string
   GroupRatio: string
+  UserGroups: string
+  GroupDescriptions: string
   UserUsableGroups: string
   GroupGroupRatio: string
   AutoGroups: string

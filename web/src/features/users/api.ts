@@ -155,10 +155,10 @@ export async function resetUserTwoFA(id: number): Promise<ApiResponse> {
 }
 
 /**
- * Get all available groups
+ * Get groups that can be assigned to users.
  */
-export async function getGroups(): Promise<ApiResponse<string[]>> {
-  const res = await api.get('/api/group/')
+export async function getUserGroups(): Promise<ApiResponse<string[]>> {
+  const res = await api.get('/api/user_group/')
   return res.data
 }
 

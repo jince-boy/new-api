@@ -19,6 +19,7 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -548,6 +549,28 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 	return nil
 }
 
+func parseConfiguredServiceGroups(value string) ([]string, error) {
+	if strings.TrimSpace(value) == "" {
+		return nil, fmt.Errorf("channel service group cannot be empty")
+	}
+
+	parts := strings.Split(value, ",")
+	groups := make([]string, 0, len(parts))
+	seen := make(map[string]struct{}, len(parts))
+	for _, part := range parts {
+		group := strings.TrimSpace(part)
+		if group == "" || group == "auto" || !ratio_setting.ContainsGroupRatio(group) {
+			return nil, fmt.Errorf("unknown service group: %s", group)
+		}
+		if _, ok := seen[group]; ok {
+			return nil, fmt.Errorf("duplicate service group: %s", group)
+		}
+		seen[group] = struct{}{}
+		groups = append(groups, group)
+	}
+	return groups, nil
+}
+
 func RefreshCodexChannelCredential(c *gin.Context) {
 	channelId, err := strconv.Atoi(c.Param("id"))
 	if err != nil {
@@ -635,6 +658,12 @@ func AddChannel(c *gin.Context) {
 		})
 		return
 	}
+	serviceGroups, err := parseConfiguredServiceGroups(addChannelRequest.Channel.Group)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+		return
+	}
+	addChannelRequest.Channel.Group = strings.Join(serviceGroups, ",")
 
 	addChannelRequest.Channel.CreatedTime = common.GetTimestamp()
 	keys := make([]string, 0)
@@ -859,6 +888,14 @@ func EditTagChannels(c *gin.Context) {
 		})
 		return
 	}
+	if channelTag.Groups != nil {
+		serviceGroups, err := parseConfiguredServiceGroups(*channelTag.Groups)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+		channelTag.Groups = common.GetPointer(strings.Join(serviceGroups, ","))
+	}
 	if (channelTag.ParamOverride != nil || channelTag.HeaderOverride != nil) &&
 		!authz.Can(c.GetInt("id"), c.GetInt("role"), authz.ChannelSensitiveWrite) {
 		common.ApiErrorI18n(c, i18n.MsgAuthInsufficientPrivilege)
@@ -971,6 +1008,14 @@ func UpdateChannel(c *gin.Context) {
 	if _, ok := requestData["status"]; ok {
 		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
 		return
+	}
+	if _, ok := requestData["group"]; ok {
+		serviceGroups, err := parseConfiguredServiceGroups(channel.Group)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"success": false, "message": err.Error()})
+			return
+		}
+		channel.Group = strings.Join(serviceGroups, ",")
 	}
 	clearChannelReadOnlyFields(&channel, requestData)
 
@@ -1452,6 +1497,12 @@ func CopyChannel(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to copy channel: invalid channel settings"})
 		return
 	}
+	serviceGroups, err := parseConfiguredServiceGroups(clone.Group)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"success": false, "message": "Failed to copy channel: " + err.Error()})
+		return
+	}
+	clone.Group = strings.Join(serviceGroups, ",")
 
 	// insert
 	if err := clone.Insert(); err != nil {

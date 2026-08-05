@@ -1,6 +1,7 @@
 package service
 
 import (
+	"sort"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -12,7 +13,16 @@ import (
 )
 
 func GetUserUsableGroups(userGroup string) map[string]string {
-	groupsCopy := setting.GetUserUsableGroupsCopy()
+	selectableGroups := setting.GetUserUsableGroupsCopy()
+	descriptions := setting.GetGroupDescriptionsCopy()
+	groupsCopy := make(map[string]string, len(selectableGroups))
+	for name, legacyDescription := range selectableGroups {
+		description := descriptions[name]
+		if description == "" {
+			description = legacyDescription
+		}
+		groupsCopy[name] = description
+	}
 	if userGroup != "" {
 		specialSettings, b := ratio_setting.GetGroupRatioSetting().GroupSpecialUsableGroup.Get(userGroup)
 		if b {
@@ -32,12 +42,27 @@ func GetUserUsableGroups(userGroup string) map[string]string {
 				}
 			}
 		}
-		// 如果userGroup不在UserUsableGroups中，返回UserUsableGroups + userGroup
-		if _, ok := groupsCopy[userGroup]; !ok {
-			groupsCopy[userGroup] = "用户分组"
-		}
 	}
 	return groupsCopy
+}
+
+func GetDefaultServiceGroup(userGroup string) string {
+	usableGroups := GetUserUsableGroups(userGroup)
+	if _, ok := usableGroups["default"]; ok && ratio_setting.ContainsGroupRatio("default") {
+		return "default"
+	}
+
+	groupNames := make([]string, 0, len(usableGroups))
+	for groupName := range usableGroups {
+		if groupName != "auto" && ratio_setting.ContainsGroupRatio(groupName) {
+			groupNames = append(groupNames, groupName)
+		}
+	}
+	sort.Strings(groupNames)
+	if len(groupNames) == 0 {
+		return ""
+	}
+	return groupNames[0]
 }
 
 func GroupInUserUsableGroups(userGroup, groupName string) bool {

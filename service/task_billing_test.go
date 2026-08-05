@@ -25,6 +25,15 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestNewTaskBillingContextSnapshotsUserGroup(t *testing.T) {
+	info := &relaycommon.RelayInfo{UserGroup: "vip", UsingGroup: "codex"}
+
+	billingContext := NewTaskBillingContext(info)
+
+	require.NotNil(t, billingContext)
+	assert.Equal(t, "vip", billingContext.UserGroup)
+}
+
 func TestRecordTaskSubmissionFailurePersistsZeroCostTaskAndErrorLog(t *testing.T) {
 	truncate(t)
 	gin.SetMode(gin.TestMode)
@@ -264,6 +273,29 @@ func makeTask(userId, channelId, quota, tokenId int, billingSource string, subsc
 			},
 		},
 	}
+}
+
+func TestRecalculateTaskQuotaByTokensUsesSubmissionPricingSnapshot(t *testing.T) {
+	truncate(t)
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+
+	const (
+		userID     = 901
+		channelID  = 902
+		initial    = 10_000
+		preConsume = 500
+	)
+	seedUser(t, userID, initial)
+	seedChannel(t, channelID)
+	task := makeTask(userID, channelID, preConsume, 0, BillingSourceWallet, 0)
+	task.PrivateData.BillingContext.ModelRatio = 2
+	task.PrivateData.BillingContext.GroupRatio = 3
+
+	RecalculateTaskQuotaByTokens(ctx, task, 100)
+
+	assert.Equal(t, initial-100, getUserQuota(t, userID))
+	assert.Equal(t, int64(1), countLogs(t))
 }
 
 func TestPriceDataOtherRatiosFilterAndSnapshot(t *testing.T) {

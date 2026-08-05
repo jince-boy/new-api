@@ -215,6 +215,67 @@ func TestAddTokenRejectsInvalidAutoGroups(t *testing.T) {
 	}
 }
 
+func TestTokenWritesRejectUserHiddenAndUnknownServiceGroups(t *testing.T) {
+	originalUserGroups := setting.UserGroups2JSONString()
+	originalUsableGroups := setting.UserUsableGroups2JSONString()
+	originalRatios := ratio_setting.GroupRatio2JSONString()
+	require.NoError(t, setting.UpdateUserGroupsByJSONString(`{"default":"Default","vip":"VIP"}`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"codex":"Codex"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"codex":1,"claude":1.2}`))
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateUserGroupsByJSONString(originalUserGroups))
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
+	})
+
+	for _, group := range []string{"vip", "claude", "missing"} {
+		t.Run(group, func(t *testing.T) {
+			user := setupTokenAutoGroupsControllerTest(t)
+			request := baseAutoTokenRequest("invalid-service-" + group)
+			request["group"] = group
+
+			ctx, recorder := newTokenAutoGroupsAuthenticatedContext(t, http.MethodPost, "/api/token/", request, user.Id)
+			AddToken(ctx)
+
+			assert.False(t, decodeAPIResponse(t, recorder).Success)
+			var count int64
+			require.NoError(t, model.DB.Model(&model.Token{}).Count(&count).Error)
+			assert.Zero(t, count)
+		})
+	}
+}
+
+func TestUpdateTokenKeepsExistingGroupWhenRequestedGroupIsInvalid(t *testing.T) {
+	originalUserGroups := setting.UserGroups2JSONString()
+	originalUsableGroups := setting.UserUsableGroups2JSONString()
+	originalRatios := ratio_setting.GroupRatio2JSONString()
+	require.NoError(t, setting.UpdateUserGroupsByJSONString(`{"default":"Default","vip":"VIP"}`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"codex":"Codex"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"codex":1,"claude":1.2}`))
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateUserGroupsByJSONString(originalUserGroups))
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
+	})
+
+	user := setupTokenAutoGroupsControllerTest(t)
+	token := seedToken(t, model.DB, user.Id, "existing", "existing-key")
+	token.Group = "codex"
+	require.NoError(t, model.DB.Save(token).Error)
+	request := baseAutoTokenRequest("updated")
+	request["id"] = token.Id
+	request["status"] = common.TokenStatusEnabled
+	request["group"] = "vip"
+
+	ctx, recorder := newTokenAutoGroupsAuthenticatedContext(t, http.MethodPut, "/api/token/", request, user.Id)
+	UpdateToken(ctx)
+	assert.False(t, decodeAPIResponse(t, recorder).Success)
+
+	var stored model.Token
+	require.NoError(t, model.DB.First(&stored, token.Id).Error)
+	assert.Equal(t, "codex", stored.Group)
+}
+
 func TestGetTokenAutoGroupsReturnsFullFilteredGlobalOrderAndLimit(t *testing.T) {
 	configureTokenAutoGroupsTest(t, "1", `["vip","missing","default"]`)
 	user := setupTokenAutoGroupsControllerTest(t)

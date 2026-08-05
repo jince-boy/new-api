@@ -70,3 +70,35 @@ func TestGetRequestAutoGroupsDoesNotFallBackAfterPermissionChange(t *testing.T) 
 
 	assert.Empty(t, groups)
 }
+
+func TestGetUserUsableGroupsKeepsDescriptionWhileHidden(t *testing.T) {
+	originalUsableGroups := setting.UserUsableGroups2JSONString()
+	originalDescriptions := setting.GroupDescriptions2JSONString()
+	require.NoError(t, setting.UpdateGroupDescriptionsByJSONString(`{"default":"Default service","vip":"VIP service"}`))
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"vip":"legacy description"}`))
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
+		require.NoError(t, setting.UpdateGroupDescriptionsByJSONString(originalDescriptions))
+	})
+
+	hiddenGroups := GetUserUsableGroups("default")
+	assert.NotContains(t, hiddenGroups, "default")
+	assert.Equal(t, "VIP service", hiddenGroups["vip"])
+
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"","vip":""}`))
+	visibleGroups := GetUserUsableGroups("default")
+	assert.Equal(t, "Default service", visibleGroups["default"])
+}
+
+func TestGetDefaultServiceGroupDoesNotUseUserGroupName(t *testing.T) {
+	originalUsableGroups := setting.UserUsableGroups2JSONString()
+	originalRatios := ratio_setting.GroupRatio2JSONString()
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"codex":"Codex","claude":"Claude"}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"codex":1,"claude":1}`))
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(originalUsableGroups))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(originalRatios))
+	})
+
+	assert.Equal(t, "claude", GetDefaultServiceGroup("vip"))
+}

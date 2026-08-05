@@ -86,7 +86,8 @@ func Distribute() func(c *gin.Context) {
 				if strings.HasPrefix(c.Request.URL.Path, "/pg/") {
 					playgroundGroup := strings.TrimSpace(modelRequest.Group)
 					if playgroundGroup != "" {
-						if !service.GroupInUserUsableGroups(usingGroup, playgroundGroup) && playgroundGroup != usingGroup {
+						userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+						if !service.GroupInUserUsableGroups(userGroup, playgroundGroup) {
 							abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorGroupAccessDenied))
 							return
 						}

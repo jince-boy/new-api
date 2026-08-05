@@ -264,6 +264,12 @@ export interface FetchModelsResponse {
   data?: string[]
 }
 
+export interface GetServiceGroupsResponse {
+  success: boolean
+  message?: string
+  data?: string[]
+}
+
 export interface CopyChannelResponse {
   success: boolean
   message?: string

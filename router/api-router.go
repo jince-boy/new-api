@@ -222,6 +222,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			optionRoute.GET("/", controller.GetOptions)
 			optionRoute.PUT("/", controller.UpdateOption)
+			optionRoute.PUT("/group", controller.UpdateGroupOptions)
 			optionRoute.POST("/logo", middleware.UploadRateLimit(), controller.UploadLogo)
 			optionRoute.DELETE("/logo", controller.DeleteLogo)
 			optionRoute.POST("/group-chat-qrcode", middleware.UploadRateLimit(), controller.UploadGroupChatQRCode)
@@ -343,6 +344,11 @@ func SetApiRouter(router *gin.Engine) {
 		groupRoute.Use(middleware.AdminAuth())
 		{
 			groupRoute.GET("/", controller.GetGroups)
+		}
+		userGroupRoute := apiRouter.Group("/user_group")
+		userGroupRoute.Use(middleware.AdminAuth())
+		{
+			userGroupRoute.GET("/", controller.GetUserGroupNames)
 		}
 
 		prefillGroupRoute := apiRouter.Group("/prefill_group")

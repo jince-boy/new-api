@@ -132,7 +132,7 @@ import {
   getAllModels,
   getChannel,
   getChannelKey,
-  getGroups,
+  getServiceGroups,
   getPrefillGroups,
   refreshCodexCredential,
 } from '../../api'
@@ -667,8 +667,8 @@ export function ChannelMutateDrawer({
 
   // Fetch available groups
   const { data: groupsData, isLoading: isLoadingGroups } = useQuery({
-    queryKey: ['groups'],
-    queryFn: getGroups,
+    queryKey: channelsQueryKeys.serviceGroups(),
+    queryFn: getServiceGroups,
   })
 
   // Fetch all available models
@@ -4283,9 +4283,7 @@ export function ChannelMutateDrawer({
                                         <SelectValue />
                                       </SelectTrigger>
                                     </FormControl>
-                                    <SelectContent
-                                      alignItemWithTrigger={false}
-                                    >
+                                    <SelectContent alignItemWithTrigger={false}>
                                       <SelectGroup>
                                         <SelectItem value='auto'>
                                           {t('Auto')}

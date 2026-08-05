@@ -67,6 +67,8 @@ import { GroupSpecialUsableRulesEditor } from './group-special-usable-editor'
 type GroupFormValues = {
   GroupRatio: string
   TopupGroupRatio: string
+  UserGroups: string
+  GroupDescriptions: string
   UserUsableGroups: string
   GroupGroupRatio: string
   AutoGroups: string
@@ -105,15 +107,34 @@ export const GroupRatioForm = memo(function GroupRatioForm({
   }, [])
 
   const watchedGroupRatio = form.watch('GroupRatio')
+  const watchedGroupDescriptions = form.watch('GroupDescriptions')
+  const watchedUserGroups = form.watch('UserGroups')
   const watchedUserUsableGroups = form.watch('UserUsableGroups')
   const watchedTopupGroupRatio = form.watch('TopupGroupRatio')
-  const groupNames = useMemo(() => {
+  const serviceGroupNames = useMemo(() => {
     const ratioMap = safeJsonParse<Record<string, number>>(watchedGroupRatio, {
       fallback: {},
       silent: true,
     })
+    const descriptionMap = safeJsonParse<Record<string, string>>(
+      watchedGroupDescriptions,
+      { fallback: {}, silent: true }
+    )
     const usableMap = safeJsonParse<Record<string, string>>(
       watchedUserUsableGroups,
+      { fallback: {}, silent: true }
+    )
+    return [
+      ...new Set([
+        ...Object.keys(ratioMap),
+        ...Object.keys(descriptionMap),
+        ...Object.keys(usableMap),
+      ]),
+    ]
+  }, [watchedGroupRatio, watchedGroupDescriptions, watchedUserUsableGroups])
+  const userGroupNames = useMemo(() => {
+    const userGroupMap = safeJsonParse<Record<string, string>>(
+      watchedUserGroups,
       { fallback: {}, silent: true }
     )
     const topupMap = safeJsonParse<Record<string, number>>(
@@ -121,13 +142,9 @@ export const GroupRatioForm = memo(function GroupRatioForm({
       { fallback: {}, silent: true }
     )
     return [
-      ...new Set([
-        ...Object.keys(ratioMap),
-        ...Object.keys(usableMap),
-        ...Object.keys(topupMap),
-      ]),
+      ...new Set([...Object.keys(userGroupMap), ...Object.keys(topupMap)]),
     ]
-  }, [watchedGroupRatio, watchedUserUsableGroups, watchedTopupGroupRatio])
+  }, [watchedUserGroups, watchedTopupGroupRatio])
 
   return (
     <div className='space-y-6'>
@@ -169,6 +186,8 @@ export const GroupRatioForm = memo(function GroupRatioForm({
             <GroupRatioVisualEditor
               groupRatio={form.watch('GroupRatio')}
               topupGroupRatio={form.watch('TopupGroupRatio')}
+              userGroups={form.watch('UserGroups')}
+              groupDescriptions={form.watch('GroupDescriptions')}
               userUsableGroups={form.watch('UserUsableGroups')}
               groupGroupRatio={form.watch('GroupGroupRatio')}
               autoGroups={form.watch('AutoGroups')}
@@ -208,7 +227,8 @@ export const GroupRatioForm = memo(function GroupRatioForm({
 
             <GroupSpecialUsableRulesEditor
               value={form.watch('GroupSpecialUsableGroup')}
-              groupOptions={groupNames}
+              userGroupOptions={userGroupNames}
+              serviceGroupOptions={serviceGroupNames}
               onChange={(value) =>
                 handleFieldChange('GroupSpecialUsableGroup', value)
               }
@@ -266,6 +286,31 @@ export const GroupRatioForm = memo(function GroupRatioForm({
 
             <FormField
               control={form.control}
+              name='UserGroups'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('User groups')}</FormLabel>
+                  <FormControl>
+                    <JsonCodeEditor
+                      value={field.value}
+                      onChange={field.onChange}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      textareaRef={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'JSON map of user group → description. User groups are assigned to users and do not have a base model billing ratio.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
               name='TopupGroupRatio'
               render={({ field }) => (
                 <FormItem>
@@ -285,6 +330,31 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                       'Optional multiplier per user group used when calculating recharge pricing. Provide a JSON object such as'
                     )}
                     {` { "default": 1, "vip": 1.2 }`}.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='GroupDescriptions'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Service group descriptions')}</FormLabel>
+                  <FormControl>
+                    <JsonCodeEditor
+                      value={field.value}
+                      onChange={field.onChange}
+                      name={field.name}
+                      onBlur={field.onBlur}
+                      textareaRef={field.ref}
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Descriptions are stored independently and remain available when a service group is temporarily hidden.'
+                    )}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>
@@ -336,7 +406,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
                     {t('Nested JSON: source group →')}{' '}
                     {`{ targetGroup: ratio }`}{' '}
                     {t(
-                      'to override billing when a user in one group uses a token of another group.'
+                      'to override billing when a user group uses a service group.'
                     )}
                   </FormDescription>
                   <FormMessage />
@@ -489,10 +559,10 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
         className={sideDrawerContentClassName('sm:max-w-2xl')}
       >
         <SheetHeader className={sideDrawerHeaderClassName()}>
-          <SheetTitle>{t('Group pricing usage guide')}</SheetTitle>
+          <SheetTitle>{t('User and service group guide')}</SheetTitle>
           <SheetDescription>
             {t(
-              'Understand how user groups, token groups, ratios, and special rules work together.'
+              'Understand how user groups, service groups, ratios, and special rules work together.'
             )}
           </SheetDescription>
         </SheetHeader>
@@ -500,21 +570,21 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
         <div className={sideDrawerFormClassName('gap-5')}>
           <section className='space-y-2'>
             <h3 className='text-sm font-semibold'>
-              {t('The two roles of a group')}
+              {t('Two separate group types')}
             </h3>
             <div className='text-muted-foreground space-y-2 text-sm leading-6'>
               <p>
                 {t(
-                  'Every group name in the pricing table can be used in two places: on a user (the user group, assigned by admins) and on a token (the token group, chosen when creating the token). Same name pool, two different jobs.'
+                  'User groups and service groups use separate name pools. User groups are assigned by administrators; service groups are selected on API keys and control channel routing.'
                 )}
               </p>
               <p>
                 <span className='text-foreground font-medium'>
-                  {t('Token group')}
+                  {t('Service group')}
                 </span>
                 {': '}
                 {t(
-                  'decides which channels are used and which base ratio applies.'
+                  'decides which channels are used, which models are visible, and which base ratio applies.'
                 )}
               </p>
               <p>
@@ -523,7 +593,7 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
                 </span>
                 {': '}
                 {t(
-                  'decides the top-up ratio, which groups the user can pick for tokens, and whether an override ratio applies.'
+                  'decides the recharge ratio and which special service-group ratio rules apply.'
                 )}
               </p>
             </div>
@@ -536,10 +606,10 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
             <ol className='text-muted-foreground list-decimal space-y-2 pl-5 text-sm leading-6'>
               <li>
                 <span className='text-foreground font-medium'>
-                  {t('Find the billing group.')}
+                  {t('Find the service group.')}
                 </span>{' '}
                 {t(
-                  'Use the group set on the token. If the token has no group, use the user group. The auto group tries the auto assignment order from top to bottom.'
+                  'Use the service group set on the API key. If it is empty, use the default accessible service group. Auto tries the configured service groups from top to bottom.'
                 )}
               </li>
               <li>
@@ -547,7 +617,7 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
                   {t('Find the ratio.')}
                 </span>{' '}
                 {t(
-                  'Look for a special ratio rule matching this user group and this billing group. If one exists, use its ratio. Otherwise use the billing group base ratio from the pricing table.'
+                  'Look for a special ratio rule matching the user group and service group. If one exists, use its ratio. Otherwise use the service group base ratio.'
                 )}
               </li>
               <li>
@@ -561,7 +631,7 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
             </ol>
             <p className='text-muted-foreground text-sm leading-6'>
               {t(
-                'Common pitfall: the user group base ratio is NOT a personal discount. It only applies when the user group itself is the billing group.'
+                'User groups do not have a base model billing ratio. A user-specific price must be configured as a special rule for a service group.'
               )}
             </p>
           </section>
@@ -599,7 +669,7 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
                     <td className='px-3 py-1.5 text-right'>0.5</td>
                   </tr>
                   <tr>
-                    <td className='px-3 py-1.5'>vip</td>
+                    <td className='px-3 py-1.5'>codex</td>
                     <td className='px-3 py-1.5 text-right'>0.8</td>
                   </tr>
                 </tbody>
@@ -630,13 +700,11 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
             <div className='space-y-3'>
               <div className='overflow-hidden rounded-lg border'>
                 <div className='bg-muted/40 border-b px-3 py-2 text-sm font-medium'>
-                  {t('Call 1: the token group is premium')}
+                  {t('Call 1: the service group is premium')}
                 </div>
                 <div className='space-y-2 p-3'>
                   <GuideStepRow chip='1'>
-                    {t(
-                      'Billing group = premium (the token has a group, so use it)'
-                    )}
+                    {t('Service group = premium (the API key selects it)')}
                   </GuideStepRow>
                   <GuideStepRow chip='2'>
                     {t(
@@ -653,17 +721,15 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
 
               <div className='overflow-hidden rounded-lg border'>
                 <div className='bg-muted/40 border-b px-3 py-2 text-sm font-medium'>
-                  {t('Call 2: the token group is default')}
+                  {t('Call 2: the service group is default')}
                 </div>
                 <div className='space-y-2 p-3'>
                   <GuideStepRow chip='1'>
-                    {t(
-                      'Billing group = default (the token has a group, so use it)'
-                    )}
+                    {t('Service group = default (the API key selects it)')}
                   </GuideStepRow>
                   <GuideStepRow chip='2'>
                     {t(
-                      'No rule for vip billed as default → use the base ratio of default, 1.0 (the 0.8 of vip is not used)'
+                      'No rule for vip using default → use the default service group base ratio, 1.0'
                     )}
                   </GuideStepRow>
                   <GuideStepRow chip='='>
@@ -681,17 +747,17 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
                 <div className='space-y-2 p-3'>
                   <GuideStepRow chip='1'>
                     {t(
-                      'Billing group = vip (the token has no group, so use the user group)'
+                      'Service group = default (the API key is empty, so use the default accessible service group)'
                     )}
                   </GuideStepRow>
                   <GuideStepRow chip='2'>
                     {t(
-                      'No rule for vip billed as vip → use the base ratio of vip, 0.8'
+                      'No rule for vip using default → use the default service group base ratio, 1.0'
                     )}
                   </GuideStepRow>
                   <GuideStepRow chip='='>
                     <span className='text-foreground font-medium'>
-                      {t('Cost = 10 × 0.8 = 8')}
+                      {t('Cost = 10 × 1.0 = 10')}
                     </span>
                   </GuideStepRow>
                 </div>
@@ -701,22 +767,22 @@ function GroupPricingGuide({ open, onOpenChange }: GroupPricingGuideProps) {
 
           <Accordion className='rounded-lg border px-3'>
             <AccordionItem value='groups'>
-              <AccordionTrigger>{t('Pricing group example')}</AccordionTrigger>
+              <AccordionTrigger>{t('Service group example')}</AccordionTrigger>
               <AccordionContent className='space-y-3'>
                 <p className='text-muted-foreground text-sm leading-6'>
                   {t(
-                    'Use the pricing group table to manage the ratio and whether the group appears in the token creation dropdown.'
+                    'Use the service group table to manage the base ratio and whether the group appears in API key choices and the model marketplace.'
                   )}
                 </p>
                 <GuideCodeBlock>
-                  {`${t('Group name')}   ${t('Ratio')}   ${t('User selectable')}   ${t('Description')}
+                  {`${t('Service group name')}   ${t('Ratio')}   ${t('Visible and selectable')}   ${t('Description')}
 standard     1.0     ${t('Yes')}               ${t('Standard price')}
 premium      0.5     ${t('Yes')}               ${t('Premium plan, half price')}
 vip          0.5     ${t('No')}                ${t('Assigned by administrator only')}`}
                 </GuideCodeBlock>
                 <p className='text-muted-foreground text-sm leading-6'>
                   {t(
-                    'Users only see groups marked as user selectable. Non-selectable groups can still be assigned by administrators.'
+                    'Users only see service groups marked as visible and selectable. A special access rule can expose an otherwise hidden service group to a specific user group.'
                   )}
                 </p>
               </AccordionContent>
@@ -744,7 +810,7 @@ vip          0.5     ${t('No')}                ${t('Assigned by administrator on
               <AccordionContent className='space-y-3'>
                 <p className='text-muted-foreground text-sm leading-6'>
                   {t(
-                    'In JSON, the user group is the outer key and the billing group is the inner key. The example below means: vip users pay 0.8 when billed as standard, and 0.3 when billed as premium.'
+                    'In JSON, the user group is the outer key and the service group is the inner key. The example below means: vip users pay 0.8 when using standard, and 0.3 when using premium.'
                   )}
                 </p>
                 <GuideCodeBlock>{`{
@@ -755,7 +821,7 @@ vip          0.5     ${t('No')}                ${t('Assigned by administrator on
 }`}</GuideCodeBlock>
                 <p className='text-muted-foreground text-sm leading-6'>
                   {t(
-                    'Only configured combinations are overridden. All other calls keep the billing group base ratio.'
+                    'Only configured combinations are overridden. All other calls keep the service group base ratio.'
                   )}
                 </p>
               </AccordionContent>
@@ -768,7 +834,7 @@ vip          0.5     ${t('No')}                ${t('Assigned by administrator on
               <AccordionContent className='space-y-3'>
                 <p className='text-muted-foreground text-sm leading-6'>
                   {t(
-                    'Special usable group rules make extra token groups visible to, or hide default ones from, users of a specific user group.'
+                    'Special access rules expose extra service groups to, or hide default service groups from, a specific user group.'
                   )}
                 </p>
                 <GuideCodeBlock>{`{

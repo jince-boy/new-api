@@ -3,6 +3,7 @@ package model
 import (
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -157,6 +158,8 @@ func InitOptionMap() {
 	common.OptionMap["CreateCacheRatio"] = ratio_setting.CreateCacheRatio2JSONString()
 	common.OptionMap["GroupRatio"] = ratio_setting.GroupRatio2JSONString()
 	common.OptionMap["GroupGroupRatio"] = ratio_setting.GroupGroupRatio2JSONString()
+	common.OptionMap["UserGroups"] = setting.UserGroups2JSONString()
+	common.OptionMap["GroupDescriptions"] = setting.GroupDescriptions2JSONString()
 	common.OptionMap["UserUsableGroups"] = setting.UserUsableGroups2JSONString()
 	common.OptionMap["CompletionRatio"] = ratio_setting.CompletionRatio2JSONString()
 	common.OptionMap["ImageRatio"] = ratio_setting.ImageRatio2JSONString()
@@ -200,10 +203,36 @@ func InitOptionMap() {
 
 func loadOptionsFromDatabase() {
 	options, _ := AllOption()
+	hasGroupDescriptions := false
+	hasUserGroups := false
 	for _, option := range options {
 		err := updateOptionMap(option.Key, option.Value)
 		if err != nil {
 			common.SysLog("failed to update option map: " + err.Error())
+			continue
+		}
+		hasGroupDescriptions = hasGroupDescriptions || option.Key == "GroupDescriptions"
+		hasUserGroups = hasUserGroups || option.Key == "UserGroups"
+	}
+
+	if !hasUserGroups {
+		if err := migrateLegacyUserGroups(); err != nil {
+			common.SysLog("failed to migrate legacy user groups: " + err.Error())
+		}
+	}
+
+	legacyDescriptions := setting.GetUserUsableGroupsCopy()
+	if !hasGroupDescriptions {
+		descriptions := make(map[string]string)
+		for name := range ratio_setting.GetGroupRatioCopy() {
+			descriptions[name] = legacyDescriptions[name]
+			if descriptions[name] == "" {
+				descriptions[name] = name
+			}
+		}
+		data, err := common.Marshal(descriptions)
+		if err == nil {
+			_ = updateOptionMap("GroupDescriptions", string(data))
 		}
 	}
 }
@@ -226,6 +255,9 @@ func normalizeOptionValueForStorage(key string, value string) (string, error) {
 }
 
 func validateOptionValue(key string, value string) error {
+	if isGroupCatalogOptionKey(key) {
+		return validateGroupOptionSet(map[string]string{key: value})
+	}
 	switch key {
 	case operation_setting.ToolPriceOptionKey:
 		return operation_setting.ValidateToolPricesJSON(value)
@@ -284,13 +316,38 @@ func UpdateOptionsBulk(values map[string]string) error {
 		if err != nil {
 			return err
 		}
-		if err := validateOptionValue(k, normalizedValue); err != nil {
-			return err
-		}
 		normalizedValues[k] = normalizedValue
 	}
+
+	hasGroupCatalogOption := false
+	for key := range normalizedValues {
+		if isGroupCatalogOptionKey(key) {
+			hasGroupCatalogOption = true
+			break
+		}
+	}
+	if hasGroupCatalogOption {
+		if err := validateGroupOptionSet(normalizedValues); err != nil {
+			return err
+		}
+	}
+	for key, value := range normalizedValues {
+		if hasGroupCatalogOption && isGroupCatalogOptionKey(key) {
+			continue
+		}
+		if err := validateOptionValue(key, value); err != nil {
+			return err
+		}
+	}
+
+	keys := make([]string, 0, len(normalizedValues))
+	for key := range normalizedValues {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
 	err := DB.Transaction(func(tx *gorm.DB) error {
-		for k, v := range normalizedValues {
+		for _, k := range keys {
+			v := normalizedValues[k]
 			option := Option{Key: k}
 			if err := tx.FirstOrCreate(&option, Option{Key: k}).Error; err != nil {
 				return err
@@ -305,7 +362,33 @@ func UpdateOptionsBulk(values map[string]string) error {
 	if err != nil {
 		return err
 	}
-	for k, v := range normalizedValues {
+
+	updateOrder := []string{
+		"GroupRatio",
+		"UserGroups",
+		"TopupGroupRatio",
+		"GroupDescriptions",
+		"UserUsableGroups",
+		"GroupGroupRatio",
+		"AutoGroups",
+		"group_ratio_setting.group_special_usable_group",
+	}
+	updated := make(map[string]struct{}, len(updateOrder))
+	for _, key := range updateOrder {
+		value, ok := normalizedValues[key]
+		if !ok {
+			continue
+		}
+		if err := updateOptionMap(key, value); err != nil {
+			return err
+		}
+		updated[key] = struct{}{}
+	}
+	for _, k := range keys {
+		if _, ok := updated[k]; ok {
+			continue
+		}
+		v := normalizedValues[k]
 		if err := updateOptionMap(k, v); err != nil {
 			return err
 		}
@@ -619,6 +702,10 @@ func updateOptionMap(key string, value string) (err error) {
 		err = ratio_setting.UpdateGroupRatioByJSONString(value)
 	case "GroupGroupRatio":
 		err = ratio_setting.UpdateGroupGroupRatioByJSONString(value)
+	case "UserGroups":
+		err = setting.UpdateUserGroupsByJSONString(value)
+	case "GroupDescriptions":
+		err = setting.UpdateGroupDescriptionsByJSONString(value)
 	case "UserUsableGroups":
 		err = setting.UpdateUserUsableGroupsByJSONString(value)
 	case "CompletionRatio":

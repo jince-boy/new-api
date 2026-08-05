@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { getGroups as getUserGroups } from '@/features/users/api'
 import { api, type ApiRequestConfig } from '@/lib/api'
 
 import type {
@@ -33,6 +32,7 @@ import type {
   GetChannelResponse,
   GetChannelsParams,
   GetChannelsResponse,
+  GetServiceGroupsResponse,
   MultiKeyManageParams,
   MultiKeyStatusResponse,
   SearchChannelsParams,
@@ -625,9 +625,12 @@ export async function getOllamaVersion(
 // ============================================================================
 
 /**
- * Get all available groups (re-exported from users API for convenience)
+ * Get service groups available for channel routing.
  */
-export const getGroups = getUserGroups
+export async function getServiceGroups(): Promise<GetServiceGroupsResponse> {
+  const res = await api.get('/api/group/')
+  return res.data
+}
 
 // ============================================================================
 // Prefill Groups (Model Groups)

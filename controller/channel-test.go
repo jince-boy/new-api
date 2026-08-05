@@ -42,6 +42,15 @@ type testResult struct {
 	newAPIError *types.NewAPIError
 }
 
+func setChannelTestServiceGroup(c *gin.Context, channel *model.Channel) error {
+	serviceGroups, err := parseConfiguredServiceGroups(channel.Group)
+	if err != nil {
+		return err
+	}
+	common.SetContextKey(c, constant.ContextKeyUsingGroup, serviceGroups[0])
+	return nil
+}
+
 func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointType string) string {
 	normalized := strings.TrimSpace(endpointType)
 	if normalized != "" {
@@ -171,8 +180,9 @@ func testChannel(ctx context.Context, channel *model.Channel, testUserID int, te
 	c.Request.Header.Set("Content-Type", "application/json")
 	c.Set("channel", channel.Type)
 	c.Set("base_url", channel.GetBaseURL())
-	group, _ := model.GetUserGroup(testUserID, false)
-	c.Set("group", group)
+	if err := setChannelTestServiceGroup(c, channel); err != nil {
+		return testResult{context: c, localErr: err}
+	}
 
 	newAPIError := middleware.SetupContextForSelectedChannel(c, channel, testModel)
 	if newAPIError != nil {

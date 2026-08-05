@@ -1,8 +1,8 @@
 package ratio_setting
 
 import (
-	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -18,11 +18,7 @@ var defaultGroupRatio = map[string]float64{
 
 var groupRatioMap = types.NewRWMap[string, float64]()
 
-var defaultGroupGroupRatio = map[string]map[string]float64{
-	"vip": {
-		"edit_this": 0.9,
-	},
-}
+var defaultGroupGroupRatio = map[string]map[string]float64{}
 
 var groupGroupRatioMap = types.NewRWMap[string, map[string]float64]()
 
@@ -74,6 +70,9 @@ func GroupRatio2JSONString() string {
 }
 
 func UpdateGroupRatioByJSONString(jsonStr string) error {
+	if err := CheckGroupRatio(jsonStr); err != nil {
+		return err
+	}
 	return types.LoadFromJsonString(groupRatioMap, jsonStr)
 }
 
@@ -108,17 +107,47 @@ func UpdateGroupGroupRatioByJSONString(jsonStr string) error {
 		groupRatioSetting.GroupGroupRatio = groupGroupRatioMap
 		return nil
 	}
+	if err := CheckGroupGroupRatio(jsonStr); err != nil {
+		return err
+	}
 	return types.LoadFromJsonString(groupGroupRatioMap, jsonStr)
+}
+
+func CheckGroupGroupRatio(jsonStr string) error {
+	groupRatios := make(map[string]map[string]float64)
+	if err := common.UnmarshalJsonStr(jsonStr, &groupRatios); err != nil {
+		return err
+	}
+	for userGroup, ratios := range groupRatios {
+		if strings.TrimSpace(userGroup) == "" {
+			return errors.New("user group name cannot be empty")
+		}
+		for serviceGroup, ratio := range ratios {
+			if strings.TrimSpace(serviceGroup) == "" {
+				return errors.New("service group name cannot be empty")
+			}
+			if ratio < 0 || math.IsNaN(ratio) || math.IsInf(ratio, 0) {
+				return errors.New("special group ratio must be a finite non-negative number: " + userGroup + " -> " + serviceGroup)
+			}
+		}
+	}
+	return nil
 }
 
 func CheckGroupRatio(jsonStr string) error {
 	checkGroupRatio := make(map[string]float64)
-	err := json.Unmarshal([]byte(jsonStr), &checkGroupRatio)
+	err := common.UnmarshalJsonStr(jsonStr, &checkGroupRatio)
 	if err != nil {
 		return err
 	}
+	if len(checkGroupRatio) == 0 {
+		return errors.New("at least one service group is required")
+	}
 	for name, ratio := range checkGroupRatio {
-		if ratio < 0 {
+		if strings.TrimSpace(name) == "" || strings.TrimSpace(name) != name || name == "auto" {
+			return errors.New("invalid service group name: " + name)
+		}
+		if ratio < 0 || math.IsNaN(ratio) || math.IsInf(ratio, 0) {
 			return errors.New("group ratio must be not less than 0: " + name)
 		}
 	}

@@ -31,6 +31,19 @@ var completionRatioMetaOptionKeys = []string{
 	"AudioCompletionRatio",
 }
 
+var groupOptionsUpdateKeys = map[string]struct{}{
+	"GroupRatio":          {},
+	"UserGroups":          {},
+	"TopupGroupRatio":     {},
+	"GroupDescriptions":   {},
+	"UserUsableGroups":    {},
+	"GroupGroupRatio":     {},
+	"AutoGroups":          {},
+	"MaxTokenAutoGroups":  {},
+	"DefaultUseAutoGroup": {},
+	"group_ratio_setting.group_special_usable_group": {},
+}
+
 func isPaymentComplianceOptionKey(key string) bool {
 	return strings.HasPrefix(key, "payment_setting.compliance_")
 }
@@ -165,6 +178,46 @@ func GetOptions(c *gin.Context) {
 type OptionUpdateRequest struct {
 	Key   string `json:"key"`
 	Value any    `json:"value"`
+}
+
+type GroupOptionsUpdateRequest struct {
+	Options map[string]any `json:"options"`
+}
+
+func UpdateGroupOptions(c *gin.Context) {
+	var request GroupOptionsUpdateRequest
+	if err := common.DecodeJson(c.Request.Body, &request); err != nil {
+		common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+		return
+	}
+
+	values := make(map[string]string, len(request.Options))
+	for key, value := range request.Options {
+		if _, ok := groupOptionsUpdateKeys[key]; !ok {
+			common.ApiErrorMsg(c, "unsupported group option: "+key)
+			return
+		}
+		switch typedValue := value.(type) {
+		case bool:
+			values[key] = strconv.FormatBool(typedValue)
+		case float64:
+			values[key] = common.Interface2String(typedValue)
+		case string:
+			values[key] = typedValue
+		default:
+			common.ApiErrorI18n(c, i18n.MsgInvalidParams)
+			return
+		}
+	}
+
+	if err := model.UpdateOptionsBulk(values); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+	})
 }
 
 func UpdateOption(c *gin.Context) {
@@ -478,7 +531,11 @@ func UpdateOption(c *gin.Context) {
 			return
 		}
 	}
-	err = model.UpdateOption(option.Key, option.Value.(string))
+	if _, ok := groupOptionsUpdateKeys[option.Key]; ok {
+		err = model.UpdateOptionsBulk(map[string]string{option.Key: option.Value.(string)})
+	} else {
+		err = model.UpdateOption(option.Key, option.Value.(string))
+	}
 	if err != nil {
 		common.ApiError(c, err)
 		return
