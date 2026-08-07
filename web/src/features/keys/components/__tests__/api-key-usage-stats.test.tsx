@@ -118,4 +118,29 @@ describe('API key usage stats', () => {
     await act(async () => root.unmount())
     container.remove()
   })
+
+  test('shows zero amounts when usage is unavailable', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <ApiKeyUsageStats />
+        </I18nextProvider>
+      )
+    })
+
+    const periods = container.querySelectorAll(
+      '[data-slot="api-key-usage-period"]'
+    )
+    assert.equal(periods.length, 2)
+    for (const period of periods) {
+      assert.equal(period.textContent?.includes(formatLogQuota(0)), true)
+    }
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
 })

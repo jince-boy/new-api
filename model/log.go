@@ -80,6 +80,16 @@ type Log struct {
 	Other             string `json:"other"`
 }
 
+type TokenUsageQuota struct {
+	Today      int64
+	Last30Days int64
+}
+
+type tokenQuotaSum struct {
+	TokenId int   `gorm:"column:token_id"`
+	Quota   int64 `gorm:"column:quota"`
+}
+
 // don't use iota, avoid change log type value
 const (
 	LogTypeUnknown = 0
@@ -139,6 +149,53 @@ func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
 	err = LOG_DB.Model(&Log{}).Where("token_id = ?", tokenId).Order(order).Limit(common.MaxRecentItems).Find(&logs).Error
 	formatUserLogs(logs, 0)
 	return logs, err
+}
+
+// GetTokenUsageQuotas returns billed consumption for the requested tokens.
+// The 30-day window contains today plus the preceding 29 calendar days.
+func GetTokenUsageQuotas(userId int, tokenIds []int, now time.Time) (map[int]TokenUsageQuota, error) {
+	usageByToken := make(map[int]TokenUsageQuota, len(tokenIds))
+	if len(tokenIds) == 0 {
+		return usageByToken, nil
+	}
+
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+	last30DaysStart := todayStart.AddDate(0, 0, -29)
+	endTimestamp := now.Unix()
+
+	var last30Days []tokenQuotaSum
+	err := LOG_DB.Model(&Log{}).
+		Select("token_id, COALESCE(SUM(quota), 0) AS quota").
+		Where("user_id = ? AND token_id IN ? AND type = ? AND created_at >= ? AND created_at <= ?",
+			userId, tokenIds, LogTypeConsume, last30DaysStart.Unix(), endTimestamp).
+		Group("token_id").
+		Scan(&last30Days).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range last30Days {
+		usage := usageByToken[row.TokenId]
+		usage.Last30Days = row.Quota
+		usageByToken[row.TokenId] = usage
+	}
+
+	var today []tokenQuotaSum
+	err = LOG_DB.Model(&Log{}).
+		Select("token_id, COALESCE(SUM(quota), 0) AS quota").
+		Where("user_id = ? AND token_id IN ? AND type = ? AND created_at >= ? AND created_at <= ?",
+			userId, tokenIds, LogTypeConsume, todayStart.Unix(), endTimestamp).
+		Group("token_id").
+		Scan(&today).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range today {
+		usage := usageByToken[row.TokenId]
+		usage.Today = row.Quota
+		usageByToken[row.TokenId] = usage
+	}
+
+	return usageByToken, nil
 }
 
 func RecordLog(userId int, logType int, content string) {

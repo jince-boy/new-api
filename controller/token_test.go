@@ -11,11 +11,14 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -32,10 +35,20 @@ type tokenPageResponse struct {
 }
 
 type tokenResponseItem struct {
-	ID     int    `json:"id"`
-	Name   string `json:"name"`
-	Key    string `json:"key"`
-	Status int    `json:"status"`
+	ID     int                    `json:"id"`
+	Name   string                 `json:"name"`
+	Key    string                 `json:"key"`
+	Status int                    `json:"status"`
+	Usage  tokenUsageResponseItem `json:"usage"`
+}
+
+type tokenUsageResponseItem struct {
+	Today      tokenUsagePeriodResponseItem `json:"today"`
+	Last30Days tokenUsagePeriodResponseItem `json:"last_30_days"`
+}
+
+type tokenUsagePeriodResponseItem struct {
+	Quota int64 `json:"quota"`
 }
 
 type tokenKeyResponse struct {
@@ -481,6 +494,45 @@ func TestSearchTokensMasksKeyInResponse(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), token.Key) {
 		t.Fatalf("search response leaked raw token key: %s", recorder.Body.String())
+	}
+}
+
+func TestTokenListEndpointsIncludeScopedUsageStats(t *testing.T) {
+	tests := []struct {
+		name   string
+		target string
+		call   func(*gin.Context)
+	}{
+		{name: "list", target: "/api/token/?p=1&size=10", call: GetAllTokens},
+		{name: "search", target: "/api/token/search?keyword=usage-token&p=1&size=10", call: SearchTokens},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db := setupTokenControllerTestDB(t)
+			require.NoError(t, db.AutoMigrate(&model.Log{}))
+			token := seedToken(t, db, 1, "usage-token", "usage1234token5678")
+			now := time.Now()
+			logs := []model.Log{
+				{UserId: 1, TokenId: token.Id, Type: model.LogTypeConsume, CreatedAt: now.Add(-time.Hour).Unix(), Quota: 120},
+				{UserId: 1, TokenId: token.Id, Type: model.LogTypeConsume, CreatedAt: now.AddDate(0, 0, -10).Unix(), Quota: 80},
+				{UserId: 1, TokenId: token.Id, Type: model.LogTypeConsume, CreatedAt: now.AddDate(0, 0, -31).Unix(), Quota: 500},
+				{UserId: 1, TokenId: token.Id, Type: model.LogTypeRefund, CreatedAt: now.Add(-time.Minute).Unix(), Quota: 30},
+				{UserId: 2, TokenId: token.Id, Type: model.LogTypeConsume, CreatedAt: now.Add(-time.Minute).Unix(), Quota: 900},
+			}
+			require.NoError(t, db.Create(&logs).Error)
+
+			ctx, recorder := newAuthenticatedContext(t, http.MethodGet, test.target, nil, 1)
+			test.call(ctx)
+
+			response := decodeAPIResponse(t, recorder)
+			require.True(t, response.Success, response.Message)
+			var page tokenPageResponse
+			require.NoError(t, common.Unmarshal(response.Data, &page))
+			require.Len(t, page.Items, 1)
+			assert.EqualValues(t, 120, page.Items[0].Usage.Today.Quota)
+			assert.EqualValues(t, 200, page.Items[0].Usage.Last30Days.Quota)
+		})
 	}
 }
 

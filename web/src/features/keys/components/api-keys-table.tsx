@@ -56,6 +56,7 @@ import {
 import { resolveApiBaseUrls } from '../lib/base-urls'
 import type { ApiKey } from '../types'
 import { ApiBaseUrlFields } from './api-base-url-fields'
+import { ApiKeyUsageStats } from './api-key-usage-stats'
 import { ApiKeyCell, UnlimitedQuotaBadge } from './api-keys-cells'
 import { useApiKeysColumns } from './api-keys-columns'
 import { useApiKeys } from './api-keys-provider'
@@ -90,6 +91,7 @@ function ApiKeysMobileSkeleton() {
             <Skeleton className='h-8 w-16' />
           </div>
           <Skeleton className='h-3 w-28' />
+          <Skeleton className='h-12 w-full rounded-md' />
         </div>
       ))}
     </div>
@@ -182,6 +184,8 @@ function ApiKeysMobileList({
                 </span>
               )}
             </div>
+
+            <ApiKeyUsageStats usage={apiKey.usage} className='min-w-0' />
           </div>
         )
       })}

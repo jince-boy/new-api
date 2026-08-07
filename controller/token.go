@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -38,7 +39,17 @@ type tokenRequest struct {
 
 type tokenResponse struct {
 	*model.Token
-	AutoGroups []string `json:"auto_groups"`
+	AutoGroups []string            `json:"auto_groups"`
+	Usage      *tokenUsageResponse `json:"usage,omitempty"`
+}
+
+type tokenUsagePeriodResponse struct {
+	Quota int64 `json:"quota"`
+}
+
+type tokenUsageResponse struct {
+	Today      tokenUsagePeriodResponse `json:"today"`
+	Last30Days tokenUsagePeriodResponse `json:"last_30_days"`
 }
 
 func buildMaskedTokenResponse(token *model.Token) *tokenResponse {
@@ -64,6 +75,33 @@ func buildMaskedTokenResponses(tokens []*model.Token) []*tokenResponse {
 		maskedTokens = append(maskedTokens, buildMaskedTokenResponse(token))
 	}
 	return maskedTokens
+}
+
+func buildMaskedTokenResponsesWithUsage(userId int, tokens []*model.Token) ([]*tokenResponse, error) {
+	tokenIds := make([]int, 0, len(tokens))
+	for _, token := range tokens {
+		if token != nil {
+			tokenIds = append(tokenIds, token.Id)
+		}
+	}
+
+	usageByToken, err := model.GetTokenUsageQuotas(userId, tokenIds, time.Now())
+	if err != nil {
+		return nil, err
+	}
+
+	responses := buildMaskedTokenResponses(tokens)
+	for _, response := range responses {
+		if response == nil {
+			continue
+		}
+		usage := usageByToken[response.Id]
+		response.Usage = &tokenUsageResponse{
+			Today:      tokenUsagePeriodResponse{Quota: usage.Today},
+			Last30Days: tokenUsagePeriodResponse{Quota: usage.Last30Days},
+		}
+	}
+	return responses, nil
 }
 
 func getTokenRequestUserGroup(c *gin.Context) (string, error) {
@@ -141,8 +179,13 @@ func GetAllTokens(c *gin.Context) {
 		return
 	}
 	total, _ := model.CountUserTokens(userId)
+	responses, err := buildMaskedTokenResponsesWithUsage(userId, tokens)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(buildMaskedTokenResponses(tokens))
+	pageInfo.SetItems(responses)
 	common.ApiSuccess(c, pageInfo)
 }
 
@@ -158,8 +201,13 @@ func SearchTokens(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	responses, err := buildMaskedTokenResponsesWithUsage(userId, tokens)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	pageInfo.SetTotal(int(total))
-	pageInfo.SetItems(buildMaskedTokenResponses(tokens))
+	pageInfo.SetItems(responses)
 	common.ApiSuccess(c, pageInfo)
 }
 
