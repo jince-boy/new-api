@@ -97,16 +97,19 @@ type TaskUpstreamDiagnostics struct {
 }
 
 type RelayInfo struct {
-	TokenId           int
-	TokenKey          string
-	TokenGroup        string
-	UserId            int
-	UsingGroup        string // 使用的分组，当auto跨分组重试时，会变动
-	UserGroup         string // 用户所在分组
-	TokenUnlimited    bool
-	StartTime         time.Time
-	FirstResponseTime time.Time
-	isFirstResponse   bool
+	TokenId                  int
+	TokenKey                 string
+	TokenGroup               string
+	UserId                   int
+	UsingGroup               string // 使用的分组，当auto跨分组重试时，会变动
+	UserGroup                string // 用户所在分组
+	TokenUnlimited           bool
+	StartTime                time.Time
+	FirstResponseTime        time.Time
+	UpstreamStartTime        time.Time
+	UpstreamResponseTime     time.Time
+	UpstreamFirstContentTime time.Time
+	isFirstResponse          bool
 	//SendLastReasoningResponse bool
 	IsStream               bool
 	IsGeminiBatchEmbedding bool
@@ -161,6 +164,12 @@ type RelayInfo struct {
 	IsChannelTest                         bool // channel test request
 	RetryIndex                            int
 	LastError                             *types.NewAPIError
+	SchedulerGroup                        string
+	SchedulerModel                        string
+	SchedulerPriority                     int64
+	SchedulerChannelId                    int
+	SchedulerStartedAt                    int64
+	SchedulerAttemptActive                bool
 	RuntimeHeadersOverride                map[string]interface{}
 	UseRuntimeHeadersOverride             bool
 	ParamOverrideAudit                    []string
@@ -525,6 +534,10 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 			estimatePromptTokens: common.GetContextKeyInt(c, constant.ContextKeyEstimatedTokens),
 		},
 	}
+	if autoGroup := common.GetContextKeyString(c, constant.ContextKeyAutoGroup); autoGroup != "" {
+		info.UsingGroup = autoGroup
+		common.SetContextKey(c, constant.ContextKeyUsingGroup, autoGroup)
+	}
 
 	if info.RelayMode == relayconstant.RelayModeUnknown {
 		info.RelayMode = c.GetInt("relay_mode")
@@ -833,6 +846,53 @@ func (info *RelayInfo) SetFirstResponseTime() {
 		info.FirstResponseTime = time.Now()
 		info.isFirstResponse = false
 	}
+}
+
+func (info *RelayInfo) ResetUpstreamTiming() {
+	if info == nil {
+		return
+	}
+	info.UpstreamStartTime = time.Time{}
+	info.UpstreamResponseTime = time.Time{}
+	info.UpstreamFirstContentTime = time.Time{}
+	info.FirstResponseTime = info.StartTime.Add(-time.Second)
+	info.isFirstResponse = true
+}
+
+func (info *RelayInfo) MarkUpstreamRequestStart() {
+	if info == nil {
+		return
+	}
+	info.UpstreamStartTime = time.Now()
+	info.UpstreamResponseTime = time.Time{}
+}
+
+func (info *RelayInfo) MarkUpstreamResponse() {
+	if info == nil || info.UpstreamStartTime.IsZero() || !info.UpstreamResponseTime.IsZero() {
+		return
+	}
+	info.UpstreamResponseTime = time.Now()
+}
+
+func (info *RelayInfo) MarkUpstreamFirstContent() {
+	if info == nil || info.UpstreamStartTime.IsZero() || !info.UpstreamFirstContentTime.IsZero() {
+		return
+	}
+	info.UpstreamFirstContentTime = time.Now()
+}
+
+func (info *RelayInfo) UpstreamFirstResponseDuration() (int64, bool) {
+	if info == nil || info.UpstreamStartTime.IsZero() {
+		return 0, false
+	}
+	firstResponse := info.UpstreamResponseTime
+	if info.IsStream {
+		firstResponse = info.UpstreamFirstContentTime
+	}
+	if firstResponse.IsZero() || firstResponse.Before(info.UpstreamStartTime) {
+		return 0, false
+	}
+	return firstResponse.Sub(info.UpstreamStartTime).Milliseconds(), true
 }
 
 func (info *RelayInfo) HasSendResponse() bool {

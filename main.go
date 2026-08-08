@@ -343,6 +343,7 @@ func InitResources() error {
 	}
 
 	perfmetrics.Init()
+	service.InitChannelScheduler()
 
 	// 启动系统监控
 	common.StartSystemMonitor()

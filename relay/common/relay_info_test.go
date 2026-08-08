@@ -3,6 +3,7 @@ package common
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	rootcommon "github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -12,6 +13,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestUpstreamFirstResponseDurationSeparatesStreamingAndNonStreaming(t *testing.T) {
+	start := time.Unix(100, 0)
+	nonStream := &RelayInfo{UpstreamStartTime: start, UpstreamResponseTime: start.Add(250 * time.Millisecond)}
+	stream := &RelayInfo{IsStream: true, UpstreamStartTime: start, UpstreamResponseTime: start.Add(100 * time.Millisecond), UpstreamFirstContentTime: start.Add(900 * time.Millisecond)}
+
+	nonStreamDuration, nonStreamOk := nonStream.UpstreamFirstResponseDuration()
+	streamDuration, streamOk := stream.UpstreamFirstResponseDuration()
+
+	require.True(t, nonStreamOk)
+	require.True(t, streamOk)
+	assert.Equal(t, int64(250), nonStreamDuration)
+	assert.Equal(t, int64(900), streamDuration)
+}
 
 func TestGenBaseRelayInfoBlankTokenGroupUsesServiceGroup(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -25,6 +40,21 @@ func TestGenBaseRelayInfoBlankTokenGroupUsesServiceGroup(t *testing.T) {
 	assert.Equal(t, "vip", info.UserGroup)
 	assert.Equal(t, "codex", info.UsingGroup)
 	assert.Equal(t, "codex", info.TokenGroup)
+}
+
+func TestGenBaseRelayInfoUsesResolvedAutoGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
+	rootcommon.SetContextKey(ctx, constant.ContextKeyUsingGroup, "auto")
+	rootcommon.SetContextKey(ctx, constant.ContextKeyTokenGroup, "auto")
+	rootcommon.SetContextKey(ctx, constant.ContextKeyAutoGroup, "vip")
+
+	info := genBaseRelayInfo(ctx, nil)
+
+	assert.Equal(t, "vip", info.UsingGroup)
+	assert.Equal(t, "auto", info.TokenGroup)
+	assert.Equal(t, "vip", rootcommon.GetContextKeyString(ctx, constant.ContextKeyUsingGroup))
 }
 
 func TestRelayInfoGetFinalRequestRelayFormatPrefersExplicitFinal(t *testing.T) {

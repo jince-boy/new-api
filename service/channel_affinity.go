@@ -677,6 +677,7 @@ func MarkChannelAffinityUsed(c *gin.Context, selectedGroup string, channelID int
 	if c == nil || channelID <= 0 {
 		return
 	}
+	c.Set("channel_affinity_used", true)
 	meta, ok := getChannelAffinityMeta(c)
 	if !ok {
 		return

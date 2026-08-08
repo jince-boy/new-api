@@ -294,6 +294,9 @@ streamLoop:
 			switch v := event.(type) {
 			case *bedrockruntimeTypes.ResponseStreamMemberChunk:
 				info.SetFirstResponseTime()
+				if helper.IsMeaningfulStreamData(string(v.Value.Bytes)) {
+					info.MarkUpstreamFirstContent()
+				}
 				respErr := claude.HandleStreamResponseData(c, info, claudeInfo, string(v.Value.Bytes))
 				if respErr != nil {
 					return respErr, nil

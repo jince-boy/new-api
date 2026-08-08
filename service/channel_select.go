@@ -16,6 +16,7 @@ type RetryParam struct {
 	ModelName    string
 	RequestPath  string
 	Retry        *int
+	attempted    map[int]struct{}
 	resetNextTry bool
 }
 
@@ -43,6 +44,24 @@ func (p *RetryParam) IncreaseRetry() {
 
 func (p *RetryParam) ResetRetryNextTry() {
 	p.resetNextTry = true
+}
+
+func (p *RetryParam) MarkAttempted(channelId int) {
+	if channelId <= 0 {
+		return
+	}
+	if p.attempted == nil {
+		p.attempted = make(map[int]struct{})
+	}
+	p.attempted[channelId] = struct{}{}
+}
+
+func (p *RetryParam) HasAttempted(channelId int) bool {
+	if p == nil || p.attempted == nil {
+		return false
+	}
+	_, ok := p.attempted[channelId]
+	return ok
 }
 
 // CacheGetRandomSatisfiedChannel tries to get a random channel that satisfies the requirements.
@@ -115,7 +134,14 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.RequestPath)
+			if IsIntelligentSchedulingForGroup(autoGroup) {
+				channel, err = selectIntelligentChannel(param, autoGroup)
+			} else {
+				channel, err = selectLegacyChannel(param, autoGroup, priorityRetry)
+			}
+			if err != nil {
+				return nil, autoGroup, err
+			}
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组
@@ -134,7 +160,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 
 			// Prepare state for next retry
 			// 为下一次重试准备状态
-			if crossGroupRetry && priorityRetry >= common.RetryTimes {
+			if !IsIntelligentSchedulingForGroup(autoGroup) && crossGroupRetry && priorityRetry >= common.RetryTimes {
 				// Current group has exhausted all retries, prepare to switch to next group
 				// This request still uses current group, but next retry will use next group
 				// 当前分组已用完所有重试次数，准备切换到下一个分组
@@ -153,7 +179,11 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			break
 		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath)
+		if IsIntelligentSchedulingForGroup(param.TokenGroup) {
+			channel, err = selectIntelligentChannel(param, param.TokenGroup)
+		} else {
+			channel, err = selectLegacyChannel(param, param.TokenGroup, param.GetRetry())
+		}
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}

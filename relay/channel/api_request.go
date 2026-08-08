@@ -331,10 +331,12 @@ func DoApiRequestWithMethod(a Adaptor, c *gin.Context, info *common.RelayInfo, m
 		return nil, err
 	}
 	applyHeaderOverrideToRequest(req, headerOverride)
+	info.MarkUpstreamRequestStart()
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
 	}
+	info.MarkUpstreamResponse()
 	return resp, nil
 }
 
@@ -367,10 +369,12 @@ func DoFormRequestWithMethod(a Adaptor, c *gin.Context, info *common.RelayInfo, 
 		return nil, err
 	}
 	applyHeaderOverrideToRequest(req, headerOverride)
+	info.MarkUpstreamRequestStart()
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
 	}
+	info.MarkUpstreamResponse()
 	return resp, nil
 }
 
@@ -394,10 +398,12 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		targetHeader.Set(key, value)
 	}
 	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
+	info.MarkUpstreamRequestStart()
 	targetConn, _, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
 	if err != nil {
 		return nil, fmt.Errorf("dial failed to %s: %w", common.SanitizeURLForLog(fullRequestURL), err)
 	}
+	info.MarkUpstreamResponse()
 	// send request body
 	//all, err := io.ReadAll(requestBody)
 	//err = service.WssString(c, targetConn, string(all))

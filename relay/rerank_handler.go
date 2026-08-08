@@ -78,7 +78,9 @@ func RerankHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		requestBody = body
 	}
 
+	info.MarkUpstreamRequestStart()
 	resp, err := adaptor.DoRequest(c, info, requestBody)
+	info.MarkUpstreamResponse()
 	if err != nil {
 		return types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
 	}

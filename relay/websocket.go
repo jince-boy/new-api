@@ -26,7 +26,9 @@ func WssHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types.
 
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 	errorResponseMappingStr := c.GetString("error_response_mapping")
+	info.MarkUpstreamRequestStart()
 	resp, err := adaptor.DoRequest(c, info, nil)
+	info.MarkUpstreamResponse()
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeDoRequestFailed)
 	}

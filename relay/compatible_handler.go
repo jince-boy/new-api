@@ -183,7 +183,9 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 	}
 
 	var httpResp *http.Response
+	info.MarkUpstreamRequestStart()
 	resp, err := adaptor.DoRequest(c, info, requestBody)
+	info.MarkUpstreamResponse()
 	if err != nil {
 		return types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
 	}

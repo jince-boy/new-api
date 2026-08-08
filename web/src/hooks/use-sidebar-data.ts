@@ -31,6 +31,7 @@ import {
   Radio,
   ServerCog,
   Settings,
+  GitBranch,
   Ticket,
   User,
   Users,
@@ -137,6 +138,11 @@ export function useSidebarData(): SidebarData {
             title: t('Channels'),
             url: '/channels',
             icon: Radio,
+          },
+          {
+            title: t('Intelligent Scheduling'),
+            url: '/channel-scheduling',
+            icon: GitBranch,
           },
           {
             title: t('Models'),

@@ -263,6 +263,7 @@ func openaiImageJSONAsStreamHandler(c *gin.Context, info *relaycommon.RelayInfo,
 		created = time.Now().Unix()
 	}
 	if info != nil {
+		info.MarkUpstreamFirstContent()
 		info.SetFirstResponseTime()
 	}
 

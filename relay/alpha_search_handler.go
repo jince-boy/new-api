@@ -75,7 +75,9 @@ func AlphaSearchHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError
 	}
 	adaptor.Init(info)
 
+	info.MarkUpstreamRequestStart()
 	resp, err := adaptor.DoRequest(c, info, body)
+	info.MarkUpstreamResponse()
 	if err != nil {
 		return types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
 	}

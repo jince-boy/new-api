@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/types"
@@ -15,6 +16,18 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestHandleGroupRatioPublishesResolvedAutoGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	common.SetContextKey(ctx, constant.ContextKeyAutoGroup, "vip")
+	info := &relaycommon.RelayInfo{UserGroup: "default", UsingGroup: "auto"}
+
+	HandleGroupRatio(ctx, info)
+
+	require.Equal(t, "vip", info.UsingGroup)
+	require.Equal(t, "vip", common.GetContextKeyString(ctx, constant.ContextKeyUsingGroup))
+}
 
 func TestModelPriceHelperTieredUsesPreloadedRequestInput(t *testing.T) {
 	gin.SetMode(gin.TestMode)

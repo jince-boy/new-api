@@ -341,8 +341,12 @@ func UpdateOptionsBulk(values map[string]string) error {
 	}
 
 	keys := make([]string, 0, len(normalizedValues))
+	channelSchedulingConfig := make(map[string]string)
 	for key := range normalizedValues {
 		keys = append(keys, key)
+		if configKey, ok := strings.CutPrefix(key, "channel_scheduling_setting."); ok {
+			channelSchedulingConfig[configKey] = normalizedValues[key]
+		}
 	}
 	sort.Strings(keys)
 	err := DB.Transaction(func(tx *gorm.DB) error {
@@ -388,8 +392,23 @@ func UpdateOptionsBulk(values map[string]string) error {
 		if _, ok := updated[k]; ok {
 			continue
 		}
+		if _, ok := strings.CutPrefix(k, "channel_scheduling_setting."); ok {
+			continue
+		}
 		v := normalizedValues[k]
 		if err := updateOptionMap(k, v); err != nil {
+			return err
+		}
+	}
+	if len(channelSchedulingConfig) > 0 {
+		common.OptionMapRWMutex.Lock()
+		for key, value := range normalizedValues {
+			if strings.HasPrefix(key, "channel_scheduling_setting.") {
+				common.OptionMap[key] = value
+			}
+		}
+		common.OptionMapRWMutex.Unlock()
+		if err := operation_setting.ApplyChannelSchedulingConfig(channelSchedulingConfig); err != nil {
 			return err
 		}
 	}
@@ -766,6 +785,12 @@ func handleConfigUpdate(key, value string) bool {
 
 	configName := parts[0]
 	configKey := parts[1]
+	if configName == "channel_scheduling_setting" {
+		if err := operation_setting.ApplyChannelSchedulingConfig(map[string]string{configKey: value}); err != nil {
+			common.SysError("failed to update channel scheduling setting: " + err.Error())
+		}
+		return true
+	}
 
 	// 获取配置对象
 	cfg := config.GlobalConfig.Get(configName)

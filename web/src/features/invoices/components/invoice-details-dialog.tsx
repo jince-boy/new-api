@@ -42,6 +42,7 @@ import { formatInvoiceDate, formatInvoiceMoney } from '../lib/format'
 import { getInvoiceEmailAction } from '../lib/invoice-email-action'
 import type {
   InvoiceApplication,
+  InvoiceOrder,
   InvoicePaymentMethod,
   ReviewInvoiceApplicationRequest,
 } from '../types'
@@ -73,6 +74,47 @@ export function InvoiceFileAction(props: InvoiceFileActionProps) {
       <HugeiconsIcon icon={ViewIcon} data-icon='inline-start' />
       {t('View document')}
     </Button>
+  )
+}
+
+type InvoiceOrderListProps = {
+  orders: InvoiceOrder[]
+  currency: string
+}
+
+export function InvoiceOrderList(props: InvoiceOrderListProps) {
+  const { t } = useTranslation()
+
+  if (props.orders.length === 0) {
+    return (
+      <p className='text-muted-foreground text-sm'>
+        {t('No eligible paid orders')}
+      </p>
+    )
+  }
+
+  return (
+    <div className='divide-y border-y'>
+      {props.orders.map((order) => (
+        <div
+          key={order.id || `${order.application_id}-${order.top_up_id}`}
+          className='flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between'
+        >
+          <div className='min-w-0'>
+            <div className='truncate font-mono text-xs' title={order.trade_no}>
+              {order.trade_no || `#${order.top_up_id}`}
+            </div>
+            <div className='text-muted-foreground text-xs'>
+              {formatInvoiceDate(order.completed_at)} {' / '}{' '}
+              {order.payment_method || '-'}
+            </div>
+          </div>
+          <span className='shrink-0 tabular-nums'>
+            {formatInvoiceMoney(order.paid_amount_cents, props.currency)}
+          </span>
+        </div>
+      ))}
+    </div>
   )
 }
 
@@ -114,6 +156,7 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
     props.isAdmin &&
     (application.status === 'approved' || application.status === 'issued')
   const emailAction = getInvoiceEmailAction(application, props.isAdmin)
+  const orders = application.orders ?? []
 
   return (
     <Dialog open onOpenChange={props.onOpenChange}>
@@ -150,7 +193,7 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
                 {application.applicant_note || '-'}
               </dd>
               <dt className='text-muted-foreground'>{t('Paid orders')}</dt>
-              <dd>{application.orders.length}</dd>
+              <dd>{orders.length}</dd>
             </dl>
           </section>
 
@@ -236,6 +279,16 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
             </dl>
           </section>
         </div>
+
+        <section className='flex flex-col gap-3 rounded-lg border p-4'>
+          <div className='flex items-center justify-between gap-3'>
+            <h3 className='font-medium'>{t('Paid orders')}</h3>
+            <span className='text-muted-foreground text-sm'>
+              {orders.length}
+            </span>
+          </div>
+          <InvoiceOrderList orders={orders} currency={application.currency} />
+        </section>
 
         <Alert>
           <AlertTitle>

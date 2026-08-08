@@ -121,6 +121,16 @@ func OpenaiRealtimeHandler(c *gin.Context, info *relaycommon.RelayInfo) (*types.
 					errChan <- fmt.Errorf("error unmarshalling message: %v", err)
 					return
 				}
+				if realtimeEvent.Delta != "" || realtimeEvent.Audio != "" {
+					info.MarkUpstreamFirstContent()
+				} else if realtimeEvent.Item != nil {
+					for _, content := range realtimeEvent.Item.Content {
+						if content.Text != "" || content.Audio != "" || content.Transcript != "" {
+							info.MarkUpstreamFirstContent()
+							break
+						}
+					}
+				}
 
 				if realtimeEvent.Type == dto.RealtimeEventTypeResponseDone {
 					realtimeUsage := realtimeEvent.Response.Usage

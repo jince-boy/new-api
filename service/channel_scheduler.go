@@ -1,0 +1,1117 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"math"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
+	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/types"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/gin-gonic/gin"
+)
+
+type schedulingPoolKey struct {
+	Group    string
+	Model    string
+	Priority int64
+}
+
+const intelligentSchedulingBaseWeight = 100
+
+type channelSchedulingTtftSample struct {
+	Ts     int64
+	TtftMs int64
+}
+
+type channelSchedulingState struct {
+	ChannelId         int
+	ChannelName       string
+	BaseWeight        int
+	CurrentWeight     float64
+	EffectiveWeight   float64
+	PerformanceFactor float64
+	EstimatedTtftMs   float64
+	LastTtftMs        int64
+	Inflight          int64
+	RequestCount      int64
+	SuccessCount      int64
+	ErrorCount        int64
+	AffinityHits      int64
+	Samples           int64
+	TtftSamples       []channelSchedulingTtftSample
+	LastSelectedAt    int64
+	LastCompletedAt   int64
+	LastError         string
+	Buckets           map[int64]*ChannelSchedulingBucket
+}
+
+type channelSchedulingPool struct {
+	mu       sync.Mutex
+	channels map[int]*channelSchedulingState
+}
+
+type channelModelKey struct {
+	ChannelId int
+	Model     string
+}
+
+type ChannelSchedulingBucket struct {
+	Ts              int64   `json:"ts"`
+	RequestCount    int64   `json:"request_count"`
+	SuccessCount    int64   `json:"success_count"`
+	ErrorCount      int64   `json:"error_count"`
+	TtftSumMs       int64   `json:"-"`
+	TtftCount       int64   `json:"-"`
+	AvgTtftMs       int64   `json:"avg_ttft_ms"`
+	EffectiveWeight float64 `json:"effective_weight"`
+	Inflight        int64   `json:"inflight"`
+}
+
+type ChannelSchedulingChannelSnapshot struct {
+	ChannelId         int                       `json:"channel_id"`
+	ChannelName       string                    `json:"channel_name"`
+	Group             string                    `json:"group"`
+	Model             string                    `json:"model"`
+	Priority          int64                     `json:"priority"`
+	BaseWeight        int                       `json:"base_weight"`
+	EffectiveWeight   float64                   `json:"effective_weight"`
+	PerformanceFactor float64                   `json:"performance_factor"`
+	EstimatedTtftMs   int64                     `json:"estimated_ttft_ms"`
+	LastTtftMs        int64                     `json:"last_ttft_ms"`
+	Inflight          int64                     `json:"inflight"`
+	RequestCount      int64                     `json:"request_count"`
+	SuccessCount      int64                     `json:"success_count"`
+	ErrorCount        int64                     `json:"error_count"`
+	AffinityHits      int64                     `json:"affinity_hits"`
+	Samples           int64                     `json:"samples"`
+	ActualShare       float64                   `json:"actual_share"`
+	State             string                    `json:"state"`
+	LastError         string                    `json:"last_error"`
+	LastSelectedAt    int64                     `json:"last_selected_at"`
+	LastCompletedAt   int64                     `json:"last_completed_at"`
+	Series            []ChannelSchedulingBucket `json:"series"`
+}
+
+type ChannelSchedulingEvent struct {
+	Ts          int64  `json:"ts"`
+	Type        string `json:"type"`
+	ChannelId   int    `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	Group       string `json:"group"`
+	Model       string `json:"model"`
+	Priority    int64  `json:"priority"`
+	Message     string `json:"message"`
+}
+
+type ChannelSchedulingChannelFault struct {
+	ChannelId   int    `json:"channel_id"`
+	ChannelName string `json:"channel_name"`
+	Reason      string `json:"reason"`
+	DisabledAt  int64  `json:"disabled_at"`
+}
+
+type ChannelSchedulingOverview struct {
+	Strategy         operation_setting.ChannelSchedulingSetting `json:"strategy"`
+	GeneratedAt      int64                                      `json:"generated_at"`
+	ActivePools      int                                        `json:"active_pools"`
+	NormalChannels   int                                        `json:"normal_channels"`
+	DegradedChannels int                                        `json:"degraded_channels"`
+	DisabledModels   int                                        `json:"disabled_models"`
+	DisabledChannels int                                        `json:"disabled_channels"`
+	Inflight         int64                                      `json:"inflight"`
+	Requests         int64                                      `json:"requests"`
+	Rps              float64                                    `json:"rps"`
+	Errors           int64                                      `json:"errors"`
+	AvgTtftMs        int64                                      `json:"avg_ttft_ms"`
+	Channels         []ChannelSchedulingChannelSnapshot         `json:"channels"`
+	Faults           []model.ChannelModelState                  `json:"faults"`
+	ChannelFaults    []ChannelSchedulingChannelFault            `json:"channel_faults"`
+	Events           []ChannelSchedulingEvent                   `json:"events"`
+}
+
+var channelScheduler = struct {
+	poolsMu          sync.RWMutex
+	pools            map[schedulingPoolKey]*channelSchedulingPool
+	disabledMu       sync.RWMutex
+	disabled         map[channelModelKey]model.ChannelModelState
+	disabledChannels map[int]struct{}
+	eventsMu         sync.Mutex
+	events           []ChannelSchedulingEvent
+}{
+	pools:            make(map[schedulingPoolKey]*channelSchedulingPool),
+	disabled:         make(map[channelModelKey]model.ChannelModelState),
+	disabledChannels: make(map[int]struct{}),
+}
+
+var channelSchedulerSyncOnce sync.Once
+
+func InitChannelScheduler() {
+	reloadChannelSchedulerFaults()
+	channelSchedulerSyncOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				reloadChannelSchedulerFaults()
+				cleanupChannelSchedulingPools(time.Now().Unix(), operation_setting.GetChannelSchedulingSetting().RealtimeRetentionMin)
+			}
+		}()
+	})
+}
+
+func reloadChannelSchedulerFaults() {
+	states, err := model.ListChannelModelStates(true)
+	if err != nil {
+		common.SysError("failed to load channel scheduling faults: " + err.Error())
+		return
+	}
+	disabledChannels, channelErr := model.ListAutoDisabledChannels()
+	if channelErr != nil {
+		common.SysError("failed to load disabled scheduling channels: " + channelErr.Error())
+		return
+	}
+	channelScheduler.disabledMu.Lock()
+	defer channelScheduler.disabledMu.Unlock()
+	channelScheduler.disabled = make(map[channelModelKey]model.ChannelModelState, len(states))
+	channelScheduler.disabledChannels = make(map[int]struct{}, len(disabledChannels))
+	for _, state := range states {
+		channelScheduler.disabled[channelModelKey{ChannelId: state.ChannelId, Model: state.Model}] = state
+	}
+	for _, channel := range disabledChannels {
+		if model.IsChannelSchedulingFault(&channel) {
+			channelScheduler.disabledChannels[channel.Id] = struct{}{}
+		}
+	}
+}
+
+func IsIntelligentSchedulingForGroup(group string) bool {
+	return operation_setting.IsIntelligentChannelScheduling(group)
+}
+
+func ChannelUsesIntelligentScheduling(channel *model.Channel) bool {
+	_, ok := GetIntelligentSchedulingGroupForChannel(channel)
+	return ok
+}
+
+func GetIntelligentSchedulingGroupForChannel(channel *model.Channel) (string, bool) {
+	if channel == nil {
+		return "", false
+	}
+	for _, group := range strings.Split(channel.Group, ",") {
+		group = strings.TrimSpace(group)
+		if group != "" && IsIntelligentSchedulingForGroup(group) {
+			return group, true
+		}
+	}
+	return "", false
+}
+
+func ShouldRetryIntelligentSchedulingError(group string, relayErr *types.NewAPIError) bool {
+	return IsHandledByIntelligentChannelScheduling(group, relayErr)
+}
+
+func IsHandledByIntelligentChannelScheduling(group string, relayErr *types.NewAPIError) bool {
+	return IsIntelligentSchedulingForGroup(group) && classifySchedulingFault(relayErr) != ""
+}
+
+func IsIntelligentSchedulingFaultError(relayErr *types.NewAPIError) bool {
+	return classifySchedulingFault(relayErr) != ""
+}
+
+func IsIntelligentSchedulingForRequest(param *RetryParam) bool {
+	if param == nil {
+		return false
+	}
+	if param.TokenGroup != "auto" {
+		return IsIntelligentSchedulingForGroup(param.TokenGroup)
+	}
+	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
+	for _, group := range GetRequestAutoGroups(param.Ctx, userGroup) {
+		if IsIntelligentSchedulingForGroup(group) {
+			return true
+		}
+	}
+	return false
+}
+
+func ShouldUseChannelAffinityForRequest(param *RetryParam) bool {
+	return !IsIntelligentSchedulingForRequest(param)
+}
+
+func GetRelayAttemptLimit(param *RetryParam) int {
+	if IsIntelligentSchedulingForRequest(param) {
+		return operation_setting.GetChannelSchedulingSetting().MaxAttempts
+	}
+	limit := common.RetryTimes + 1
+	if limit < 1 {
+		limit = 1
+	}
+	return limit
+}
+
+func selectLegacyChannel(param *RetryParam, group string, retry int) (*model.Channel, error) {
+	normalizedModel := ratio_setting.FormatMatchingModelName(param.ModelName)
+	if !hasChannelModelSchedulingFault(normalizedModel) {
+		return model.GetRandomSatisfiedChannel(group, param.ModelName, retry, param.RequestPath)
+	}
+
+	candidates, err := model.GetSatisfiedChannels(group, param.ModelName, param.RequestPath)
+	if err != nil || len(candidates) == 0 {
+		return nil, err
+	}
+	available := make([]*model.Channel, 0, len(candidates))
+	for _, channel := range candidates {
+		if !isChannelModelSchedulingDisabled(channel.Id, normalizedModel) {
+			available = append(available, channel)
+		}
+	}
+	if len(available) == 0 {
+		return nil, nil
+	}
+
+	priorities := make([]int64, 0, len(available))
+	for _, channel := range available {
+		priority := channel.GetPriority()
+		if len(priorities) == 0 || priorities[len(priorities)-1] != priority {
+			priorities = append(priorities, priority)
+		}
+	}
+	if retry >= len(priorities) {
+		retry = len(priorities) - 1
+	}
+	if retry < 0 {
+		retry = 0
+	}
+	targetPriority := priorities[retry]
+	tier := make([]*model.Channel, 0, len(available))
+	for _, channel := range available {
+		if channel.GetPriority() == targetPriority {
+			tier = append(tier, channel)
+		}
+	}
+	return selectLegacyWeightedChannel(tier), nil
+}
+
+func selectLegacyWeightedChannel(channels []*model.Channel) *model.Channel {
+	if len(channels) == 0 {
+		return nil
+	}
+	if len(channels) == 1 {
+		return channels[0]
+	}
+
+	sumWeight := 0
+	for _, channel := range channels {
+		weight := channel.GetWeight()
+		if weight > 0 {
+			sumWeight += weight
+		}
+	}
+	if sumWeight == 0 {
+		return channels[common.GetRandomInt(len(channels))]
+	}
+
+	smoothingFactor := 1
+	if sumWeight/len(channels) < 10 {
+		smoothingFactor = 100
+	}
+	randomWeight := common.GetRandomInt(sumWeight * smoothingFactor)
+	for _, channel := range channels {
+		weight := channel.GetWeight()
+		if weight <= 0 {
+			continue
+		}
+		randomWeight -= weight * smoothingFactor
+		if randomWeight < 0 {
+			return channel
+		}
+	}
+	return channels[len(channels)-1]
+}
+
+func selectIntelligentChannel(param *RetryParam, group string) (*model.Channel, error) {
+	candidates, err := model.GetSatisfiedChannels(group, param.ModelName, param.RequestPath)
+	if err != nil || len(candidates) == 0 {
+		return nil, err
+	}
+	normalizedModel := ratio_setting.FormatMatchingModelName(param.ModelName)
+	available := make([]*model.Channel, 0, len(candidates))
+	for _, channel := range candidates {
+		if param.HasAttempted(channel.Id) || isChannelSchedulingDisabled(channel.Id, normalizedModel) {
+			continue
+		}
+		available = append(available, channel)
+	}
+	if len(available) == 0 {
+		return nil, nil
+	}
+
+	targetPriority, tier := highestPrioritySchedulingTier(available)
+	return selectSmoothWeightedChannel(schedulingPoolKey{Group: group, Model: normalizedModel, Priority: targetPriority}, tier), nil
+}
+
+func highestPrioritySchedulingTier(channels []*model.Channel) (int64, []*model.Channel) {
+	if len(channels) == 0 {
+		return 0, nil
+	}
+	targetPriority := channels[0].GetPriority()
+	for _, channel := range channels[1:] {
+		if channel.GetPriority() > targetPriority {
+			targetPriority = channel.GetPriority()
+		}
+	}
+	tier := make([]*model.Channel, 0, len(channels))
+	for _, channel := range channels {
+		if channel.GetPriority() == targetPriority {
+			tier = append(tier, channel)
+		}
+	}
+	return targetPriority, tier
+}
+
+func selectSmoothWeightedChannel(key schedulingPoolKey, candidates []*model.Channel) *model.Channel {
+	if len(candidates) == 0 {
+		return nil
+	}
+	pool := getSchedulingPool(key)
+	pool.mu.Lock()
+	defer pool.mu.Unlock()
+
+	now := time.Now().Unix()
+	active := make(map[int]*model.Channel, len(candidates))
+	for _, channel := range candidates {
+		active[channel.Id] = channel
+		state, ok := pool.channels[channel.Id]
+		if !ok {
+			state = &channelSchedulingState{ChannelId: channel.Id, Buckets: make(map[int64]*ChannelSchedulingBucket)}
+			pool.channels[channel.Id] = state
+		}
+		state.ChannelName = channel.Name
+		state.BaseWeight = intelligentSchedulingBaseWeight
+	}
+	for id := range pool.channels {
+		if _, ok := active[id]; !ok {
+			delete(pool.channels, id)
+		}
+	}
+
+	setting := operation_setting.GetChannelSchedulingSetting()
+	refreshSchedulingPoolWeights(pool, setting, now)
+	var selected *model.Channel
+	var selectedState *channelSchedulingState
+	totalWeight := 0.0
+	for _, channel := range candidates {
+		state := pool.channels[channel.Id]
+		state.CurrentWeight += state.EffectiveWeight
+		totalWeight += state.EffectiveWeight
+		if selectedState == nil || state.CurrentWeight > selectedState.CurrentWeight ||
+			(state.CurrentWeight == selectedState.CurrentWeight && channel.Id < selected.Id) {
+			selected = channel
+			selectedState = state
+		}
+	}
+	if selectedState != nil {
+		selectedState.CurrentWeight -= totalWeight
+		selectedState.LastSelectedAt = now
+	}
+	return selected
+}
+
+func getSchedulingPool(key schedulingPoolKey) *channelSchedulingPool {
+	channelScheduler.poolsMu.RLock()
+	pool := channelScheduler.pools[key]
+	channelScheduler.poolsMu.RUnlock()
+	if pool != nil {
+		return pool
+	}
+	channelScheduler.poolsMu.Lock()
+	defer channelScheduler.poolsMu.Unlock()
+	if pool = channelScheduler.pools[key]; pool == nil {
+		pool = &channelSchedulingPool{channels: make(map[int]*channelSchedulingState)}
+		channelScheduler.pools[key] = pool
+	}
+	return pool
+}
+
+func BeginScheduledChannelAttempt(c *gin.Context, info *relaycommon.RelayInfo, channel *model.Channel) {
+	if info == nil || channel == nil || !IsIntelligentSchedulingForGroup(info.UsingGroup) {
+		return
+	}
+	key := schedulingPoolKey{
+		Group:    info.UsingGroup,
+		Model:    ratio_setting.FormatMatchingModelName(info.OriginModelName),
+		Priority: channel.GetPriority(),
+	}
+	pool := getSchedulingPool(key)
+	pool.mu.Lock()
+	if len(pool.channels) == 0 {
+		pool.mu.Unlock()
+		requestPath := ""
+		if c != nil && c.Request != nil && c.Request.URL != nil {
+			requestPath = c.Request.URL.Path
+		}
+		candidates, err := model.GetSatisfiedChannels(info.UsingGroup, info.OriginModelName, requestPath)
+		pool.mu.Lock()
+		if err == nil {
+			for _, candidate := range candidates {
+				if candidate.GetPriority() != key.Priority || isChannelSchedulingDisabled(candidate.Id, key.Model) {
+					continue
+				}
+				pool.channels[candidate.Id] = &channelSchedulingState{
+					ChannelId: candidate.Id, ChannelName: candidate.Name,
+					BaseWeight: intelligentSchedulingBaseWeight, Buckets: make(map[int64]*ChannelSchedulingBucket),
+				}
+			}
+		}
+	}
+	state, ok := pool.channels[channel.Id]
+	if !ok {
+		state = &channelSchedulingState{
+			ChannelId:   channel.Id,
+			ChannelName: channel.Name,
+			BaseWeight:  intelligentSchedulingBaseWeight,
+			Buckets:     make(map[int64]*ChannelSchedulingBucket),
+		}
+		pool.channels[channel.Id] = state
+	}
+	state.Inflight++
+	state.RequestCount++
+	now := time.Now().Unix()
+	state.LastSelectedAt = now
+	if c != nil && c.GetBool("channel_affinity_used") {
+		state.AffinityHits++
+	}
+	setting := operation_setting.GetChannelSchedulingSetting()
+	refreshSchedulingPoolWeights(pool, setting, now)
+	bucket := schedulingBucket(state, now)
+	bucket.RequestCount++
+	bucket.Inflight = state.Inflight
+	bucket.EffectiveWeight = state.EffectiveWeight
+	pool.mu.Unlock()
+
+	info.SchedulerGroup = key.Group
+	info.SchedulerModel = key.Model
+	info.SchedulerPriority = key.Priority
+	info.SchedulerChannelId = channel.Id
+	info.SchedulerStartedAt = now
+	info.SchedulerAttemptActive = true
+	info.ResetUpstreamTiming()
+}
+
+func FinishScheduledChannelAttempt(info *relaycommon.RelayInfo, channel *model.Channel, success bool, relayErr *types.NewAPIError) {
+	if info == nil || channel == nil || !info.SchedulerAttemptActive || info.SchedulerChannelId != channel.Id {
+		return
+	}
+	info.SchedulerAttemptActive = false
+	key := schedulingPoolKey{Group: info.SchedulerGroup, Model: info.SchedulerModel, Priority: info.SchedulerPriority}
+	pool := getSchedulingPool(key)
+	now := time.Now()
+	ttftMs, hasTiming := info.UpstreamFirstResponseDuration()
+	setting := operation_setting.GetChannelSchedulingSetting()
+	faultScope := classifySchedulingFault(relayErr)
+	recordAttempt := !info.UpstreamStartTime.IsZero() || faultScope != ""
+
+	pool.mu.Lock()
+	state := pool.channels[channel.Id]
+	if state == nil {
+		state = &channelSchedulingState{ChannelId: channel.Id, ChannelName: channel.Name, BaseWeight: intelligentSchedulingBaseWeight, Buckets: make(map[int64]*ChannelSchedulingBucket)}
+		pool.channels[channel.Id] = state
+	}
+	if state.Inflight > 0 {
+		state.Inflight--
+	}
+	state.LastCompletedAt = now.Unix()
+	bucket := schedulingBucket(state, now.Unix())
+	bucket.Inflight = state.Inflight
+	if !recordAttempt {
+		if state.RequestCount > 0 {
+			state.RequestCount--
+		}
+		startedBucket := schedulingBucket(state, info.SchedulerStartedAt)
+		if startedBucket.RequestCount > 0 {
+			startedBucket.RequestCount--
+		}
+	}
+	if success && recordAttempt {
+		state.SuccessCount++
+		bucket.SuccessCount++
+		if hasTiming {
+			addSchedulingTtftSample(state, now.Unix(), ttftMs, setting)
+			bucket.TtftSumMs += ttftMs
+			bucket.TtftCount++
+			bucket.AvgTtftMs = bucket.TtftSumMs / bucket.TtftCount
+		}
+	} else if !success && recordAttempt {
+		state.ErrorCount++
+		bucket.ErrorCount++
+		if relayErr != nil {
+			state.LastError = relayErr.MaskSensitiveErrorWithStatusCode()
+		}
+	}
+	refreshSchedulingPoolWeights(pool, setting, now.Unix())
+	bucket.EffectiveWeight = state.EffectiveWeight
+	pruneSchedulingBuckets(state, now.Unix(), setting.RealtimeRetentionMin)
+	pool.mu.Unlock()
+
+	if !success && relayErr != nil {
+		handleIntelligentSchedulingFault(info, channel, relayErr)
+	}
+}
+
+func HandleIntelligentSchedulingChannelTestFault(channel *model.Channel, modelName string, relayErr *types.NewAPIError) bool {
+	group, ok := GetIntelligentSchedulingGroupForChannel(channel)
+	scope := classifySchedulingFault(relayErr)
+	if !ok || scope == "" {
+		return false
+	}
+	normalizedModel := ratio_setting.FormatMatchingModelName(modelName)
+	if scope == "model" && normalizedModel == "" {
+		return false
+	}
+	info := &relaycommon.RelayInfo{
+		SchedulerGroup:    group,
+		SchedulerModel:    normalizedModel,
+		SchedulerPriority: channel.GetPriority(),
+	}
+	return handleIntelligentSchedulingFault(info, channel, relayErr)
+}
+
+func CancelScheduledChannelAttempt(info *relaycommon.RelayInfo, channel *model.Channel) {
+	if info == nil || channel == nil || !info.SchedulerAttemptActive {
+		return
+	}
+	info.SchedulerAttemptActive = false
+	pool := getSchedulingPool(schedulingPoolKey{Group: info.SchedulerGroup, Model: info.SchedulerModel, Priority: info.SchedulerPriority})
+	pool.mu.Lock()
+	if state := pool.channels[channel.Id]; state != nil {
+		if state.Inflight > 0 {
+			state.Inflight--
+		}
+		if state.RequestCount > 0 {
+			state.RequestCount--
+		}
+		startedBucket := schedulingBucket(state, info.SchedulerStartedAt)
+		if startedBucket.RequestCount > 0 {
+			startedBucket.RequestCount--
+		}
+		now := time.Now().Unix()
+		refreshSchedulingPoolWeights(pool, operation_setting.GetChannelSchedulingSetting(), now)
+		bucket := schedulingBucket(state, now)
+		bucket.Inflight = state.Inflight
+		bucket.EffectiveWeight = state.EffectiveWeight
+	}
+	pool.mu.Unlock()
+}
+
+func IsChannelUsableForScheduling(group string, modelName string, channelId int) bool {
+	normalizedModel := ratio_setting.FormatMatchingModelName(modelName)
+	if isChannelSchedulingDisabled(channelId, normalizedModel) {
+		return false
+	}
+	return true
+}
+
+func IsChannelModelUsableForScheduling(modelName string, channelId int) bool {
+	normalizedModel := ratio_setting.FormatMatchingModelName(modelName)
+	return !isChannelModelSchedulingDisabled(channelId, normalizedModel)
+}
+
+func RestoreScheduledChannelModel(channelId int, modelName string) (bool, error) {
+	normalizedModel := ratio_setting.FormatMatchingModelName(modelName)
+	changed, err := model.RestoreChannelModel(channelId, normalizedModel)
+	if err != nil {
+		return false, err
+	}
+	channelScheduler.disabledMu.Lock()
+	delete(channelScheduler.disabled, channelModelKey{ChannelId: channelId, Model: normalizedModel})
+	channelScheduler.disabledMu.Unlock()
+	ResetChannelSchedulingState(channelId, normalizedModel)
+	appendSchedulingEvent(ChannelSchedulingEvent{Ts: time.Now().Unix(), Type: "restored", ChannelId: channelId, Model: normalizedModel, Message: "model capability restored manually"})
+	return changed, nil
+}
+
+func RestoreScheduledChannel(channelId int) (bool, error) {
+	channel, err := model.GetChannelById(channelId, true)
+	if err != nil {
+		return false, err
+	}
+	if channel.Status != common.ChannelStatusAutoDisabled || !model.IsChannelSchedulingFault(channel) {
+		return false, nil
+	}
+	changed := model.UpdateChannelStatus(channelId, "", common.ChannelStatusEnabled, "manual scheduling recovery")
+	if changed {
+		channelScheduler.disabledMu.Lock()
+		delete(channelScheduler.disabledChannels, channelId)
+		channelScheduler.disabledMu.Unlock()
+		ResetChannelSchedulingState(channelId, "")
+		appendSchedulingEvent(ChannelSchedulingEvent{Ts: time.Now().Unix(), Type: "restored_channel", ChannelId: channelId, ChannelName: channel.Name, Message: "channel restored manually"})
+	}
+	return changed, nil
+}
+
+func ResetChannelSchedulingState(channelId int, modelName string) {
+	normalizedModel := ratio_setting.FormatMatchingModelName(modelName)
+	if modelName == "" {
+		channelScheduler.disabledMu.Lock()
+		delete(channelScheduler.disabledChannels, channelId)
+		channelScheduler.disabledMu.Unlock()
+	}
+	channelScheduler.poolsMu.RLock()
+	defer channelScheduler.poolsMu.RUnlock()
+	for key, pool := range channelScheduler.pools {
+		if normalizedModel != "" && key.Model != normalizedModel {
+			continue
+		}
+		pool.mu.Lock()
+		delete(pool.channels, channelId)
+		pool.mu.Unlock()
+	}
+}
+
+func GetChannelSchedulingOverview(group string, modelName string, priority *int64, since int64) (ChannelSchedulingOverview, error) {
+	overview := ChannelSchedulingOverview{
+		Strategy:      operation_setting.GetChannelSchedulingSetting(),
+		GeneratedAt:   time.Now().Unix(),
+		Channels:      make([]ChannelSchedulingChannelSnapshot, 0),
+		Faults:        make([]model.ChannelModelState, 0),
+		ChannelFaults: make([]ChannelSchedulingChannelFault, 0),
+		Events:        make([]ChannelSchedulingEvent, 0),
+	}
+	retentionStart := overview.GeneratedAt - int64(overview.Strategy.RealtimeRetentionMin*60)
+	if since <= 0 || since < retentionStart {
+		since = retentionStart
+	}
+	normalizedModel := ""
+	if modelName != "" {
+		normalizedModel = ratio_setting.FormatMatchingModelName(modelName)
+	}
+
+	channelScheduler.poolsMu.RLock()
+	for key, pool := range channelScheduler.pools {
+		if group != "" && key.Group != group {
+			continue
+		}
+		if normalizedModel != "" && key.Model != normalizedModel {
+			continue
+		}
+		if priority != nil && key.Priority != *priority {
+			continue
+		}
+		pool.mu.Lock()
+		if len(pool.channels) == 0 {
+			pool.mu.Unlock()
+			continue
+		}
+		refreshSchedulingPoolWeights(pool, overview.Strategy, overview.GeneratedAt)
+		overview.ActivePools++
+		poolRequests := int64(0)
+		for _, state := range pool.channels {
+			pruneSchedulingBuckets(state, overview.GeneratedAt, overview.Strategy.RealtimeRetentionMin)
+			poolRequests += schedulingRequestsSince(state, since)
+		}
+		for _, state := range pool.channels {
+			snapshot := snapshotSchedulingState(key, state, poolRequests, since, overview.Strategy.MinimumFactor)
+			overview.Requests += snapshot.RequestCount
+			overview.Errors += snapshot.ErrorCount
+			overview.Inflight += snapshot.Inflight
+			if snapshot.State == "degraded" {
+				overview.DegradedChannels++
+			} else {
+				overview.NormalChannels++
+			}
+			overview.Channels = append(overview.Channels, snapshot)
+		}
+		pool.mu.Unlock()
+	}
+	channelScheduler.poolsMu.RUnlock()
+
+	var ttftSum int64
+	var ttftCount int64
+	recentRequests := int64(0)
+	recentCutoff := overview.GeneratedAt - 10
+	for _, channel := range overview.Channels {
+		for _, point := range channel.Series {
+			ttftSum += point.TtftSumMs
+			ttftCount += point.TtftCount
+			if point.Ts > recentCutoff {
+				recentRequests += point.RequestCount
+			}
+		}
+	}
+	if ttftCount > 0 {
+		overview.AvgTtftMs = ttftSum / ttftCount
+	}
+	overview.Rps = math.Round(float64(recentRequests)/10*100) / 100
+	faults, err := model.ListChannelModelStates(true)
+	if err != nil {
+		return ChannelSchedulingOverview{}, err
+	}
+	for _, fault := range faults {
+		if normalizedModel != "" && fault.Model != normalizedModel {
+			continue
+		}
+		overview.Faults = append(overview.Faults, fault)
+	}
+	overview.DisabledModels = len(overview.Faults)
+	disabledChannels, err := model.ListAutoDisabledChannels()
+	if err != nil {
+		return ChannelSchedulingOverview{}, err
+	}
+	for _, channel := range disabledChannels {
+		if !model.IsChannelSchedulingFault(&channel) {
+			continue
+		}
+		info := channel.GetOtherInfo()
+		disabledAt := int64(0)
+		switch value := info["status_time"].(type) {
+		case float64:
+			disabledAt = int64(value)
+		case int64:
+			disabledAt = value
+		case int:
+			disabledAt = int64(value)
+		}
+		overview.ChannelFaults = append(overview.ChannelFaults, ChannelSchedulingChannelFault{
+			ChannelId: channel.Id, ChannelName: channel.Name, Reason: model.GetChannelSchedulingFaultReason(&channel), DisabledAt: disabledAt,
+		})
+	}
+	overview.DisabledChannels = len(overview.ChannelFaults)
+	overview.Events = schedulingEventsSince(since, group, normalizedModel)
+	sort.Slice(overview.Channels, func(i, j int) bool {
+		left, right := overview.Channels[i], overview.Channels[j]
+		if left.Group != right.Group {
+			return left.Group < right.Group
+		}
+		if left.Model != right.Model {
+			return left.Model < right.Model
+		}
+		if left.Priority != right.Priority {
+			return left.Priority > right.Priority
+		}
+		return left.ChannelId < right.ChannelId
+	})
+	return overview, nil
+}
+
+func handleIntelligentSchedulingFault(info *relaycommon.RelayInfo, channel *model.Channel, relayErr *types.NewAPIError) bool {
+	scope := classifySchedulingFault(relayErr)
+	if scope == "" {
+		return false
+	}
+	reason := relayErr.MaskSensitiveErrorWithStatusCode()
+	event := ChannelSchedulingEvent{
+		Ts:          time.Now().Unix(),
+		Type:        "disabled_" + scope,
+		ChannelId:   channel.Id,
+		ChannelName: channel.Name,
+		Group:       info.SchedulerGroup,
+		Model:       info.SchedulerModel,
+		Priority:    info.SchedulerPriority,
+		Message:     reason,
+	}
+	if scope == "model" {
+		err := model.DisableChannelModel(channel.Id, info.SchedulerModel, reason, string(relayErr.GetErrorCode()), relayErr.StatusCode)
+		if err != nil {
+			common.SysError("failed to disable channel model capability: " + err.Error())
+			return false
+		}
+		state := model.ChannelModelState{ChannelId: channel.Id, Model: info.SchedulerModel, Disabled: true, Reason: reason, ErrorCode: string(relayErr.GetErrorCode()), StatusCode: relayErr.StatusCode, DisabledAt: event.Ts, UpdatedAt: event.Ts}
+		channelScheduler.disabledMu.Lock()
+		channelScheduler.disabled[channelModelKey{ChannelId: channel.Id, Model: info.SchedulerModel}] = state
+		channelScheduler.disabledMu.Unlock()
+	} else {
+		if err := model.DisableChannelForScheduling(channel.Id, reason); err != nil {
+			common.SysError("failed to disable scheduling channel: " + err.Error())
+			return false
+		}
+		channelScheduler.disabledMu.Lock()
+		channelScheduler.disabledChannels[channel.Id] = struct{}{}
+		channelScheduler.disabledMu.Unlock()
+	}
+	appendSchedulingEvent(event)
+	return true
+}
+
+func classifySchedulingFault(relayErr *types.NewAPIError) string {
+	if relayErr == nil {
+		return ""
+	}
+	message := strings.ToLower(relayErr.Error())
+	if errors.Is(relayErr, context.Canceled) || strings.Contains(message, context.Canceled.Error()) {
+		return ""
+	}
+	if (errors.Is(relayErr, context.DeadlineExceeded) || strings.Contains(message, context.DeadlineExceeded.Error())) && strings.Contains(message, "client") {
+		return ""
+	}
+	errorCode := relayErr.GetErrorCode()
+	switch errorCode {
+	case types.ErrorCodeChannelModelMappedError,
+		types.ErrorCodeInvalidApiType:
+		return "model"
+	case types.ErrorCodeChannelNoAvailableKey,
+		types.ErrorCodeChannelParamOverrideInvalid,
+		types.ErrorCodeChannelHeaderOverrideInvalid,
+		types.ErrorCodeChannelAwsClientError,
+		types.ErrorCodeChannelInvalidKey,
+		types.ErrorCodeChannelResponseTimeExceeded:
+		return "channel"
+	}
+	if errorCode == types.ErrorCodeAwsInvokeError &&
+		(errors.Is(relayErr, context.DeadlineExceeded) || strings.Contains(message, context.DeadlineExceeded.Error())) {
+		return "channel"
+	}
+	if types.IsSkipRetryError(relayErr) {
+		return ""
+	}
+	if errorCode == types.ErrorCodeModelNotFound ||
+		strings.Contains(message, "model not found") || strings.Contains(message, "model_not_found") ||
+		strings.Contains(message, "model is not supported") || strings.Contains(message, "unsupported model") {
+		return "model"
+	}
+	for _, marker := range []string{
+		"invalid api key", "invalid_api_key", "authentication failed", "insufficient balance",
+		"insufficient provider quota", "rate limit exceeded", "too many requests",
+	} {
+		if strings.Contains(message, marker) {
+			return "channel"
+		}
+	}
+	if relayErr.StatusCode == 404 {
+		return "model"
+	}
+	if relayErr.StatusCode == 401 || relayErr.StatusCode == 402 || relayErr.StatusCode == 403 || relayErr.StatusCode == 407 ||
+		relayErr.StatusCode == 408 || relayErr.StatusCode == 429 ||
+		(relayErr.StatusCode >= 500 && relayErr.StatusCode <= 599) {
+		return "channel"
+	}
+	switch errorCode {
+	case types.ErrorCodeDoRequestFailed,
+		types.ErrorCodeReadResponseBodyFailed,
+		types.ErrorCodeBadResponse,
+		types.ErrorCodeBadResponseBody,
+		types.ErrorCodeEmptyResponse:
+		return "channel"
+	}
+	return ""
+}
+
+func isChannelModelSchedulingDisabled(channelId int, modelName string) bool {
+	channelScheduler.disabledMu.RLock()
+	_, disabled := channelScheduler.disabled[channelModelKey{ChannelId: channelId, Model: modelName}]
+	channelScheduler.disabledMu.RUnlock()
+	return disabled
+}
+
+func hasChannelModelSchedulingFault(modelName string) bool {
+	channelScheduler.disabledMu.RLock()
+	defer channelScheduler.disabledMu.RUnlock()
+	for key := range channelScheduler.disabled {
+		if key.Model == modelName {
+			return true
+		}
+	}
+	return false
+}
+
+func isChannelSchedulingDisabled(channelId int, modelName string) bool {
+	channelScheduler.disabledMu.RLock()
+	_, channelDisabled := channelScheduler.disabledChannels[channelId]
+	_, modelDisabled := channelScheduler.disabled[channelModelKey{ChannelId: channelId, Model: modelName}]
+	channelScheduler.disabledMu.RUnlock()
+	return channelDisabled || modelDisabled
+}
+
+func calculatePerformanceFactor(state *channelSchedulingState, median float64, setting operation_setting.ChannelSchedulingSetting) float64 {
+	if state.EstimatedTtftMs <= 0 || median <= 0 {
+		return 1
+	}
+	if state.LastTtftMs >= setting.SevereTtftMs {
+		return setting.MinimumFactor
+	}
+	ratio := median / state.EstimatedTtftMs
+	rawFactor := math.Pow(ratio, setting.PerformanceExponent)
+	confidence := math.Min(1, float64(state.Samples)/float64(setting.WarmupSamples))
+	factor := 1 + confidence*(rawFactor-1)
+	return math.Max(setting.MinimumFactor, math.Min(setting.MaximumFactor, factor))
+}
+
+func refreshSchedulingPoolWeights(pool *channelSchedulingPool, setting operation_setting.ChannelSchedulingSetting, now int64) {
+	observed := make([]float64, 0, len(pool.channels))
+	for _, state := range pool.channels {
+		pruneSchedulingTtftSamples(state, now, setting)
+		if state.EstimatedTtftMs > 0 {
+			observed = append(observed, state.EstimatedTtftMs)
+		}
+	}
+	median := medianFloat(observed)
+	if median <= 0 {
+		median = 1000
+	}
+	for _, state := range pool.channels {
+		state.PerformanceFactor = calculatePerformanceFactor(state, median, setting)
+		loadFactor := 1 / (1 + setting.InflightPenalty*float64(state.Inflight))
+		state.EffectiveWeight = math.Max(0.001, float64(state.BaseWeight)*state.PerformanceFactor*loadFactor)
+	}
+}
+
+func addSchedulingTtftSample(state *channelSchedulingState, now int64, ttftMs int64, setting operation_setting.ChannelSchedulingSetting) {
+	state.TtftSamples = append(state.TtftSamples, channelSchedulingTtftSample{Ts: now, TtftMs: ttftMs})
+	pruneSchedulingTtftSamples(state, now, setting)
+}
+
+func pruneSchedulingTtftSamples(state *channelSchedulingState, now int64, setting operation_setting.ChannelSchedulingSetting) {
+	cutoff := now - int64(setting.SampleMaxAgeMinutes*60)
+	firstValid := 0
+	for firstValid < len(state.TtftSamples) && state.TtftSamples[firstValid].Ts < cutoff {
+		firstValid++
+	}
+	if firstValid > 0 {
+		state.TtftSamples = append([]channelSchedulingTtftSample(nil), state.TtftSamples[firstValid:]...)
+	}
+	if len(state.TtftSamples) > setting.SampleWindowSize {
+		state.TtftSamples = append([]channelSchedulingTtftSample(nil), state.TtftSamples[len(state.TtftSamples)-setting.SampleWindowSize:]...)
+	}
+	state.Samples = int64(len(state.TtftSamples))
+	if len(state.TtftSamples) == 0 {
+		state.EstimatedTtftMs = 0
+		state.LastTtftMs = 0
+		return
+	}
+	values := make([]int64, 0, len(state.TtftSamples))
+	for _, sample := range state.TtftSamples {
+		values = append(values, sample.TtftMs)
+	}
+	sort.Slice(values, func(i, j int) bool { return values[i] < values[j] })
+	state.EstimatedTtftMs = float64(values[(len(values)-1)/2])
+	state.LastTtftMs = state.TtftSamples[len(state.TtftSamples)-1].TtftMs
+}
+
+func medianFloat(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
+	}
+	cloned := append([]float64(nil), values...)
+	sort.Float64s(cloned)
+	middle := len(cloned) / 2
+	if len(cloned)%2 == 1 {
+		return cloned[middle]
+	}
+	return (cloned[middle-1] + cloned[middle]) / 2
+}
+
+func schedulingBucket(state *channelSchedulingState, ts int64) *ChannelSchedulingBucket {
+	bucketTs := ts - ts%2
+	bucket := state.Buckets[bucketTs]
+	if bucket == nil {
+		bucket = &ChannelSchedulingBucket{Ts: bucketTs}
+		state.Buckets[bucketTs] = bucket
+	}
+	return bucket
+}
+
+func pruneSchedulingBuckets(state *channelSchedulingState, now int64, retentionMinutes int) {
+	cutoff := now - int64(retentionMinutes*60)
+	for ts := range state.Buckets {
+		if ts < cutoff {
+			delete(state.Buckets, ts)
+		}
+	}
+}
+
+func schedulingRequestsSince(state *channelSchedulingState, since int64) int64 {
+	requests := int64(0)
+	for ts, bucket := range state.Buckets {
+		if ts >= since {
+			requests += bucket.RequestCount
+		}
+	}
+	return requests
+}
+
+func cleanupChannelSchedulingPools(now int64, retentionMinutes int) {
+	cutoff := now - int64(retentionMinutes*60)
+	channelScheduler.poolsMu.Lock()
+	defer channelScheduler.poolsMu.Unlock()
+	for key, pool := range channelScheduler.pools {
+		pool.mu.Lock()
+		latestActivity := int64(0)
+		hasInflight := false
+		for _, state := range pool.channels {
+			pruneSchedulingBuckets(state, now, retentionMinutes)
+			latestActivity = max(latestActivity, state.LastSelectedAt, state.LastCompletedAt)
+			hasInflight = hasInflight || state.Inflight > 0
+		}
+		refreshSchedulingPoolWeights(pool, operation_setting.GetChannelSchedulingSetting(), now)
+		remove := len(pool.channels) == 0 || (!hasInflight && latestActivity > 0 && latestActivity < cutoff)
+		pool.mu.Unlock()
+		if remove {
+			delete(channelScheduler.pools, key)
+		}
+	}
+}
+
+func snapshotSchedulingState(key schedulingPoolKey, state *channelSchedulingState, poolRequests int64, since int64, minimumFactor float64) ChannelSchedulingChannelSnapshot {
+	status := "normal"
+	if state.PerformanceFactor <= minimumFactor && state.Samples > 0 {
+		status = "degraded"
+	}
+	series := make([]ChannelSchedulingBucket, 0, len(state.Buckets))
+	channelRequests := int64(0)
+	for ts, bucket := range state.Buckets {
+		if since > 0 && ts < since {
+			continue
+		}
+		series = append(series, *bucket)
+		channelRequests += bucket.RequestCount
+	}
+	sort.Slice(series, func(i, j int) bool { return series[i].Ts < series[j].Ts })
+	actualShare := 0.0
+	if poolRequests > 0 {
+		actualShare = float64(channelRequests) / float64(poolRequests)
+	}
+	return ChannelSchedulingChannelSnapshot{
+		ChannelId: state.ChannelId, ChannelName: state.ChannelName, Group: key.Group, Model: key.Model, Priority: key.Priority,
+		BaseWeight: state.BaseWeight, EffectiveWeight: math.Round(state.EffectiveWeight*100) / 100,
+		PerformanceFactor: math.Round(state.PerformanceFactor*1000) / 1000, EstimatedTtftMs: int64(math.Round(state.EstimatedTtftMs)),
+		LastTtftMs: state.LastTtftMs, Inflight: state.Inflight, RequestCount: state.RequestCount, SuccessCount: state.SuccessCount,
+		ErrorCount: state.ErrorCount, AffinityHits: state.AffinityHits, Samples: state.Samples, ActualShare: math.Round(actualShare*10000) / 10000,
+		State: status, LastError: state.LastError, LastSelectedAt: state.LastSelectedAt, LastCompletedAt: state.LastCompletedAt, Series: series,
+	}
+}
+
+func appendSchedulingEvent(event ChannelSchedulingEvent) {
+	channelScheduler.eventsMu.Lock()
+	defer channelScheduler.eventsMu.Unlock()
+	channelScheduler.events = append(channelScheduler.events, event)
+	if len(channelScheduler.events) > 500 {
+		channelScheduler.events = append([]ChannelSchedulingEvent(nil), channelScheduler.events[len(channelScheduler.events)-500:]...)
+	}
+}
+
+func schedulingEventsSince(since int64, group string, modelName string) []ChannelSchedulingEvent {
+	channelScheduler.eventsMu.Lock()
+	defer channelScheduler.eventsMu.Unlock()
+	events := make([]ChannelSchedulingEvent, 0, len(channelScheduler.events))
+	for _, event := range channelScheduler.events {
+		if since > 0 && event.Ts < since {
+			continue
+		}
+		if group != "" && event.Group != "" && event.Group != group {
+			continue
+		}
+		if modelName != "" && event.Model != "" && event.Model != modelName {
+			continue
+		}
+		events = append(events, event)
+	}
+	return events
+}

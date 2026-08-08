@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -111,15 +110,14 @@ func cohereStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 		stopChan <- true
 	}()
 	helper.SetEventStreamHeaders(c)
-	isFirst := true
 	c.Stream(func(w io.Writer) bool {
 		select {
 		case data := <-dataChan:
-			if isFirst {
-				isFirst = false
-				info.FirstResponseTime = time.Now()
-			}
 			data = strings.TrimSuffix(data, "\r")
+			if helper.IsMeaningfulStreamData(data) {
+				info.MarkUpstreamFirstContent()
+				info.SetFirstResponseTime()
+			}
 			var cohereResp CohereResponse
 			err := json.Unmarshal([]byte(data), &cohereResp)
 			if err != nil {

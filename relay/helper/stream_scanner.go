@@ -20,6 +20,7 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 const (
@@ -264,6 +265,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 			}
 			if !strings.HasPrefix(data, "[DONE]") {
 				info.SetFirstResponseTime()
+				if IsMeaningfulStreamData(data) {
+					info.MarkUpstreamFirstContent()
+				}
 				info.ReceivedResponseCount++
 
 				select {
@@ -307,4 +311,83 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	} else {
 		logger.LogError(c, fmt.Sprintf("stream ended: %s, received=%d", info.StreamStatus.Summary(), info.ReceivedResponseCount))
 	}
+}
+
+func IsMeaningfulStreamData(data string) bool {
+	data = strings.TrimSpace(data)
+	if data == "" || strings.EqualFold(data, "[DONE]") {
+		return false
+	}
+	if !gjson.Valid(data) {
+		return true
+	}
+	parsed := gjson.Parse(data)
+	for _, path := range []string{
+		"choices.#.delta.content",
+		"choices.#.delta.reasoning_content",
+		"choices.#.delta.reasoning",
+		"choices.#.delta.refusal",
+		"choices.#.delta.tool_calls.#.id",
+		"choices.#.delta.tool_calls.#.function.name",
+		"choices.#.delta.tool_calls.#.function.arguments",
+		"choices.#.delta.audio.transcript",
+		"choices.#.text",
+		"candidates.#.content.parts.#.text",
+		"candidates.#.content.parts.#.functionCall.name",
+		"content_block.text",
+		"delta.text",
+		"delta.content",
+		"delta.output_text",
+		"text",
+		"output_text",
+		"audio.data",
+	} {
+		value := parsed.Get(path)
+		if hasMeaningfulJSONValue(value) {
+			return true
+		}
+	}
+	if delta := parsed.Get("delta"); delta.Type == gjson.String && strings.TrimSpace(delta.String()) != "" {
+		return true
+	}
+
+	eventType := strings.ToLower(parsed.Get("type").String())
+	if eventType == "" {
+		eventType = strings.ToLower(parsed.Get("event_type").String())
+	}
+	for _, marker := range []string{
+		"ping", "heartbeat", "created", "queued", "in_progress", "message_start", "message_delta", "message_stop",
+		"content_block_start", "content_block_stop", "content_part.added", "content_part.done", "output_item.added", "output_item.done",
+		"response.done", "response.completed", "response.incomplete", "stream-start", "stream_start", "stream-end", "stream_end",
+	} {
+		if strings.Contains(eventType, marker) {
+			return false
+		}
+	}
+	if parsed.Get("choices").Exists() || parsed.Get("candidates").Exists() {
+		return false
+	}
+	if (strings.Contains(data, `"role"`) && !strings.Contains(data, `"content"`) && !strings.Contains(data, `"text"`) && !strings.Contains(data, `"tool_calls"`)) ||
+		parsed.Get("usage").Exists() {
+		return false
+	}
+	return parsed.Raw != "{}" && parsed.Raw != "[]"
+}
+
+func hasMeaningfulJSONValue(value gjson.Result) bool {
+	if !value.Exists() {
+		return false
+	}
+	if value.IsArray() {
+		for _, item := range value.Array() {
+			if hasMeaningfulJSONValue(item) {
+				return true
+			}
+		}
+		return false
+	}
+	if value.Type == gjson.Null {
+		return false
+	}
+	return strings.TrimSpace(value.String()) != ""
 }

@@ -945,13 +945,18 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 
 		shouldBanChannel := false
 		newAPIError := result.newAPIError
+		intelligentManaged := service.ChannelUsesIntelligentScheduling(channel)
 		// request error disables the channel
 		if newAPIError != nil {
-			shouldBanChannel = service.ShouldDisableChannel(result.newAPIError)
+			if intelligentManaged {
+				shouldBanChannel = service.IsIntelligentSchedulingFaultError(newAPIError)
+			} else {
+				shouldBanChannel = service.ShouldDisableChannel(newAPIError)
+			}
 		}
 
 		// 当错误检查通过，才检查响应时间
-		if common.AutomaticDisableChannelEnabled && !shouldBanChannel {
+		if common.AutomaticDisableChannelEnabled && !shouldBanChannel && !intelligentManaged {
 			if milliseconds > disableThreshold {
 				err := fmt.Errorf("响应时间 %.2fs 超过阈值 %.2fs", float64(milliseconds)/1000.0, float64(disableThreshold)/1000.0)
 				newAPIError = types.NewOpenAIError(err, types.ErrorCodeChannelResponseTimeExceeded, http.StatusRequestTimeout)
@@ -966,13 +971,23 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 		}
 
 		// disable channel
-		if allowDisable && isChannelEnabled && shouldBanChannel && channel.GetAutoBan() {
-			processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
-			summary.Disabled++
+		if allowDisable && isChannelEnabled && shouldBanChannel && (intelligentManaged || channel.GetAutoBan()) {
+			if intelligentManaged {
+				modelName := ""
+				if result.context != nil {
+					modelName = result.context.GetString("original_model")
+				}
+				if service.HandleIntelligentSchedulingChannelTestFault(channel, modelName, newAPIError) {
+					summary.Disabled++
+				}
+			} else {
+				processChannelError(result.context, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+				summary.Disabled++
+			}
 		}
 
 		// enable channel
-		if result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel.Status) {
+		if result.localErr == nil && !isChannelEnabled && service.ShouldEnableChannel(newAPIError, channel) {
 			service.EnableChannel(channel.Id, common.GetContextKeyString(result.context, constant.ContextKeyChannelKey), channel.Name)
 			summary.Enabled++
 		}

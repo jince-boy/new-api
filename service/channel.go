@@ -64,14 +64,14 @@ func ShouldDisableChannel(err *types.NewAPIError) bool {
 	return search
 }
 
-func ShouldEnableChannel(newAPIError *types.NewAPIError, status int) bool {
+func ShouldEnableChannel(newAPIError *types.NewAPIError, channel *model.Channel) bool {
 	if !common.AutomaticEnableChannelEnabled {
 		return false
 	}
-	if newAPIError != nil {
+	if newAPIError != nil || channel == nil {
 		return false
 	}
-	if status != common.ChannelStatusAutoDisabled {
+	if channel.Status != common.ChannelStatusAutoDisabled || model.IsChannelSchedulingFault(channel) {
 		return false
 	}
 	return true

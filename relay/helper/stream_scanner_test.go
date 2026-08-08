@@ -70,6 +70,20 @@ func TestStreamScannerHandler_NilInputs(t *testing.T) {
 	StreamScannerHandler(c, &http.Response{Body: io.NopCloser(strings.NewReader(""))}, info, nil)
 }
 
+func TestMeaningfulStreamDataIgnoresRoleAndLifecycleEvents(t *testing.T) {
+	assert.False(t, IsMeaningfulStreamData(`{"choices":[{"delta":{"role":"assistant"}}]}`))
+	assert.False(t, IsMeaningfulStreamData(`{"choices":[{"delta":{"role":"assistant","content":null}}]}`))
+	assert.False(t, IsMeaningfulStreamData(`{"choices":[{"delta":{},"finish_reason":"stop"}]}`))
+	assert.False(t, IsMeaningfulStreamData(`{"type":"response.created","response":{"id":"resp_1"}}`))
+	assert.False(t, IsMeaningfulStreamData(`{"type":"message_delta","delta":{"stop_reason":"end_turn"}}`))
+	assert.False(t, IsMeaningfulStreamData(`{"type":"ping"}`))
+	assert.False(t, IsMeaningfulStreamData(`{"event_type":"stream-end","is_finished":true}`))
+	assert.True(t, IsMeaningfulStreamData(`{"choices":[{"delta":{"content":"hello"}}]}`))
+	assert.True(t, IsMeaningfulStreamData(`{"choices":[{"delta":{"tool_calls":[{"id":"call_1","function":{"name":"lookup"}}]}}]}`))
+	assert.True(t, IsMeaningfulStreamData(`{"type":"response.output_text.delta","delta":"hello"}`))
+	assert.True(t, IsMeaningfulStreamData(`{"event_type":"text-generation","text":"hello"}`))
+}
+
 func TestNewStreamScanner_AllowsLargeStreamLine(t *testing.T) {
 	oldBufferMB := constant.StreamScannerMaxBufferMB
 	constant.StreamScannerMaxBufferMB = 1

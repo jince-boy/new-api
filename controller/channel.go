@@ -770,6 +770,7 @@ func DeleteChannel(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
+	service.ResetChannelSchedulingState(id, "")
 	if channelLookupFailed {
 		service.ResetProxyClientCache()
 	} else {
@@ -787,13 +788,16 @@ func DeleteChannel(c *gin.Context) {
 }
 
 func DeleteDisabledChannel(c *gin.Context) {
-	rows, err := model.DeleteDisabledChannel()
+	deletedIds, rows, err := model.DeleteDisabledChannel()
 	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	model.InitChannelCache()
 	if rows > 0 {
+		for _, id := range deletedIds {
+			service.ResetChannelSchedulingState(id, "")
+		}
 		service.ResetProxyClientCache()
 	}
 	recordManageAudit(c, "channel.delete_disabled", map[string]interface{}{
@@ -961,6 +965,9 @@ func DeleteChannelBatch(c *gin.Context) {
 	}
 	model.InitChannelCache()
 	if deletedCount > 0 {
+		for _, id := range channelBatch.Ids {
+			service.ResetChannelSchedulingState(id, "")
+		}
 		service.ResetProxyClientCache()
 	}
 	recordManageAudit(c, "channel.delete_batch", map[string]interface{}{
@@ -1144,6 +1151,7 @@ func UpdateChannel(c *gin.Context) {
 		return
 	}
 	model.InitChannelCache()
+	service.ResetChannelSchedulingState(channel.Id, "")
 	if proxyChanged {
 		service.InvalidateProxyClient(originProxy)
 	}
@@ -1193,6 +1201,9 @@ func UpdateChannelStatus(c *gin.Context) {
 	changed := model.UpdateChannelStatus(id, "", req.Status, "manual operation")
 	if changed {
 		model.InitChannelCache()
+		if req.Status == common.ChannelStatusEnabled {
+			service.ResetChannelSchedulingState(id, "")
+		}
 	}
 	recordManageAudit(c, "channel.status_update", map[string]interface{}{
 		"id":      id,
@@ -1216,6 +1227,9 @@ func BatchUpdateChannelStatus(c *gin.Context) {
 	for _, id := range req.Ids {
 		if model.UpdateChannelStatus(id, "", req.Status, "manual batch operation") {
 			changedCount++
+			if req.Status == common.ChannelStatusEnabled {
+				service.ResetChannelSchedulingState(id, "")
+			}
 		}
 	}
 	if changedCount > 0 {
