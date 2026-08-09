@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"sort"
 	"strings"
@@ -26,6 +27,12 @@ type schedulingPoolKey struct {
 }
 
 const intelligentSchedulingBaseWeight = 100
+
+const (
+	intelligentSchedulingFailureThreshold = 3
+	intelligentSchedulingFailureWindow    = 60 * time.Second
+	channelFailureShardCount              = 64
+)
 
 type channelSchedulingTtftSample struct {
 	Ts     int64
@@ -62,6 +69,17 @@ type channelSchedulingPool struct {
 type channelModelKey struct {
 	ChannelId int
 	Model     string
+}
+
+type channelFailureStreak struct {
+	Count         int
+	LastFailureAt time.Time
+	LastOutcomeAt time.Time
+}
+
+type channelFailureShard struct {
+	mu      sync.Mutex
+	streaks map[int]channelFailureStreak
 }
 
 type ChannelSchedulingBucket struct {
@@ -144,6 +162,7 @@ var channelScheduler = struct {
 	disabledMu       sync.RWMutex
 	disabled         map[channelModelKey]model.ChannelModelState
 	disabledChannels map[int]struct{}
+	failureShards    [channelFailureShardCount]channelFailureShard
 	eventsMu         sync.Mutex
 	events           []ChannelSchedulingEvent
 }{
@@ -162,7 +181,9 @@ func InitChannelScheduler() {
 			defer ticker.Stop()
 			for range ticker.C {
 				reloadChannelSchedulerFaults()
-				cleanupChannelSchedulingPools(time.Now().Unix(), operation_setting.GetChannelSchedulingSetting().RealtimeRetentionMin)
+				now := time.Now()
+				cleanupChannelSchedulingPools(now.Unix(), operation_setting.GetChannelSchedulingSetting().RealtimeRetentionMin)
+				cleanupChannelFailureStreaks(now)
 			}
 		}()
 	})
@@ -215,16 +236,16 @@ func GetIntelligentSchedulingGroupForChannel(channel *model.Channel) (string, bo
 	return "", false
 }
 
-func ShouldRetryIntelligentSchedulingError(group string, relayErr *types.NewAPIError) bool {
-	return IsHandledByIntelligentChannelScheduling(group, relayErr)
+func ShouldRetryIntelligentSchedulingError(group string, info *relaycommon.RelayInfo, relayErr *types.NewAPIError) bool {
+	return IsIntelligentSchedulingForGroup(group) && info != nil && !info.UpstreamStartTime.IsZero() && isIntelligentSchedulingUpstreamError(relayErr)
 }
 
 func IsHandledByIntelligentChannelScheduling(group string, relayErr *types.NewAPIError) bool {
-	return IsIntelligentSchedulingForGroup(group) && classifySchedulingFault(relayErr) != ""
+	return IsIntelligentSchedulingForGroup(group) && isIntelligentSchedulingUpstreamError(relayErr)
 }
 
 func IsIntelligentSchedulingFaultError(relayErr *types.NewAPIError) bool {
-	return classifySchedulingFault(relayErr) != ""
+	return isIntelligentSchedulingUpstreamError(relayErr)
 }
 
 func IsIntelligentSchedulingForRequest(param *RetryParam) bool {
@@ -517,8 +538,8 @@ func FinishScheduledChannelAttempt(info *relaycommon.RelayInfo, channel *model.C
 	now := time.Now()
 	ttftMs, hasTiming := info.UpstreamFirstResponseDuration()
 	setting := operation_setting.GetChannelSchedulingSetting()
-	faultScope := classifySchedulingFault(relayErr)
-	recordAttempt := !info.UpstreamStartTime.IsZero() || faultScope != ""
+	recordAttempt := !info.UpstreamStartTime.IsZero()
+	countFailure := recordAttempt && !success && isIntelligentSchedulingUpstreamError(relayErr)
 
 	pool.mu.Lock()
 	state := pool.channels[channel.Id]
@@ -550,7 +571,7 @@ func FinishScheduledChannelAttempt(info *relaycommon.RelayInfo, channel *model.C
 			bucket.TtftCount++
 			bucket.AvgTtftMs = bucket.TtftSumMs / bucket.TtftCount
 		}
-	} else if !success && recordAttempt {
+	} else if countFailure {
 		state.ErrorCount++
 		bucket.ErrorCount++
 		if relayErr != nil {
@@ -562,27 +583,31 @@ func FinishScheduledChannelAttempt(info *relaycommon.RelayInfo, channel *model.C
 	pruneSchedulingBuckets(state, now.Unix(), setting.RealtimeRetentionMin)
 	pool.mu.Unlock()
 
-	if !success && relayErr != nil {
-		handleIntelligentSchedulingFault(info, channel, relayErr)
+	if success && recordAttempt {
+		recordIntelligentSchedulingSuccess(channel.Id, now)
+	} else if countFailure {
+		recordIntelligentSchedulingFailure(info, channel, relayErr, now)
 	}
 }
 
 func HandleIntelligentSchedulingChannelTestFault(channel *model.Channel, modelName string, relayErr *types.NewAPIError) bool {
 	group, ok := GetIntelligentSchedulingGroupForChannel(channel)
-	scope := classifySchedulingFault(relayErr)
-	if !ok || scope == "" {
+	if !ok || !isIntelligentSchedulingUpstreamError(relayErr) {
 		return false
 	}
 	normalizedModel := ratio_setting.FormatMatchingModelName(modelName)
-	if scope == "model" && normalizedModel == "" {
-		return false
-	}
 	info := &relaycommon.RelayInfo{
 		SchedulerGroup:    group,
 		SchedulerModel:    normalizedModel,
 		SchedulerPriority: channel.GetPriority(),
 	}
-	return handleIntelligentSchedulingFault(info, channel, relayErr)
+	return recordIntelligentSchedulingFailure(info, channel, relayErr, time.Now())
+}
+
+func RecordIntelligentSchedulingChannelTestSuccess(channel *model.Channel) {
+	if ChannelUsesIntelligentScheduling(channel) {
+		recordIntelligentSchedulingSuccess(channel.Id, time.Now())
+	}
 }
 
 func CancelScheduledChannelAttempt(info *relaycommon.RelayInfo, channel *model.Channel) {
@@ -664,6 +689,7 @@ func ResetChannelSchedulingState(channelId int, modelName string) {
 		channelScheduler.disabledMu.Lock()
 		delete(channelScheduler.disabledChannels, channelId)
 		channelScheduler.disabledMu.Unlock()
+		clearIntelligentSchedulingFailure(channelId)
 	}
 	channelScheduler.poolsMu.RLock()
 	defer channelScheduler.poolsMu.RUnlock()
@@ -802,15 +828,54 @@ func GetChannelSchedulingOverview(group string, modelName string, priority *int6
 	return overview, nil
 }
 
-func handleIntelligentSchedulingFault(info *relaycommon.RelayInfo, channel *model.Channel, relayErr *types.NewAPIError) bool {
-	scope := classifySchedulingFault(relayErr)
-	if scope == "" {
+func recordIntelligentSchedulingFailure(info *relaycommon.RelayInfo, channel *model.Channel, relayErr *types.NewAPIError, now time.Time) bool {
+	if info == nil || channel == nil || !isIntelligentSchedulingUpstreamError(relayErr) {
 		return false
 	}
-	reason := relayErr.MaskSensitiveErrorWithStatusCode()
+
+	shard := getChannelFailureShard(channel.Id)
+	shard.mu.Lock()
+	if isChannelSchedulingDisabled(channel.Id, info.SchedulerModel) {
+		shard.mu.Unlock()
+		return false
+	}
+	if shard.streaks == nil {
+		shard.streaks = make(map[int]channelFailureStreak)
+	}
+	streak := shard.streaks[channel.Id]
+	if !streak.LastOutcomeAt.IsZero() && now.Before(streak.LastOutcomeAt) {
+		shard.mu.Unlock()
+		return false
+	}
+	elapsed := now.Sub(streak.LastFailureAt)
+	if streak.LastFailureAt.IsZero() || elapsed < 0 || elapsed > intelligentSchedulingFailureWindow {
+		streak.Count = 0
+	}
+	streak.Count++
+	streak.LastFailureAt = now
+	streak.LastOutcomeAt = now
+	shard.streaks[channel.Id] = streak
+	if streak.Count < intelligentSchedulingFailureThreshold {
+		shard.mu.Unlock()
+		return false
+	}
+
+	lastError := relayErr.MaskSensitiveErrorWithStatusCode()
+	reason := fmt.Sprintf("%d consecutive upstream failures within %s; last error: %s", streak.Count, intelligentSchedulingFailureWindow, lastError)
+	if err := model.DisableChannelForScheduling(channel.Id, reason); err != nil {
+		shard.mu.Unlock()
+		common.SysError("failed to disable scheduling channel: " + err.Error())
+		return false
+	}
+	channelScheduler.disabledMu.Lock()
+	channelScheduler.disabledChannels[channel.Id] = struct{}{}
+	channelScheduler.disabledMu.Unlock()
+	delete(shard.streaks, channel.Id)
+	shard.mu.Unlock()
+
 	event := ChannelSchedulingEvent{
-		Ts:          time.Now().Unix(),
-		Type:        "disabled_" + scope,
+		Ts:          now.Unix(),
+		Type:        "disabled_channel",
 		ChannelId:   channel.Id,
 		ChannelName: channel.Name,
 		Group:       info.SchedulerGroup,
@@ -818,90 +883,69 @@ func handleIntelligentSchedulingFault(info *relaycommon.RelayInfo, channel *mode
 		Priority:    info.SchedulerPriority,
 		Message:     reason,
 	}
-	if scope == "model" {
-		err := model.DisableChannelModel(channel.Id, info.SchedulerModel, reason, string(relayErr.GetErrorCode()), relayErr.StatusCode)
-		if err != nil {
-			common.SysError("failed to disable channel model capability: " + err.Error())
-			return false
-		}
-		state := model.ChannelModelState{ChannelId: channel.Id, Model: info.SchedulerModel, Disabled: true, Reason: reason, ErrorCode: string(relayErr.GetErrorCode()), StatusCode: relayErr.StatusCode, DisabledAt: event.Ts, UpdatedAt: event.Ts}
-		channelScheduler.disabledMu.Lock()
-		channelScheduler.disabled[channelModelKey{ChannelId: channel.Id, Model: info.SchedulerModel}] = state
-		channelScheduler.disabledMu.Unlock()
-	} else {
-		if err := model.DisableChannelForScheduling(channel.Id, reason); err != nil {
-			common.SysError("failed to disable scheduling channel: " + err.Error())
-			return false
-		}
-		channelScheduler.disabledMu.Lock()
-		channelScheduler.disabledChannels[channel.Id] = struct{}{}
-		channelScheduler.disabledMu.Unlock()
-	}
 	appendSchedulingEvent(event)
 	return true
 }
 
-func classifySchedulingFault(relayErr *types.NewAPIError) string {
+func isIntelligentSchedulingUpstreamError(relayErr *types.NewAPIError) bool {
 	if relayErr == nil {
-		return ""
+		return false
 	}
 	message := strings.ToLower(relayErr.Error())
 	if errors.Is(relayErr, context.Canceled) || strings.Contains(message, context.Canceled.Error()) {
-		return ""
+		return false
 	}
 	if (errors.Is(relayErr, context.DeadlineExceeded) || strings.Contains(message, context.DeadlineExceeded.Error())) && strings.Contains(message, "client") {
-		return ""
+		return false
 	}
-	errorCode := relayErr.GetErrorCode()
-	switch errorCode {
-	case types.ErrorCodeChannelModelMappedError,
-		types.ErrorCodeInvalidApiType:
-		return "model"
-	case types.ErrorCodeChannelNoAvailableKey,
-		types.ErrorCodeChannelParamOverrideInvalid,
-		types.ErrorCodeChannelHeaderOverrideInvalid,
-		types.ErrorCodeChannelAwsClientError,
-		types.ErrorCodeChannelInvalidKey,
-		types.ErrorCodeChannelResponseTimeExceeded:
-		return "channel"
+	return true
+}
+
+func clearIntelligentSchedulingFailure(channelId int) {
+	shard := getChannelFailureShard(channelId)
+	shard.mu.Lock()
+	delete(shard.streaks, channelId)
+	shard.mu.Unlock()
+}
+
+func recordIntelligentSchedulingSuccess(channelId int, now time.Time) {
+	shard := getChannelFailureShard(channelId)
+	shard.mu.Lock()
+	if isChannelSchedulingDisabled(channelId, "") {
+		shard.mu.Unlock()
+		return
 	}
-	if errorCode == types.ErrorCodeAwsInvokeError &&
-		(errors.Is(relayErr, context.DeadlineExceeded) || strings.Contains(message, context.DeadlineExceeded.Error())) {
-		return "channel"
+	if shard.streaks == nil {
+		shard.streaks = make(map[int]channelFailureStreak)
 	}
-	if types.IsSkipRetryError(relayErr) {
-		return ""
+	streak := shard.streaks[channelId]
+	if !streak.LastOutcomeAt.IsZero() && now.Before(streak.LastOutcomeAt) {
+		shard.mu.Unlock()
+		return
 	}
-	if errorCode == types.ErrorCodeModelNotFound ||
-		strings.Contains(message, "model not found") || strings.Contains(message, "model_not_found") ||
-		strings.Contains(message, "model is not supported") || strings.Contains(message, "unsupported model") {
-		return "model"
-	}
-	for _, marker := range []string{
-		"invalid api key", "invalid_api_key", "authentication failed", "insufficient balance",
-		"insufficient provider quota", "rate limit exceeded", "too many requests",
-	} {
-		if strings.Contains(message, marker) {
-			return "channel"
+	streak.Count = 0
+	streak.LastFailureAt = time.Time{}
+	streak.LastOutcomeAt = now
+	shard.streaks[channelId] = streak
+	shard.mu.Unlock()
+}
+
+func cleanupChannelFailureStreaks(now time.Time) {
+	for index := range channelScheduler.failureShards {
+		shard := &channelScheduler.failureShards[index]
+		shard.mu.Lock()
+		for channelId, streak := range shard.streaks {
+			elapsed := now.Sub(streak.LastOutcomeAt)
+			if streak.LastOutcomeAt.IsZero() || elapsed < 0 || elapsed > intelligentSchedulingFailureWindow {
+				delete(shard.streaks, channelId)
+			}
 		}
+		shard.mu.Unlock()
 	}
-	if relayErr.StatusCode == 404 {
-		return "model"
-	}
-	if relayErr.StatusCode == 401 || relayErr.StatusCode == 402 || relayErr.StatusCode == 403 || relayErr.StatusCode == 407 ||
-		relayErr.StatusCode == 408 || relayErr.StatusCode == 429 ||
-		(relayErr.StatusCode >= 500 && relayErr.StatusCode <= 599) {
-		return "channel"
-	}
-	switch errorCode {
-	case types.ErrorCodeDoRequestFailed,
-		types.ErrorCodeReadResponseBodyFailed,
-		types.ErrorCodeBadResponse,
-		types.ErrorCodeBadResponseBody,
-		types.ErrorCodeEmptyResponse:
-		return "channel"
-	}
-	return ""
+}
+
+func getChannelFailureShard(channelId int) *channelFailureShard {
+	return &channelScheduler.failureShards[channelId%channelFailureShardCount]
 }
 
 func isChannelModelSchedulingDisabled(channelId int, modelName string) bool {

@@ -16,6 +16,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func getChannelFailureStreakForTest(channelId int) (channelFailureStreak, bool) {
+	shard := getChannelFailureShard(channelId)
+	shard.mu.Lock()
+	defer shard.mu.Unlock()
+	streak, exists := shard.streaks[channelId]
+	return streak, exists
+}
+
 func TestIntelligentSchedulingIgnoresLegacyChannelWeights(t *testing.T) {
 	key := schedulingPoolKey{Group: "scheduler-test", Model: "gpt-test", Priority: 10}
 	channelScheduler.poolsMu.Lock()
@@ -146,36 +154,21 @@ func TestNormalSampleClearsImmediateSeverePenalty(t *testing.T) {
 	assert.Greater(t, calculatePerformanceFactor(state, 1000, setting), setting.MinimumFactor)
 }
 
-func TestClassifySchedulingFaultSeparatesModelAndChannelFaults(t *testing.T) {
-	modelFault := types.NewOpenAIError(errors.New("model is not supported"), types.ErrorCodeModelNotFound, http.StatusNotFound)
-	rateLimitFault := types.NewOpenAIError(errors.New("rate limited"), types.ErrorCodeBadResponseStatusCode, http.StatusTooManyRequests)
-	providerOverload := types.NewOpenAIError(errors.New("provider overloaded"), types.ErrorCodeBadResponseStatusCode, 529)
-	genericNotFound := types.NewOpenAIError(errors.New("resource unavailable"), types.ErrorCodeBadResponseStatusCode, http.StatusNotFound)
-	invalidKeyWithBadStatus := types.NewOpenAIError(errors.New("invalid api key"), types.ErrorCodeBadResponseStatusCode, http.StatusBadRequest)
-	clientFault := types.NewErrorWithStatusCode(errors.New("invalid request"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
-	localUnsupportedModel := types.NewErrorWithStatusCode(errors.New("model is not supported"), types.ErrorCodeInvalidRequest, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
-	awsTimeout := types.NewOpenAIError(context.DeadlineExceeded, types.ErrorCodeAwsInvokeError, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
-	clientCancel := types.NewOpenAIError(context.Canceled, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError, types.ErrOptionWithSkipRetry())
-	clientCancelWithoutSkip := types.NewOpenAIError(context.Canceled, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
-	clientDeadline := types.NewOpenAIError(errors.New("client context deadline exceeded"), types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
-	invalidOverride := types.NewError(errors.New("invalid channel override"), types.ErrorCodeChannelParamOverrideInvalid, types.ErrOptionWithSkipRetry())
-	invalidModelMapping := types.NewError(errors.New("invalid model mapping"), types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
-	invalidAPIType := types.NewError(errors.New("invalid api type"), types.ErrorCodeInvalidApiType, types.ErrOptionWithSkipRetry())
+func TestIntelligentSchedulingTreatsAllNonClientUpstreamErrorsEqually(t *testing.T) {
+	for _, relayErr := range []*types.NewAPIError{
+		types.NewOpenAIError(errors.New("forbidden"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden),
+		types.NewOpenAIError(errors.New("model is not supported"), types.ErrorCodeModelNotFound, http.StatusNotFound),
+		types.NewOpenAIError(errors.New("rate limited"), types.ErrorCodeBadResponseStatusCode, http.StatusTooManyRequests),
+		types.NewOpenAIError(errors.New("gateway timeout"), types.ErrorCodeBadResponseStatusCode, 524),
+		types.NewOpenAIError(context.DeadlineExceeded, types.ErrorCodeAwsInvokeError, http.StatusInternalServerError, types.ErrOptionWithSkipRetry()),
+	} {
+		assert.True(t, isIntelligentSchedulingUpstreamError(relayErr))
+	}
 
-	assert.Equal(t, "model", classifySchedulingFault(modelFault))
-	assert.Equal(t, "channel", classifySchedulingFault(rateLimitFault))
-	assert.Equal(t, "channel", classifySchedulingFault(providerOverload))
-	assert.Equal(t, "model", classifySchedulingFault(genericNotFound))
-	assert.Equal(t, "channel", classifySchedulingFault(invalidKeyWithBadStatus))
-	assert.Empty(t, classifySchedulingFault(clientFault))
-	assert.Empty(t, classifySchedulingFault(localUnsupportedModel))
-	assert.Equal(t, "channel", classifySchedulingFault(awsTimeout))
-	assert.Empty(t, classifySchedulingFault(clientCancel))
-	assert.Empty(t, classifySchedulingFault(clientCancelWithoutSkip))
-	assert.Empty(t, classifySchedulingFault(clientDeadline))
-	assert.Equal(t, "channel", classifySchedulingFault(invalidOverride))
-	assert.Equal(t, "model", classifySchedulingFault(invalidModelMapping))
-	assert.Equal(t, "model", classifySchedulingFault(invalidAPIType))
+	clientCancel := types.NewOpenAIError(context.Canceled, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
+	clientDeadline := types.NewOpenAIError(errors.New("client context deadline exceeded"), types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
+	assert.False(t, isIntelligentSchedulingUpstreamError(clientCancel))
+	assert.False(t, isIntelligentSchedulingUpstreamError(clientDeadline))
 }
 
 func TestShouldEnableChannelRequiresManualRecoveryForSchedulingFault(t *testing.T) {
@@ -332,6 +325,7 @@ func TestScheduledAttemptRecordsStreamingFirstContentTtft(t *testing.T) {
 	priority := int64(10)
 	weight := uint(100)
 	channel := &model.Channel{Id: 21, Name: "timed-channel", Priority: &priority, Weight: &weight}
+	t.Cleanup(func() { clearIntelligentSchedulingFailure(channel.Id) })
 	key := schedulingPoolKey{Group: group, Model: "gpt-test", Priority: priority}
 	channelScheduler.poolsMu.Lock()
 	channelScheduler.pools[key] = &channelSchedulingPool{channels: map[int]*channelSchedulingState{
@@ -406,6 +400,8 @@ func TestScheduledAttemptDoesNotCountLocalErrorBeforeUpstreamRequest(t *testing.
 	assert.Zero(t, state.SuccessCount)
 	assert.Zero(t, state.ErrorCount)
 	assert.Zero(t, state.Inflight)
+	_, hasStreak := getChannelFailureStreakForTest(channel.Id)
+	assert.False(t, hasStreak)
 }
 
 func TestScheduledAttemptCountsUpstreamClientErrorWithoutDisablingChannel(t *testing.T) {
@@ -414,6 +410,8 @@ func TestScheduledAttemptCountsUpstreamClientErrorWithoutDisablingChannel(t *tes
 	priority := int64(10)
 	weight := uint(100)
 	channel := &model.Channel{Id: 32, Name: "upstream-client-error-channel", Priority: &priority, Weight: &weight}
+	clearIntelligentSchedulingFailure(channel.Id)
+	t.Cleanup(func() { clearIntelligentSchedulingFailure(channel.Id) })
 	key := schedulingPoolKey{Group: group, Model: "gpt-test", Priority: priority}
 	channelScheduler.poolsMu.Lock()
 	channelScheduler.pools[key] = &channelSchedulingPool{channels: map[int]*channelSchedulingState{
@@ -441,6 +439,28 @@ func TestScheduledAttemptCountsUpstreamClientErrorWithoutDisablingChannel(t *tes
 	assert.Zero(t, state.SuccessCount)
 	assert.Equal(t, int64(1), state.ErrorCount)
 	assert.Zero(t, state.Inflight)
+	streak, _ := getChannelFailureStreakForTest(channel.Id)
+	assert.Equal(t, 1, streak.Count)
+}
+
+func TestOlderFailureCannotRestoreAStreakAfterNewerSuccess(t *testing.T) {
+	channel := &model.Channel{Id: 33, Name: "concurrent-outcome-channel"}
+	clearIntelligentSchedulingFailure(channel.Id)
+	t.Cleanup(func() { clearIntelligentSchedulingFailure(channel.Id) })
+	completedAt := time.Now()
+	recordIntelligentSchedulingSuccess(channel.Id, completedAt)
+
+	disabled := recordIntelligentSchedulingFailure(
+		&relaycommon.RelayInfo{SchedulerGroup: "scheduler-concurrent-test", SchedulerModel: "gpt-test"},
+		channel,
+		types.NewOpenAIError(errors.New("older upstream failure"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway),
+		completedAt.Add(-time.Millisecond),
+	)
+
+	assert.False(t, disabled)
+	streak, exists := getChannelFailureStreakForTest(channel.Id)
+	assert.True(t, exists)
+	assert.Zero(t, streak.Count)
 }
 
 func TestSnapshotSchedulingShareUsesVisibleTimeWindow(t *testing.T) {

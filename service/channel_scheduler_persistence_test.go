@@ -2,9 +2,11 @@ package service
 
 import (
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
@@ -103,6 +105,21 @@ func createSchedulerCandidate(t *testing.T, db *gorm.DB, id int, group string, p
 		Priority:  &priority,
 		Weight:    weight,
 	}).Error)
+}
+
+func finishSchedulerFailure(channel *model.Channel, group string, relayErr *types.NewAPIError) {
+	info := &relaycommon.RelayInfo{UsingGroup: group, OriginModelName: "gpt-test"}
+	BeginScheduledChannelAttempt(nil, info, channel)
+	info.UpstreamStartTime = time.Now()
+	FinishScheduledChannelAttempt(info, channel, false, relayErr)
+}
+
+func finishSchedulerSuccess(channel *model.Channel, group string) {
+	info := &relaycommon.RelayInfo{UsingGroup: group, OriginModelName: "gpt-test"}
+	BeginScheduledChannelAttempt(nil, info, channel)
+	info.UpstreamStartTime = time.Now()
+	info.UpstreamResponseTime = info.UpstreamStartTime.Add(time.Millisecond)
+	FinishScheduledChannelAttempt(info, channel, true, nil)
 }
 
 func configureSchedulerGroupStrategyForTest(t *testing.T, group string, strategy string) {
@@ -288,11 +305,15 @@ func TestRateLimitFaultDisablesWholeChannelAndFailsOver(t *testing.T) {
 
 	channel, err := model.GetChannelById(91401, true)
 	require.NoError(t, err)
-	info := &relaycommon.RelayInfo{UsingGroup: group, OriginModelName: "gpt-test"}
-	BeginScheduledChannelAttempt(nil, info, channel)
-	FinishScheduledChannelAttempt(info, channel, false, types.NewOpenAIError(
-		fmt.Errorf("rate limited"), types.ErrorCodeBadResponseStatusCode, 429,
-	))
+	relayErr := types.NewOpenAIError(fmt.Errorf("rate limited"), types.ErrorCodeBadResponseStatusCode, 429)
+	for range intelligentSchedulingFailureThreshold - 1 {
+		finishSchedulerFailure(channel, group, relayErr)
+	}
+	stillEnabled, err := model.GetChannelById(91401, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusEnabled, stillEnabled.Status)
+
+	finishSchedulerFailure(channel, group, relayErr)
 	t.Cleanup(func() {
 		if restored, restoreErr := RestoreScheduledChannel(91401); restoreErr == nil {
 			assert.True(t, restored)
@@ -315,7 +336,7 @@ func TestRateLimitFaultDisablesWholeChannelAndFailsOver(t *testing.T) {
 	assert.Equal(t, 91402, selected.Id)
 }
 
-func TestUnsupportedModelFaultDisablesOnlyChannelModelCapability(t *testing.T) {
+func TestModelErrorDisablesWholeChannelOnlyAfterConsecutiveFailures(t *testing.T) {
 	db := setupChannelSchedulerPersistenceTest(t)
 	const group = "scheduler-model-fault-test"
 	configureSchedulerGroupStrategyForTest(t, group, operation_setting.ChannelSchedulingStrategyIntelligent)
@@ -326,26 +347,24 @@ func TestUnsupportedModelFaultDisablesOnlyChannelModelCapability(t *testing.T) {
 
 	channel, err := model.GetChannelById(91501, true)
 	require.NoError(t, err)
-	info := &relaycommon.RelayInfo{UsingGroup: group, OriginModelName: "gpt-test"}
-	BeginScheduledChannelAttempt(nil, info, channel)
-	FinishScheduledChannelAttempt(info, channel, false, types.NewOpenAIError(
-		fmt.Errorf("model not found"), types.ErrorCodeModelNotFound, 404,
-	))
+	relayErr := types.NewOpenAIError(fmt.Errorf("model not found"), types.ErrorCodeModelNotFound, 404)
+	for range intelligentSchedulingFailureThreshold {
+		finishSchedulerFailure(channel, group, relayErr)
+	}
 	t.Cleanup(func() {
-		if restored, restoreErr := RestoreScheduledChannelModel(91501, "gpt-test"); restoreErr == nil {
+		if restored, restoreErr := RestoreScheduledChannel(91501); restoreErr == nil {
 			assert.True(t, restored)
 		}
 	})
 
-	stillEnabled, err := model.GetChannelById(91501, true)
+	disabled, err := model.GetChannelById(91501, true)
 	require.NoError(t, err)
-	assert.Equal(t, common.ChannelStatusEnabled, stillEnabled.Status)
-	assert.False(t, IsChannelModelUsableForScheduling("gpt-test", 91501))
+	assert.Equal(t, common.ChannelStatusAutoDisabled, disabled.Status)
+	assert.True(t, model.IsChannelSchedulingFault(disabled))
+	assert.False(t, IsChannelUsableForScheduling(group, "gpt-test", 91501))
 	states, err := model.ListChannelModelStates(true)
 	require.NoError(t, err)
-	require.Len(t, states, 1)
-	assert.Equal(t, 91501, states[0].ChannelId)
-	assert.Equal(t, "gpt-test", states[0].Model)
+	assert.Empty(t, states)
 
 	context, _ := gin.CreateTestContext(httptest.NewRecorder())
 	selected, selectedGroup, err := CacheGetRandomSatisfiedChannel(&RetryParam{
@@ -355,6 +374,77 @@ func TestUnsupportedModelFaultDisablesOnlyChannelModelCapability(t *testing.T) {
 	require.NotNil(t, selected)
 	assert.Equal(t, group, selectedGroup)
 	assert.Equal(t, 91502, selected.Id)
+}
+
+func TestSuccessfulAttemptResetsChannelFailureStreak(t *testing.T) {
+	db := setupChannelSchedulerPersistenceTest(t)
+	const group = "scheduler-failure-reset-test"
+	configureSchedulerGroupStrategyForTest(t, group, operation_setting.ChannelSchedulingStrategyIntelligent)
+	createSchedulerCandidate(t, db, 91511, group, 10)
+	common.MemoryCacheEnabled = true
+	model.InitChannelCache()
+
+	channel, err := model.GetChannelById(91511, true)
+	require.NoError(t, err)
+	relayErr := types.NewOpenAIError(fmt.Errorf("upstream failed"), types.ErrorCodeBadResponseStatusCode, 524)
+	for range intelligentSchedulingFailureThreshold - 1 {
+		finishSchedulerFailure(channel, group, relayErr)
+	}
+	finishSchedulerSuccess(channel, group)
+
+	streak, hasState := getChannelFailureStreakForTest(channel.Id)
+	assert.True(t, hasState)
+	assert.Zero(t, streak.Count)
+
+	for range intelligentSchedulingFailureThreshold - 1 {
+		finishSchedulerFailure(channel, group, relayErr)
+	}
+	stillEnabled, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusEnabled, stillEnabled.Status)
+
+	finishSchedulerFailure(channel, group, relayErr)
+	disabled, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, disabled.Status)
+	t.Cleanup(func() {
+		if restored, restoreErr := RestoreScheduledChannel(channel.Id); restoreErr == nil {
+			assert.True(t, restored)
+		}
+	})
+}
+
+func TestExpiredChannelFailureStreakRestartsFromOne(t *testing.T) {
+	db := setupChannelSchedulerPersistenceTest(t)
+	const group = "scheduler-failure-window-test"
+	configureSchedulerGroupStrategyForTest(t, group, operation_setting.ChannelSchedulingStrategyIntelligent)
+	createSchedulerCandidate(t, db, 91512, group, 10)
+	common.MemoryCacheEnabled = true
+	model.InitChannelCache()
+
+	channel, err := model.GetChannelById(91512, true)
+	require.NoError(t, err)
+	t.Cleanup(func() { clearIntelligentSchedulingFailure(channel.Id) })
+	shard := getChannelFailureShard(channel.Id)
+	shard.mu.Lock()
+	if shard.streaks == nil {
+		shard.streaks = make(map[int]channelFailureStreak)
+	}
+	shard.streaks[channel.Id] = channelFailureStreak{
+		Count:         intelligentSchedulingFailureThreshold - 1,
+		LastFailureAt: time.Now().Add(-intelligentSchedulingFailureWindow - time.Second),
+	}
+	shard.mu.Unlock()
+
+	finishSchedulerFailure(channel, group, types.NewOpenAIError(
+		fmt.Errorf("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden,
+	))
+
+	streak, _ := getChannelFailureStreakForTest(channel.Id)
+	assert.Equal(t, 1, streak.Count)
+	stillEnabled, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusEnabled, stillEnabled.Status)
 }
 
 func TestIntelligentChannelTestFaultUsesManualOnlySchedulerDisable(t *testing.T) {
@@ -367,10 +457,11 @@ func TestIntelligentChannelTestFaultUsesManualOnlySchedulerDisable(t *testing.T)
 
 	channel, err := model.GetChannelById(91601, true)
 	require.NoError(t, err)
-	handled := HandleIntelligentSchedulingChannelTestFault(channel, "gpt-test", types.NewOpenAIError(
-		fmt.Errorf("rate limited"), types.ErrorCodeBadResponseStatusCode, 429,
-	))
-	assert.True(t, handled)
+	relayErr := types.NewOpenAIError(fmt.Errorf("rate limited"), types.ErrorCodeBadResponseStatusCode, 429)
+	for range intelligentSchedulingFailureThreshold - 1 {
+		assert.False(t, HandleIntelligentSchedulingChannelTestFault(channel, "gpt-test", relayErr))
+	}
+	assert.True(t, HandleIntelligentSchedulingChannelTestFault(channel, "gpt-test", relayErr))
 	t.Cleanup(func() {
 		if restored, restoreErr := RestoreScheduledChannel(91601); restoreErr == nil {
 			assert.True(t, restored)

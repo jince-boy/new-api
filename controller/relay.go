@@ -200,7 +200,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
-			newAPIError = channelErr
+			if service.IsIntelligentSchedulingForGroup(common.GetContextKeyString(c, constant.ContextKeyUsingGroup)) && relayInfo.LastError != nil {
+				newAPIError = relayInfo.LastError
+			} else {
+				newAPIError = channelErr
+			}
 			break
 		}
 		addUsedChannel(c, channel.Id)
@@ -247,7 +251,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 		}
 
-		if !shouldRetry(c, newAPIError, attemptLimit-attempt-1) {
+		if !shouldRetry(c, relayInfo, newAPIError, attemptLimit-attempt-1) {
 			break
 		}
 	}
@@ -353,15 +357,18 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 	return channel, nil
 }
 
-func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) bool {
+func shouldRetry(c *gin.Context, relayInfo *relaycommon.RelayInfo, openaiErr *types.NewAPIError, retryTimes int) bool {
 	if openaiErr == nil {
 		return false
 	}
 	if _, ok := c.Get("specific_channel_id"); ok {
 		return false
 	}
-	if retryTimes > 0 && service.ShouldRetryIntelligentSchedulingError(common.GetContextKeyString(c, constant.ContextKeyUsingGroup), openaiErr) {
-		return true
+	usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+	if service.IsIntelligentSchedulingForGroup(usingGroup) {
+		return retryTimes > 0 && service.ShouldRetryIntelligentSchedulingError(
+			usingGroup, relayInfo, openaiErr,
+		) && canRetryIntelligentRelayResponse(c, relayInfo)
 	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false
@@ -386,6 +393,19 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 		return false
 	}
 	return operation_setting.ShouldRetryByStatusCode(code)
+}
+
+func canRetryIntelligentRelayResponse(c *gin.Context, relayInfo *relaycommon.RelayInfo) bool {
+	if c == nil || relayInfo == nil {
+		return false
+	}
+	if c.Writer.Status() == http.StatusSwitchingProtocols {
+		return false
+	}
+	if relayInfo.IsStream {
+		return !relayInfo.HasSendResponse() && relayInfo.UpstreamFirstContentTime.IsZero()
+	}
+	return !relayInfo.HasSendResponse() && !c.Writer.Written()
 }
 
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
@@ -569,7 +589,9 @@ func RelayTask(c *gin.Context) {
 			channel, channelErr = getChannel(c, relayInfo, retryParam)
 			if channelErr != nil {
 				logger.LogError(c, channelErr.Error())
-				taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
+				if taskErr == nil || !service.IsIntelligentSchedulingForGroup(common.GetContextKeyString(c, constant.ContextKeyUsingGroup)) {
+					taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
+				}
 				break
 			}
 		}
@@ -610,7 +632,7 @@ func RelayTask(c *gin.Context) {
 			break
 		}
 
-		if !shouldRetryTaskRelay(c, channel.Id, taskErr, attemptLimit-attempt-1) {
+		if !shouldRetryTaskRelay(c, relayInfo, channel.Id, taskErr, attemptLimit-attempt-1) {
 			break
 		}
 	}
@@ -663,15 +685,17 @@ func respondTaskError(c *gin.Context, taskErr *taskdto.TaskError) {
 	c.JSON(taskErr.StatusCode, taskErr)
 }
 
-func shouldRetryTaskRelay(c *gin.Context, channelId int, taskErr *taskdto.TaskError, retryTimes int) bool {
+func shouldRetryTaskRelay(c *gin.Context, relayInfo *relaycommon.RelayInfo, channelId int, taskErr *taskdto.TaskError, retryTimes int) bool {
 	if taskErr == nil {
 		return false
 	}
-	if retryTimes > 0 && !taskErr.LocalError && service.ShouldRetryIntelligentSchedulingError(
-		common.GetContextKeyString(c, constant.ContextKeyUsingGroup),
-		types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode),
-	) {
-		return true
+	usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+	if service.IsIntelligentSchedulingForGroup(usingGroup) {
+		return retryTimes > 0 && !taskErr.LocalError && service.ShouldRetryIntelligentSchedulingError(
+			usingGroup,
+			relayInfo,
+			types.NewOpenAIError(taskErr.Error, types.ErrorCodeBadResponseStatusCode, taskErr.StatusCode),
+		)
 	}
 	if service.ShouldSkipRetryAfterChannelAffinityFailure(c) {
 		return false

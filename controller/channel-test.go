@@ -977,10 +977,12 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 		// request error disables the channel
 		if newAPIError != nil {
 			if intelligentManaged {
-				shouldBanChannel = service.IsIntelligentSchedulingFaultError(newAPIError)
+				shouldBanChannel = result.localErr == nil && service.IsIntelligentSchedulingFaultError(newAPIError)
 			} else {
 				shouldBanChannel = service.ShouldDisableChannel(newAPIError)
 			}
+		} else if intelligentManaged {
+			service.RecordIntelligentSchedulingChannelTestSuccess(channel)
 		}
 
 		// 当错误检查通过，才检查响应时间
