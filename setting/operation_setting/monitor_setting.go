@@ -1,6 +1,7 @@
 package operation_setting
 
 import (
+	"fmt"
 	"os"
 	"strconv"
 
@@ -8,21 +9,27 @@ import (
 )
 
 type MonitorSetting struct {
-	AutoTestChannelEnabled bool    `json:"auto_test_channel_enabled"`
-	AutoTestChannelMinutes float64 `json:"auto_test_channel_minutes"`
-	ChannelTestMode        string  `json:"channel_test_mode"`
+	AutoTestChannelEnabled       bool    `json:"auto_test_channel_enabled"`
+	AutoTestChannelMinutes       float64 `json:"auto_test_channel_minutes"`
+	ChannelTestMode              string  `json:"channel_test_mode"`
+	AsyncTaskPollIntervalSeconds int     `json:"async_task_poll_interval_seconds"`
 }
 
 const (
+	AsyncTaskPollIntervalOptionKey = "MonitorSetting.AsyncTaskPollIntervalSeconds"
+	minAsyncTaskPollInterval       = 5
+
 	ChannelTestModeScheduledAll    = "scheduled_all"
+	ChannelTestModeAutoBanOnly     = "auto_ban_only"
 	ChannelTestModePassiveRecovery = "passive_recovery"
 )
 
 // 默认配置
 var monitorSetting = MonitorSetting{
-	AutoTestChannelEnabled: false,
-	AutoTestChannelMinutes: 10,
-	ChannelTestMode:        ChannelTestModeScheduledAll,
+	AutoTestChannelEnabled:       false,
+	AutoTestChannelMinutes:       10,
+	ChannelTestMode:              ChannelTestModeScheduledAll,
+	AsyncTaskPollIntervalSeconds: 15,
 }
 
 func init() {
@@ -45,8 +52,21 @@ func GetMonitorSetting() *MonitorSetting {
 			monitorSetting.AutoTestChannelEnabled = parsed
 		}
 	}
-	if monitorSetting.ChannelTestMode != ChannelTestModePassiveRecovery {
+	switch monitorSetting.ChannelTestMode {
+	case ChannelTestModeAutoBanOnly, ChannelTestModePassiveRecovery:
+	default:
 		monitorSetting.ChannelTestMode = ChannelTestModeScheduledAll
 	}
+	if monitorSetting.AsyncTaskPollIntervalSeconds < minAsyncTaskPollInterval {
+		monitorSetting.AsyncTaskPollIntervalSeconds = minAsyncTaskPollInterval
+	}
 	return &monitorSetting
+}
+
+func ValidateAsyncTaskPollInterval(value string) error {
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds < minAsyncTaskPollInterval || seconds%minAsyncTaskPollInterval != 0 {
+		return fmt.Errorf("async task poll interval must be a multiple of %d seconds", minAsyncTaskPollInterval)
+	}
+	return nil
 }

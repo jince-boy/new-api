@@ -47,6 +47,10 @@ func DisableChannelForScheduling(channelId int, reason string) error {
 		return nil
 	}
 
+	pollingLock := GetChannelPollingLock(channelId)
+	pollingLock.Lock()
+	defer pollingLock.Unlock()
+
 	channel, err := GetChannelById(channelId, true)
 	if err != nil {
 		return err
@@ -59,7 +63,7 @@ func DisableChannelForScheduling(channelId int, reason string) error {
 	info["status_reason"] = markedReason
 	info["status_time"] = common.GetTimestamp()
 	channel.SetOtherInfo(info)
-	if err := channel.SaveWithoutKey(); err != nil {
+	if err := channel.saveStatusState(); err != nil {
 		return err
 	}
 	CacheUpdateChannel(channel)

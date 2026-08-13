@@ -261,6 +261,8 @@ func validateOptionValue(key string, value string) error {
 	switch key {
 	case operation_setting.ToolPriceOptionKey:
 		return operation_setting.ValidateToolPricesJSON(value)
+	case operation_setting.AsyncTaskPollIntervalOptionKey:
+		return operation_setting.ValidateAsyncTaskPollInterval(value)
 	case "VideoWorkerSecret":
 		if value != "" && len(value) < 32 {
 			return fmt.Errorf("video worker secret must be at least 32 characters")

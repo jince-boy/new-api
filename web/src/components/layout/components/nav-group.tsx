@@ -147,13 +147,19 @@ function NavBadge({ children }: { children: ReactNode }) {
  * Sidebar menu link item
  */
 function SidebarMenuLink({ item, href }: { item: NavLink; href: string }) {
-  const { setOpenMobile } = useSidebar()
+  const { isMobile, setOpenMobile } = useSidebar()
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
         isActive={checkIsActive(href, item)}
         tooltip={item.title}
-        render={<Link to={item.url} onClick={() => setOpenMobile(false)} />}
+        render={
+          <Link
+            to={item.url}
+            preload={isMobile ? false : undefined}
+            onClick={() => setOpenMobile(false)}
+          />
+        }
       >
         {item.icon && <item.icon className='shrink-0' />}
         <span className='min-w-0 flex-1 truncate'>{item.title}</span>
@@ -177,7 +183,7 @@ function SidebarMenuCollapsible({
   open: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { setOpenMobile } = useSidebar()
+  const { isMobile, setOpenMobile } = useSidebar()
 
   return (
     <Collapsible
@@ -202,7 +208,11 @@ function SidebarMenuCollapsible({
               <SidebarMenuSubButton
                 isActive={checkIsActive(href, subItem)}
                 render={
-                  <Link to={subItem.url} onClick={() => setOpenMobile(false)} />
+                  <Link
+                    to={subItem.url}
+                    preload={isMobile ? false : undefined}
+                    onClick={() => setOpenMobile(false)}
+                  />
                 }
               >
                 {subItem.icon && <subItem.icon className='shrink-0' />}
