@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -336,6 +337,131 @@ func TestRateLimitFaultDisablesWholeChannelAndFailsOver(t *testing.T) {
 	assert.Equal(t, 91402, selected.Id)
 }
 
+func TestLastIntelligentSchedulingChannelIsNeverAutoDisabled(t *testing.T) {
+	db := setupChannelSchedulerPersistenceTest(t)
+	const group = "scheduler-last-channel-test"
+	configureSchedulerGroupStrategyForTest(t, group, operation_setting.ChannelSchedulingStrategyIntelligent)
+	createSchedulerCandidate(t, db, 91411, group, 10)
+	common.MemoryCacheEnabled = true
+	model.InitChannelCache()
+
+	channel, err := model.GetChannelById(91411, true)
+	require.NoError(t, err)
+	relayErr := types.NewOpenAIError(fmt.Errorf("upstream failed"), types.ErrorCodeBadResponseStatusCode, 524)
+	for range intelligentSchedulingFailureThreshold + 2 {
+		finishSchedulerFailure(channel, group, relayErr)
+	}
+
+	stillEnabled, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusEnabled, stillEnabled.Status)
+	assert.False(t, model.IsChannelSchedulingFault(stillEnabled))
+	streak, exists := getChannelFailureStreakForTest(channel.Id)
+	assert.True(t, exists)
+	assert.Equal(t, intelligentSchedulingFailureThreshold+2, streak.Count)
+}
+
+func TestLastChannelProtectionCountsLowerPriorityFallbackAsAvailable(t *testing.T) {
+	db := setupChannelSchedulerPersistenceTest(t)
+	const group = "scheduler-last-channel-priority-test"
+	configureSchedulerGroupStrategyForTest(t, group, operation_setting.ChannelSchedulingStrategyIntelligent)
+	createSchedulerCandidate(t, db, 91421, group, 20)
+	createSchedulerCandidate(t, db, 91422, group, 10)
+	common.MemoryCacheEnabled = true
+	model.InitChannelCache()
+
+	channel, err := model.GetChannelById(91421, true)
+	require.NoError(t, err)
+	for range intelligentSchedulingFailureThreshold {
+		finishSchedulerFailure(channel, group, types.NewOpenAIError(
+			fmt.Errorf("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden,
+		))
+	}
+
+	disabled, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, disabled.Status)
+	t.Cleanup(func() {
+		if restored, restoreErr := RestoreScheduledChannel(channel.Id); restoreErr == nil {
+			assert.True(t, restored)
+		}
+	})
+}
+
+func TestUnrelatedEnabledChannelDoesNotBypassLastPoolChannelProtection(t *testing.T) {
+	db := setupChannelSchedulerPersistenceTest(t)
+	const group = "scheduler-last-pool-channel-test"
+	configureSchedulerGroupStrategyForTest(t, group, operation_setting.ChannelSchedulingStrategyIntelligent)
+	createSchedulerCandidate(t, db, 91423, group, 10)
+	createSchedulerCandidate(t, db, 91424, "unrelated-group", 10)
+	common.MemoryCacheEnabled = true
+	model.InitChannelCache()
+
+	channel, err := model.GetChannelById(91423, true)
+	require.NoError(t, err)
+	for range intelligentSchedulingFailureThreshold + 1 {
+		finishSchedulerFailure(channel, group, types.NewOpenAIError(
+			fmt.Errorf("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway,
+		))
+	}
+
+	stillEnabled, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusEnabled, stillEnabled.Status)
+}
+
+func TestConcurrentThresholdFailuresStillLeaveOneChannelEnabled(t *testing.T) {
+	db := setupChannelSchedulerPersistenceTest(t)
+	const group = "scheduler-concurrent-last-channel-test"
+	configureSchedulerGroupStrategyForTest(t, group, operation_setting.ChannelSchedulingStrategyIntelligent)
+	createSchedulerCandidate(t, db, 91431, group, 10)
+	createSchedulerCandidate(t, db, 91432, group, 10)
+	common.MemoryCacheEnabled = true
+	model.InitChannelCache()
+
+	channels := make([]*model.Channel, 0, 2)
+	for _, channelId := range []int{91431, 91432} {
+		channel, err := model.GetChannelById(channelId, true)
+		require.NoError(t, err)
+		channels = append(channels, channel)
+		for range intelligentSchedulingFailureThreshold - 1 {
+			finishSchedulerFailure(channel, group, types.NewOpenAIError(
+				fmt.Errorf("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway,
+			))
+		}
+	}
+
+	var waitGroup sync.WaitGroup
+	for _, channel := range channels {
+		waitGroup.Add(1)
+		go func(channel *model.Channel) {
+			defer waitGroup.Done()
+			finishSchedulerFailure(channel, group, types.NewOpenAIError(
+				fmt.Errorf("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway,
+			))
+		}(channel)
+	}
+	waitGroup.Wait()
+
+	enabledCount := 0
+	for _, channel := range channels {
+		current, err := model.GetChannelById(channel.Id, true)
+		require.NoError(t, err)
+		if current.Status == common.ChannelStatusEnabled {
+			enabledCount++
+			continue
+		}
+		require.Equal(t, common.ChannelStatusAutoDisabled, current.Status)
+		currentId := current.Id
+		t.Cleanup(func() {
+			if restored, restoreErr := RestoreScheduledChannel(currentId); restoreErr == nil {
+				assert.True(t, restored)
+			}
+		})
+	}
+	assert.Equal(t, 1, enabledCount)
+}
+
 func TestModelErrorDisablesWholeChannelOnlyAfterConsecutiveFailures(t *testing.T) {
 	db := setupChannelSchedulerPersistenceTest(t)
 	const group = "scheduler-model-fault-test"
@@ -381,6 +507,7 @@ func TestSuccessfulAttemptResetsChannelFailureStreak(t *testing.T) {
 	const group = "scheduler-failure-reset-test"
 	configureSchedulerGroupStrategyForTest(t, group, operation_setting.ChannelSchedulingStrategyIntelligent)
 	createSchedulerCandidate(t, db, 91511, group, 10)
+	createSchedulerCandidate(t, db, 91513, group, 10)
 	common.MemoryCacheEnabled = true
 	model.InitChannelCache()
 
@@ -452,6 +579,7 @@ func TestIntelligentChannelTestFaultUsesManualOnlySchedulerDisable(t *testing.T)
 	const group = "scheduler-health-test-fault"
 	configureSchedulerGroupStrategyForTest(t, group, operation_setting.ChannelSchedulingStrategyIntelligent)
 	createSchedulerCandidate(t, db, 91601, group, 10)
+	createSchedulerCandidate(t, db, 91602, group, 10)
 	common.MemoryCacheEnabled = true
 	model.InitChannelCache()
 

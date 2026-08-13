@@ -168,6 +168,7 @@ type RelayInfo struct {
 	SchedulerModel                        string
 	SchedulerPriority                     int64
 	SchedulerChannelId                    int
+	SchedulerRequestPath                  string
 	SchedulerStartedAt                    int64
 	SchedulerAttemptActive                bool
 	RuntimeHeadersOverride                map[string]interface{}

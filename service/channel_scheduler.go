@@ -172,6 +172,7 @@ var channelScheduler = struct {
 }
 
 var channelSchedulerSyncOnce sync.Once
+var channelSchedulerDisableMu sync.Mutex
 
 func InitChannelScheduler() {
 	reloadChannelSchedulerFaults()
@@ -523,6 +524,11 @@ func BeginScheduledChannelAttempt(c *gin.Context, info *relaycommon.RelayInfo, c
 	info.SchedulerModel = key.Model
 	info.SchedulerPriority = key.Priority
 	info.SchedulerChannelId = channel.Id
+	if c != nil && c.Request != nil && c.Request.URL != nil {
+		info.SchedulerRequestPath = c.Request.URL.Path
+	} else {
+		info.SchedulerRequestPath = ""
+	}
 	info.SchedulerStartedAt = now
 	info.SchedulerAttemptActive = true
 	info.ResetUpstreamTiming()
@@ -862,8 +868,30 @@ func recordIntelligentSchedulingFailure(info *relaycommon.RelayInfo, channel *mo
 
 	lastError := relayErr.MaskSensitiveErrorWithStatusCode()
 	reason := fmt.Sprintf("%d consecutive upstream failures within %s; last error: %s", streak.Count, intelligentSchedulingFailureWindow, lastError)
+	shard.mu.Unlock()
+	channelSchedulerDisableMu.Lock()
+	shard.mu.Lock()
+	current := shard.streaks[channel.Id]
+	if current.Count < intelligentSchedulingFailureThreshold || !current.LastOutcomeAt.Equal(now) || isChannelSchedulingDisabled(channel.Id, info.SchedulerModel) {
+		shard.mu.Unlock()
+		channelSchedulerDisableMu.Unlock()
+		return false
+	}
+	hasAlternative, err := hasAlternativeIntelligentSchedulingChannel(info, channel.Id)
+	if err != nil {
+		shard.mu.Unlock()
+		channelSchedulerDisableMu.Unlock()
+		common.SysError("failed to verify intelligent scheduling fallback channel: " + err.Error())
+		return false
+	}
+	if !hasAlternative {
+		shard.mu.Unlock()
+		channelSchedulerDisableMu.Unlock()
+		return false
+	}
 	if err := model.DisableChannelForScheduling(channel.Id, reason); err != nil {
 		shard.mu.Unlock()
+		channelSchedulerDisableMu.Unlock()
 		common.SysError("failed to disable scheduling channel: " + err.Error())
 		return false
 	}
@@ -872,6 +900,7 @@ func recordIntelligentSchedulingFailure(info *relaycommon.RelayInfo, channel *mo
 	channelScheduler.disabledMu.Unlock()
 	delete(shard.streaks, channel.Id)
 	shard.mu.Unlock()
+	channelSchedulerDisableMu.Unlock()
 
 	event := ChannelSchedulingEvent{
 		Ts:          now.Unix(),
@@ -885,6 +914,22 @@ func recordIntelligentSchedulingFailure(info *relaycommon.RelayInfo, channel *mo
 	}
 	appendSchedulingEvent(event)
 	return true
+}
+
+func hasAlternativeIntelligentSchedulingChannel(info *relaycommon.RelayInfo, channelId int) (bool, error) {
+	if info == nil || info.SchedulerGroup == "" || info.SchedulerModel == "" {
+		return false, nil
+	}
+	candidates, err := model.GetSatisfiedChannels(info.SchedulerGroup, info.SchedulerModel, info.SchedulerRequestPath)
+	if err != nil {
+		return false, err
+	}
+	for _, candidate := range candidates {
+		if candidate.Id != channelId && !isChannelSchedulingDisabled(candidate.Id, info.SchedulerModel) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func isIntelligentSchedulingUpstreamError(relayErr *types.NewAPIError) bool {
