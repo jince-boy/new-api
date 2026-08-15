@@ -76,8 +76,25 @@ func RelayMidjourneyImage(c *gin.Context) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		responseBody, _ := io.ReadAll(resp.Body)
-		c.JSON(resp.StatusCode, gin.H{
-			"error": string(responseBody),
+		maskedBody := service.UpstreamErrorBodyForAdmin(string(responseBody))
+		logger.LogError(c, fmt.Sprintf("midjourney image upstream error: channel=%d status=%d body=%s", midjourneyTask.ChannelId, resp.StatusCode, maskedBody))
+		if constant.ErrorLogEnabled {
+			other := map[string]interface{}{
+				"request_path": c.Request.URL.Path,
+				"status_code":  http.StatusInternalServerError,
+				"admin_info": map[string]interface{}{
+					"upstream_error": map[string]interface{}{
+						"channel_id":   midjourneyTask.ChannelId,
+						"status_code":  resp.StatusCode,
+						"content_type": resp.Header.Get("Content-Type"),
+						"body":         maskedBody,
+					},
+				},
+			}
+			model.RecordErrorLog(c, midjourneyTask.UserId, midjourneyTask.ChannelId, midjourneyTask.Action, "", "当前模型不可用", midjourneyTask.TokenId, 0, false, "", other)
+		}
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "当前模型不可用",
 		})
 		return
 	}
@@ -164,6 +181,10 @@ func coverMidjourneyTaskDto(c *gin.Context, originTask *model.Midjourney) (midjo
 	midjourneyTask.FailReason = originTask.FailReason
 	midjourneyTask.Action = originTask.Action
 	midjourneyTask.Description = originTask.Description
+	if strings.EqualFold(originTask.Status, "FAILURE") {
+		midjourneyTask.FailReason = "当前模型不可用"
+		midjourneyTask.Description = "当前模型不可用"
+	}
 	midjourneyTask.Prompt = originTask.Prompt
 	if originTask.Buttons != "" {
 		var buttons []dto.ActionButton

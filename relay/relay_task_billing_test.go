@@ -19,12 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 package relay
 
 import (
-	"errors"
-	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/types"
@@ -33,40 +31,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestApplyTaskErrorMappingsRecordsChannelMappingOutcome(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	context, _ := gin.CreateTestContext(httptest.NewRecorder())
-	context.Set("status_code_mapping", `{"400":422}`)
-	context.Set("error_response_mapping", `{"400":{"message":"request rejected","type":"invalid_request_error","code":"mapped_request_error"}}`)
-	info := &relaycommon.RelayInfo{
-		TaskUpstreamDiagnostics: &relaycommon.TaskUpstreamDiagnostics{
-			HTTPStatus:       http.StatusBadRequest,
-			UpstreamStatus:   "failed",
-			MappedStatus:     "FAILURE",
-			ErrorPathMatched: true,
-		},
-	}
-	taskErr := &dto.TaskError{
-		Code:       "upstream_task_failed",
-		Message:    "invalid prompt",
-		StatusCode: http.StatusBadRequest,
-		Error:      errors.New("invalid prompt"),
+func TestTaskModel2PublicDtoHidesStoredUpstreamFailureReason(t *testing.T) {
+	t.Parallel()
+
+	task := &model.Task{
+		TaskID:     "task-private-error",
+		Status:     model.TaskStatusFailure,
+		FailReason: "upstream account balance exhausted",
 	}
 
-	mapped := applyTaskErrorMappings(context, info, taskErr)
+	public := TaskModel2PublicDto(task)
 
-	require.NotNil(t, mapped)
-	assert.Equal(t, http.StatusUnprocessableEntity, mapped.StatusCode)
-	assert.Equal(t, "request rejected", mapped.Message)
-	assert.Equal(t, "mapped_request_error", mapped.Code)
-	diagnostics := info.TaskUpstreamDiagnostics
-	require.NotNil(t, diagnostics)
-	assert.Equal(t, http.StatusBadRequest, diagnostics.GatewayStatusBeforeMapping)
-	assert.Equal(t, http.StatusUnprocessableEntity, diagnostics.GatewayStatusAfterMapping)
-	assert.True(t, diagnostics.StatusCodeMappingConfigured)
-	assert.True(t, diagnostics.StatusCodeMappingApplied)
-	assert.True(t, diagnostics.ErrorResponseMappingConfigured)
-	assert.True(t, diagnostics.ErrorResponseMappingApplied)
+	require.NotNil(t, public)
+	assert.Equal(t, "当前模型不可用", public.FailReason)
+	assert.Equal(t, "upstream account balance exhausted", task.FailReason)
 }
 
 func TestPerSecondTierQuotaUsesUnitPriceTimesDuration(t *testing.T) {

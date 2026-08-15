@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -100,9 +101,8 @@ func NewTaskBillingContext(info *relaycommon.RelayInfo) *model.TaskBillingContex
 }
 
 // RecordTaskSubmissionFailure persists one zero-cost error log and one failed
-// task row after the final upstream submission attempt. Raw upstream response
-// bodies are intentionally excluded; only configured mapping diagnostics are
-// stored for administrators.
+// task row after the final upstream submission attempt. Provider details stay
+// in admin_info so task status APIs only expose the generic public error.
 func RecordTaskSubmissionFailure(c *gin.Context, info *relaycommon.RelayInfo, platform constant.TaskPlatform, taskErr *taskdto.TaskError) {
 	if c == nil || info == nil || taskErr == nil || taskErr.LocalError || info.PublicTaskID == "" {
 		return
@@ -114,7 +114,7 @@ func RecordTaskSubmissionFailure(c *gin.Context, info *relaycommon.RelayInfo, pl
 	task.Status = model.TaskStatusFailure
 	task.Progress = "100%"
 	task.FinishTime = now
-	task.FailReason = taskErr.Message
+	task.FailReason = "当前模型不可用"
 	task.Action = info.Action
 	task.Quota = 0
 	task.PrivateData.BillingSource = info.BillingSource
@@ -131,7 +131,7 @@ func RecordTaskSubmissionFailure(c *gin.Context, info *relaycommon.RelayInfo, pl
 		"task_id":      task.TaskID,
 		"request_path": c.Request.URL.Path,
 		"error_code":   taskErr.Code,
-		"http_status":  taskErr.StatusCode,
+		"http_status":  http.StatusInternalServerError,
 		"model_price":  info.PriceData.ModelPrice,
 		"group_ratio":  info.PriceData.GroupRatioInfo.GroupRatio,
 	}
@@ -149,7 +149,7 @@ func RecordTaskSubmissionFailure(c *gin.Context, info *relaycommon.RelayInfo, pl
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
 		UserId:            info.UserId,
 		LogType:           model.LogTypeError,
-		Content:           taskErr.Message,
+		Content:           "当前模型不可用",
 		ChannelId:         info.ChannelId,
 		ModelName:         info.OriginModelName,
 		Quota:             0,
@@ -179,13 +179,11 @@ func attachTaskUpstreamDiagnostics(other map[string]interface{}, diagnostics *re
 		"status_mapping_applied": diagnostics.StatusMappingApplied,
 		"error_path_matched":     diagnostics.ErrorPathMatched,
 	}
-	if diagnostics.GatewayStatusBeforeMapping > 0 {
-		taskUpstream["gateway_status_before_mapping"] = diagnostics.GatewayStatusBeforeMapping
-		taskUpstream["gateway_status_after_mapping"] = diagnostics.GatewayStatusAfterMapping
-		taskUpstream["status_code_mapping_configured"] = diagnostics.StatusCodeMappingConfigured
-		taskUpstream["status_code_mapping_applied"] = diagnostics.StatusCodeMappingApplied
-		taskUpstream["error_response_mapping_configured"] = diagnostics.ErrorResponseMappingConfigured
-		taskUpstream["error_response_mapping_applied"] = diagnostics.ErrorResponseMappingApplied
+	if diagnostics.ContentType != "" {
+		taskUpstream["content_type"] = diagnostics.ContentType
+	}
+	if diagnostics.ResponseBody != "" {
+		taskUpstream["body"] = diagnostics.ResponseBody
 	}
 	adminInfo["task_upstream"] = taskUpstream
 }

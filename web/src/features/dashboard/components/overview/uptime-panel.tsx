@@ -33,10 +33,10 @@ import { cn } from '@/lib/utils'
 import { PanelWrapper } from '../ui/panel-wrapper'
 
 const STATUS_COLOR_MAP: Record<number, string> = {
-  1: 'bg-emerald-500',
-  0: 'bg-red-500',
-  2: 'bg-amber-500',
-  3: 'bg-blue-500',
+  1: 'bg-success',
+  0: 'bg-destructive',
+  2: 'bg-warning',
+  3: 'bg-info',
 }
 const DEFAULT_STATUS_COLOR = 'bg-muted-foreground/40'
 
@@ -108,7 +108,6 @@ export function UptimePanel() {
       loading={loading}
       empty={!groups.length}
       emptyMessage={t('No uptime monitoring configured')}
-      height='h-80'
       contentClassName='p-0'
       headerActions={
         <Button
@@ -125,7 +124,7 @@ export function UptimePanel() {
         </Button>
       }
     >
-      <ScrollArea className='h-80'>
+      <ScrollArea className='h-full'>
         <div>
           {groups.map((group, groupIdx) => (
             <div key={group.categoryName}>

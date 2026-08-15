@@ -56,13 +56,13 @@ func TestRecordTaskSubmissionFailurePersistsZeroCostTaskAndErrorLog(t *testing.T
 			Action:       "generate",
 		},
 		TaskUpstreamDiagnostics: &relaycommon.TaskUpstreamDiagnostics{
-			HTTPStatus:                 http.StatusBadRequest,
-			UpstreamStatus:             "failed",
-			MappedStatus:               "FAILURE",
-			StatusMappingApplied:       true,
-			ErrorPathMatched:           true,
-			GatewayStatusBeforeMapping: http.StatusBadRequest,
-			GatewayStatusAfterMapping:  http.StatusBadRequest,
+			HTTPStatus:           http.StatusBadRequest,
+			ContentType:          "application/json",
+			ResponseBody:         `{"error":"upstream balance exhausted"}`,
+			UpstreamStatus:       "failed",
+			MappedStatus:         "FAILURE",
+			StatusMappingApplied: true,
+			ErrorPathMatched:     true,
 		},
 	}
 	info.PriceData.ModelPrice = 0.04
@@ -79,25 +79,24 @@ func TestRecordTaskSubmissionFailurePersistsZeroCostTaskAndErrorLog(t *testing.T
 	require.NoError(t, model.DB.Where("task_id = ?", "task_failed_submit").First(&task).Error)
 	assert.Equal(t, model.TaskStatus(model.TaskStatusFailure), task.Status)
 	assert.Equal(t, "100%", task.Progress)
-	assert.Equal(t, "invalid prompt", task.FailReason)
+	assert.Equal(t, "当前模型不可用", task.FailReason)
 	assert.Zero(t, task.Quota)
 
 	var logEntry model.Log
 	require.NoError(t, model.DB.Where("request_id = ?", "req-task-failure").First(&logEntry).Error)
 	assert.Equal(t, model.LogTypeError, logEntry.Type)
 	assert.Zero(t, logEntry.Quota)
-	assert.Equal(t, "invalid prompt", logEntry.Content)
+	assert.Equal(t, "当前模型不可用", logEntry.Content)
 	var other map[string]any
 	require.NoError(t, common.UnmarshalJsonStr(logEntry.Other, &other))
 	assert.Equal(t, "task_failed_submit", other["task_id"])
-	assert.NotContains(t, logEntry.Other, "raw_response")
 	adminInfo, ok := other["admin_info"].(map[string]any)
 	require.True(t, ok)
 	diagnostics, ok := adminInfo["task_upstream"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "FAILURE", diagnostics["mapped_status"])
-	assert.Equal(t, false, diagnostics["status_code_mapping_configured"])
-	assert.Equal(t, false, diagnostics["error_response_mapping_configured"])
+	assert.Equal(t, "application/json", diagnostics["content_type"])
+	assert.Contains(t, diagnostics["body"], "upstream balance exhausted")
 }
 
 func TestLogTaskConsumptionRecordsResolvedPerSecondTier(t *testing.T) {

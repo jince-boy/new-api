@@ -81,7 +81,6 @@ func AlphaSearchHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError
 		return types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
 	}
 
-	statusCodeMappingStr := c.GetString("status_code_mapping")
 	httpResp, ok := resp.(*http.Response)
 	if !ok || httpResp == nil {
 		return types.NewOpenAIError(errors.New("invalid http response"), types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
@@ -90,7 +89,6 @@ func AlphaSearchHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError
 
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
 		newAPIError = service.RelayErrorHandler(c.Request.Context(), httpResp, false)
-		service.ResetStatusCode(newAPIError, statusCodeMappingStr)
 		return newAPIError
 	}
 

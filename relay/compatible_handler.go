@@ -189,24 +189,17 @@ func TextHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *types
 		return types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
 	}
 
-	statusCodeMappingStr := c.GetString("status_code_mapping")
-	errorResponseMappingStr := c.GetString("error_response_mapping")
-
 	if resp != nil {
 		httpResp = resp.(*http.Response)
 		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 		if httpResp.StatusCode != http.StatusOK {
 			newApiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, info.IsPlayground)
-			// reset status code 重置状态码
-			service.ApplyStatusCodeAndErrorResponseMapping(newApiErr, statusCodeMappingStr, errorResponseMappingStr)
 			return newApiErr
 		}
 	}
 
 	usage, newApiErr := adaptor.DoResponse(c, httpResp, info)
 	if newApiErr != nil {
-		// reset status code 重置状态码
-		service.ApplyStatusCodeAndErrorResponseMapping(newApiErr, statusCodeMappingStr, errorResponseMappingStr)
 		return newApiErr
 	}
 

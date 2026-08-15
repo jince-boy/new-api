@@ -80,20 +80,16 @@ type TokenCountMeta struct {
 	estimatePromptTokens int
 }
 
-// TaskUpstreamDiagnostics records only the configured mapping outcome. It
-// deliberately excludes the raw upstream response body and credentials.
+// TaskUpstreamDiagnostics is persisted only inside admin_info. Raw response
+// content must be bounded and masked before assigning ResponseBody.
 type TaskUpstreamDiagnostics struct {
-	HTTPStatus                     int
-	UpstreamStatus                 string
-	MappedStatus                   string
-	StatusMappingApplied           bool
-	ErrorPathMatched               bool
-	GatewayStatusBeforeMapping     int
-	GatewayStatusAfterMapping      int
-	StatusCodeMappingConfigured    bool
-	StatusCodeMappingApplied       bool
-	ErrorResponseMappingConfigured bool
-	ErrorResponseMappingApplied    bool
+	HTTPStatus           int
+	ContentType          string
+	ResponseBody         string
+	UpstreamStatus       string
+	MappedStatus         string
+	StatusMappingApplied bool
+	ErrorPathMatched     bool
 }
 
 type RelayInfo struct {
@@ -164,6 +160,7 @@ type RelayInfo struct {
 	IsChannelTest                         bool // channel test request
 	RetryIndex                            int
 	LastError                             *types.NewAPIError
+	UpstreamStreamError                   *types.NewAPIError
 	SchedulerGroup                        string
 	SchedulerModel                        string
 	SchedulerPriority                     int64

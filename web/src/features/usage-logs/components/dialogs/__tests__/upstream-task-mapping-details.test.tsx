@@ -49,7 +49,8 @@ const { createRoot } = await import('react-dom/client')
 const i18next = (await import('i18next')).default
 const { initReactI18next } = await import('react-i18next')
 await i18next.use(initReactI18next).init({ lng: 'en' })
-const { UpstreamTaskMappingDetails } = await import('../details-dialog')
+const { UpstreamErrorDetails, UpstreamTaskMappingDetails } =
+  await import('../details-dialog')
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
 }
@@ -60,7 +61,7 @@ describe('UpstreamTaskMappingDetails', () => {
     domWindow.close()
   })
 
-  test('shows safe submit mapping diagnostics for an upstream failure', async () => {
+  test('shows private upstream response diagnostics for an upstream failure', async () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -74,12 +75,8 @@ describe('UpstreamTaskMappingDetails', () => {
             mapped_status: 'FAILURE',
             status_mapping_applied: true,
             error_path_matched: true,
-            gateway_status_before_mapping: 400,
-            gateway_status_after_mapping: 422,
-            status_code_mapping_configured: true,
-            status_code_mapping_applied: true,
-            error_response_mapping_configured: true,
-            error_response_mapping_applied: false,
+            content_type: 'application/json',
+            body: '{"error":"upstream balance exhausted"}',
           }}
         />
       )
@@ -92,8 +89,39 @@ describe('UpstreamTaskMappingDetails', () => {
     assert.match(text, /FAILURE/)
     assert.match(text, /Status mapping appliedYes/)
     assert.match(text, /Error path matchedYes/)
-    assert.match(text, /Status Code Mapping400 → 422/)
-    assert.match(text, /Error Response MappingNo matching results/)
+    assert.match(text, /Content typeapplication\/json/)
+    assert.match(text, /Response body.*upstream balance exhausted/)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('shows channel and response body only in the admin diagnostics component', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => {
+      root.render(
+        <UpstreamErrorDetails
+          diagnostics={{
+            attempt: 2,
+            channel_id: 18,
+            channel_name: 'private-channel',
+            status_code: 403,
+            content_type: 'application/json',
+            body: '{"error":"insufficient balance"}',
+            stream: false,
+          }}
+        />
+      )
+    })
+
+    const text = container.textContent || ''
+    assert.match(text, /Upstream error details/)
+    assert.match(text, /private-channel/)
+    assert.match(text, /403/)
+    assert.match(text, /insufficient balance/)
 
     await act(async () => root.unmount())
     container.remove()

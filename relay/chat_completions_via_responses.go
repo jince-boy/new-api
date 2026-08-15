@@ -147,23 +147,18 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		return nil, types.NewOpenAIError(nil, types.ErrorCodeBadResponse, http.StatusInternalServerError)
 	}
 
-	statusCodeMappingStr := c.GetString("status_code_mapping")
-	errorResponseMappingStr := c.GetString("error_response_mapping")
-
 	httpResp = resp.(*http.Response)
 	clientStream := info.IsStream
 	upstreamStream := isResponsesEventStreamContentType(httpResp.Header.Get("Content-Type"))
 	info.IsStream = clientStream || upstreamStream
 	if httpResp.StatusCode != http.StatusOK {
 		newApiErr := service.RelayErrorHandler(c.Request.Context(), httpResp, info.IsPlayground)
-		service.ApplyStatusCodeAndErrorResponseMapping(newApiErr, statusCodeMappingStr, errorResponseMappingStr)
 		return nil, newApiErr
 	}
 
 	if upstreamStream && clientStream {
 		usage, newApiErr := openaichannel.OaiResponsesToChatStreamHandler(c, info, httpResp)
 		if newApiErr != nil {
-			service.ApplyStatusCodeAndErrorResponseMapping(newApiErr, statusCodeMappingStr, errorResponseMappingStr)
 			return nil, newApiErr
 		}
 		return usage, nil
@@ -172,7 +167,6 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 		info.IsStream = false
 		usage, newApiErr := openaichannel.OaiResponsesToChatBufferedStreamHandler(c, info, httpResp)
 		if newApiErr != nil {
-			service.ResetStatusCode(newApiErr, statusCodeMappingStr)
 			return nil, newApiErr
 		}
 		return usage, nil
@@ -180,7 +174,6 @@ func chatCompletionsViaResponses(c *gin.Context, info *relaycommon.RelayInfo, ad
 
 	usage, newApiErr := openaichannel.OaiResponsesToChatHandler(c, info, httpResp)
 	if newApiErr != nil {
-		service.ApplyStatusCodeAndErrorResponseMapping(newApiErr, statusCodeMappingStr, errorResponseMappingStr)
 		return nil, newApiErr
 	}
 	return usage, nil

@@ -2,14 +2,13 @@ package service
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
-	"strconv"
+	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
 	taskdto "github.com/QuantumNous/new-api/dto"
@@ -17,6 +16,39 @@ import (
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 )
+
+const upstreamErrorBodyLimit = 8 * 1024
+
+var (
+	upstreamAuthorizationPattern = regexp.MustCompile(`(?i)(authorization\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\r\n,;}\]]+)`)
+	upstreamSecretQuotedPattern  = regexp.MustCompile(`(?i)((?:"?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|secret|token)"?)\s*[:=]\s*)(?:"[^"]*"|'[^']*')`)
+	upstreamSecretBarePattern    = regexp.MustCompile(`(?i)((?:api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|secret|token)\s*[:=]\s*)[^"'\s,;}\]]+`)
+	upstreamBearerPattern        = regexp.MustCompile(`(?i)(bearer\s+)[a-z0-9._~+/=-]+`)
+)
+
+func UpstreamErrorBodyForAdmin(body string) string {
+	body = common.MaskSensitiveInfo(body)
+	body = upstreamAuthorizationPattern.ReplaceAllString(body, `${1}***`)
+	body = upstreamSecretQuotedPattern.ReplaceAllString(body, `${1}"***"`)
+	body = upstreamSecretBarePattern.ReplaceAllString(body, `${1}***`)
+	body = upstreamBearerPattern.ReplaceAllString(body, `${1}***`)
+	if len(body) <= upstreamErrorBodyLimit {
+		return body
+	}
+	suffix := fmt.Sprintf("... [truncated, original_length=%d, limit=%d]", len(body), upstreamErrorBodyLimit)
+	prefixLimit := upstreamErrorBodyLimit - len(suffix)
+	for prefixLimit > 0 && !utf8.ValidString(body[:prefixLimit]) {
+		prefixLimit--
+	}
+	return body[:prefixLimit] + suffix
+}
+
+func MarkUpstreamError(err *types.NewAPIError, statusCode int, contentType string, body string) *types.NewAPIError {
+	if err != nil {
+		err.SetUpstreamError(statusCode, contentType, UpstreamErrorBodyForAdmin(body))
+	}
+	return err
+}
 
 func MidjourneyErrorWrapper(code int, desc string) *taskdto.MidjourneyResponse {
 	return &taskdto.MidjourneyResponse{
@@ -86,6 +118,10 @@ func ClaudeErrorWrapperLocal(err error, code string, statusCode int) *dto.Claude
 
 func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFail bool) (newApiErr *types.NewAPIError) {
 	newApiErr = types.InitOpenAIError(types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
+	responseBodyText := ""
+	defer func() {
+		MarkUpstreamError(newApiErr, resp.StatusCode, resp.Header.Get("Content-Type"), responseBodyText)
+	}()
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -93,7 +129,7 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 	}
 	CloseResponseBodyGracefully(resp)
 	var errResponse dto.GeneralErrorResponse
-	responseBodyText := string(responseBody)
+	responseBodyText = string(responseBody)
 	responseBodyPreview := common.LocalLogPreview(responseBodyText)
 	buildErrWithBody := func(message string) error {
 		if message == "" {
@@ -140,205 +176,6 @@ func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFai
 		newApiErr.Err = buildErrWithBody(newApiErr.Error())
 	}
 	return
-}
-
-func ResetStatusCode(newApiErr *types.NewAPIError, statusCodeMappingStr string) {
-	if newApiErr == nil {
-		return
-	}
-	if statusCodeMappingStr == "" || statusCodeMappingStr == "{}" {
-		return
-	}
-	statusCodeMapping := make(map[string]any)
-	err := common.Unmarshal([]byte(statusCodeMappingStr), &statusCodeMapping)
-	if err != nil {
-		return
-	}
-	if newApiErr.StatusCode == http.StatusOK {
-		return
-	}
-	codeStr := strconv.Itoa(newApiErr.StatusCode)
-	if value, ok := statusCodeMapping[codeStr]; ok {
-		intCode, ok := parseStatusCodeMappingValue(value)
-		if !ok {
-			return
-		}
-		newApiErr.StatusCode = intCode
-	}
-}
-
-type errorResponseMappingRule struct {
-	StatusCode       int
-	Message          string
-	Type             string
-	Code             any
-	MessageContains  []string
-	HasCode          bool
-	HasResponseField bool
-}
-
-func ApplyStatusCodeAndErrorResponseMapping(newApiErr *types.NewAPIError, statusCodeMappingStr string, errorResponseMappingStr string) {
-	if newApiErr == nil {
-		return
-	}
-	originalStatusCode := newApiErr.StatusCode
-	ResetStatusCode(newApiErr, statusCodeMappingStr)
-	ApplyErrorResponseMapping(newApiErr, errorResponseMappingStr, originalStatusCode)
-}
-
-func ApplyErrorResponseMapping(newApiErr *types.NewAPIError, errorResponseMappingStr string, originalStatusCode int) {
-	if newApiErr == nil {
-		return
-	}
-	if errorResponseMappingStr == "" || errorResponseMappingStr == "{}" {
-		return
-	}
-
-	mapping := make(map[string]any)
-	if err := common.Unmarshal([]byte(errorResponseMappingStr), &mapping); err != nil {
-		return
-	}
-
-	rule, ok := lookupErrorResponseMappingRule(mapping, originalStatusCode, newApiErr.StatusCode)
-	if !ok || !ruleMatchesErrorResponse(rule, newApiErr.Error()) {
-		return
-	}
-	if rule.StatusCode >= http.StatusContinue && rule.StatusCode <= http.StatusNetworkAuthenticationRequired {
-		newApiErr.StatusCode = rule.StatusCode
-	}
-	if rule.HasResponseField {
-		var code any
-		if rule.HasCode {
-			code = rule.Code
-		}
-		newApiErr.OverrideOpenAIErrorResponse(rule.Message, rule.Type, code)
-	}
-}
-
-func lookupErrorResponseMappingRule(mapping map[string]any, originalStatusCode int, currentStatusCode int) (errorResponseMappingRule, bool) {
-	keys := []string{strconv.Itoa(originalStatusCode)}
-	currentKey := strconv.Itoa(currentStatusCode)
-	if currentKey != keys[0] {
-		keys = append(keys, currentKey)
-	}
-	keys = append(keys, "*")
-
-	for _, key := range keys {
-		rawRule, ok := mapping[key]
-		if !ok {
-			continue
-		}
-		rule, ok := parseErrorResponseMappingRule(rawRule)
-		if ok {
-			return rule, true
-		}
-	}
-	return errorResponseMappingRule{}, false
-}
-
-func parseErrorResponseMappingRule(rawRule any) (errorResponseMappingRule, bool) {
-	switch value := rawRule.(type) {
-	case string:
-		if strings.TrimSpace(value) == "" {
-			return errorResponseMappingRule{}, false
-		}
-		return errorResponseMappingRule{
-			Message:          value,
-			HasResponseField: true,
-		}, true
-	case map[string]any:
-		rule := errorResponseMappingRule{}
-		if statusRaw, ok := value["status_code"]; ok {
-			statusCode, ok := parseStatusCodeMappingValue(statusRaw)
-			if ok {
-				rule.StatusCode = statusCode
-			}
-		} else if statusRaw, ok := value["status"]; ok {
-			statusCode, ok := parseStatusCodeMappingValue(statusRaw)
-			if ok {
-				rule.StatusCode = statusCode
-			}
-		}
-		if message, ok := value["message"].(string); ok {
-			rule.Message = message
-			rule.HasResponseField = true
-		}
-		if errorType, ok := value["type"].(string); ok {
-			rule.Type = errorType
-			rule.HasResponseField = true
-		}
-		if code, ok := value["code"]; ok {
-			rule.Code = code
-			rule.HasCode = true
-			rule.HasResponseField = true
-		}
-		rule.MessageContains = parseErrorResponseMappingStringList(value["message_contains"])
-		return rule, rule.StatusCode != 0 || rule.HasResponseField
-	default:
-		return errorResponseMappingRule{}, false
-	}
-}
-
-func parseErrorResponseMappingStringList(raw any) []string {
-	switch value := raw.(type) {
-	case string:
-		if strings.TrimSpace(value) == "" {
-			return nil
-		}
-		return []string{value}
-	case []any:
-		result := make([]string, 0, len(value))
-		for _, item := range value {
-			if str, ok := item.(string); ok && strings.TrimSpace(str) != "" {
-				result = append(result, str)
-			}
-		}
-		return result
-	default:
-		return nil
-	}
-}
-
-func ruleMatchesErrorResponse(rule errorResponseMappingRule, message string) bool {
-	if len(rule.MessageContains) == 0 {
-		return true
-	}
-	lowerMessage := strings.ToLower(message)
-	for _, keyword := range rule.MessageContains {
-		if strings.Contains(lowerMessage, strings.ToLower(keyword)) {
-			return true
-		}
-	}
-	return false
-}
-
-func parseStatusCodeMappingValue(value any) (int, bool) {
-	switch v := value.(type) {
-	case string:
-		if v == "" {
-			return 0, false
-		}
-		statusCode, err := strconv.Atoi(v)
-		if err != nil {
-			return 0, false
-		}
-		return statusCode, true
-	case float64:
-		if v != math.Trunc(v) {
-			return 0, false
-		}
-		return int(v), true
-	case int:
-		return v, true
-	case json.Number:
-		statusCode, err := strconv.Atoi(v.String())
-		if err != nil {
-			return 0, false
-		}
-		return statusCode, true
-	default:
-		return 0, false
-	}
 }
 
 func TaskErrorWrapperLocal(err error, code string, statusCode int) *taskdto.TaskError {

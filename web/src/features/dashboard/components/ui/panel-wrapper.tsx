@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Skeleton } from '@/components/ui/skeleton'
@@ -28,7 +28,6 @@ interface PanelWrapperProps {
   loading?: boolean
   empty?: boolean
   emptyMessage?: string
-  height?: string
   className?: string
   contentClassName?: string
   headerActions?: ReactNode
@@ -50,9 +49,9 @@ function PanelHeader(props: {
   )
 
   return (
-    <div className='border-b px-4 py-3 sm:px-5'>
+    <div className='border-border/50 bg-muted/15 flex min-h-18 items-center border-b px-4 py-3 sm:px-5'>
       {props.actions != null ? (
-        <div className='flex items-start justify-between gap-2'>
+        <div className='flex w-full items-start justify-between gap-2'>
           {heading}
           {props.actions}
         </div>
@@ -66,50 +65,50 @@ function PanelHeader(props: {
 export function PanelWrapper(props: PanelWrapperProps) {
   const { t } = useTranslation()
   const resolvedEmptyMessage = props.emptyMessage ?? t('No data available')
-  const height = props.height ?? 'h-64'
   const frameClassName = cn(
-    'overflow-hidden rounded-2xl border bg-card shadow-xs',
+    'border-border/60 bg-card/95 flex h-[22rem] min-w-0 flex-col overflow-hidden rounded-2xl border shadow-xs',
     props.className
   )
 
   if (props.loading) {
     return (
-      <div className={frameClassName}>
+      <section className={frameClassName}>
         <PanelHeader title={props.title} description={props.description} />
-        <div className={cn('p-4 sm:p-5', props.contentClassName)}>
-          <Skeleton className={`w-full ${height}`} />
+        <div
+          className={cn('min-h-0 flex-1 p-4 sm:p-5', props.contentClassName)}
+        >
+          <Skeleton className='size-full' />
         </div>
-      </div>
+      </section>
     )
   }
 
   if (props.empty) {
     return (
-      <div className={frameClassName}>
+      <section className={frameClassName}>
         <PanelHeader title={props.title} description={props.description} />
         <div
           className={cn(
-            'text-muted-foreground flex items-center justify-center px-4 text-sm',
-            height,
+            'text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-4 text-sm',
             props.contentClassName
           )}
         >
           {resolvedEmptyMessage}
         </div>
-      </div>
+      </section>
     )
   }
 
   return (
-    <div className={frameClassName}>
+    <section className={frameClassName}>
       <PanelHeader
         title={props.title}
         description={props.description}
         actions={props.headerActions}
       />
-      <div className={cn('p-4 sm:p-5', props.contentClassName)}>
+      <div className={cn('min-h-0 flex-1 p-4 sm:p-5', props.contentClassName)}>
         {props.children}
       </div>
-    </div>
+    </section>
   )
 }

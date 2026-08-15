@@ -20,7 +20,6 @@ import (
 	relayconstant "github.com/QuantumNous/new-api/relay/constant"
 	"github.com/QuantumNous/new-api/relay/helper"
 	relaykitdto "github.com/QuantumNous/new-api/relaykit/dto"
-	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
@@ -105,9 +104,6 @@ func ResolveOriginTask(c *gin.Context, info *relaycommon.RelayInfo) *dto.TaskErr
 		common.SetContextKey(c, constant.ContextKeyChannelType, ch.Type)
 		common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, ch.GetBaseURL())
 		common.SetContextKey(c, constant.ContextKeyChannelId, originTask.ChannelId)
-		common.SetContextKey(c, constant.ContextKeyChannelStatusCodeMapping, ch.GetStatusCodeMapping())
-		common.SetContextKey(c, constant.ContextKeyChannelErrorResponseMapping, ch.GetErrorResponseMapping())
-
 		info.ChannelBaseUrl = ch.GetBaseURL()
 		info.ChannelId = originTask.ChannelId
 		info.ChannelType = ch.Type
@@ -284,7 +280,13 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 				resp.StatusCode,
 			)
 		}
-		return nil, applyTaskErrorMappings(c, info, taskErr)
+		if info.TaskUpstreamDiagnostics == nil {
+			info.TaskUpstreamDiagnostics = &relaycommon.TaskUpstreamDiagnostics{}
+		}
+		info.TaskUpstreamDiagnostics.HTTPStatus = resp.StatusCode
+		info.TaskUpstreamDiagnostics.ContentType = resp.Header.Get("Content-Type")
+		info.TaskUpstreamDiagnostics.ResponseBody = service.UpstreamErrorBodyForAdmin(string(responseBody))
+		return nil, taskErr
 	}
 
 	// 10. 返回 OtherRatios 给下游（header 必须在 DoResponse 写 body 之前设置）
@@ -298,7 +300,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	// 11. 解析响应
 	upstreamTaskID, taskData, taskErr := adaptor.DoResponse(c, resp, info)
 	if taskErr != nil {
-		return nil, applyTaskErrorMappings(c, info, taskErr)
+		return nil, taskErr
 	}
 
 	// 11. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios
@@ -335,46 +337,6 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 		Quota:          finalQuota,
 		TaskRoute:      taskRoute,
 	}, nil
-}
-
-func applyTaskErrorMappings(c *gin.Context, info *relaycommon.RelayInfo, taskErr *dto.TaskError) *dto.TaskError {
-	if c == nil || info == nil || taskErr == nil || taskErr.LocalError {
-		return taskErr
-	}
-
-	statusCodeMapping := strings.TrimSpace(c.GetString(string(constant.ContextKeyChannelStatusCodeMapping)))
-	errorResponseMapping := strings.TrimSpace(c.GetString(string(constant.ContextKeyChannelErrorResponseMapping)))
-	diagnostics := info.TaskUpstreamDiagnostics
-	if diagnostics == nil {
-		diagnostics = &relaycommon.TaskUpstreamDiagnostics{HTTPStatus: taskErr.StatusCode}
-		info.TaskUpstreamDiagnostics = diagnostics
-	}
-	diagnostics.GatewayStatusBeforeMapping = taskErr.StatusCode
-	diagnostics.StatusCodeMappingConfigured = statusCodeMapping != "" && statusCodeMapping != "{}"
-	diagnostics.ErrorResponseMappingConfigured = errorResponseMapping != "" && errorResponseMapping != "{}"
-
-	mappedError := types.NewOpenAIError(errors.New(taskErr.Message), types.ErrorCode(taskErr.Code), taskErr.StatusCode)
-	service.ResetStatusCode(mappedError, statusCodeMapping)
-	diagnostics.StatusCodeMappingApplied = mappedError.StatusCode != taskErr.StatusCode
-
-	beforeErrorResponse := mappedError.ToOpenAIError()
-	statusAfterStatusCodeMapping := mappedError.StatusCode
-	service.ApplyErrorResponseMapping(mappedError, errorResponseMapping, taskErr.StatusCode)
-	afterErrorResponse := mappedError.ToOpenAIError()
-	diagnostics.ErrorResponseMappingApplied =
-		mappedError.StatusCode != statusAfterStatusCodeMapping ||
-			afterErrorResponse.Message != beforeErrorResponse.Message ||
-			afterErrorResponse.Type != beforeErrorResponse.Type ||
-			fmt.Sprint(afterErrorResponse.Code) != fmt.Sprint(beforeErrorResponse.Code)
-	diagnostics.GatewayStatusAfterMapping = mappedError.StatusCode
-
-	taskErr.StatusCode = mappedError.StatusCode
-	taskErr.Message = afterErrorResponse.Message
-	if code := strings.TrimSpace(fmt.Sprint(afterErrorResponse.Code)); code != "" && code != "<nil>" {
-		taskErr.Code = code
-	}
-	taskErr.Error = errors.New(taskErr.Message)
-	return taskErr
 }
 
 func filterConditionalPerSecondRatios(ratios map[string]float64, enabled bool) map[string]float64 {
@@ -487,7 +449,7 @@ func sunoFetchRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *dto.Ta
 			return
 		}
 		for _, task := range taskModels {
-			tasks = append(tasks, TaskModel2Dto(task))
+			tasks = append(tasks, TaskModel2PublicDto(task))
 		}
 	} else {
 		tasks = make([]any, 0)
@@ -515,7 +477,7 @@ func sunoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *dt
 
 	respBody, err = common.Marshal(dto.TaskResponse[any]{
 		Code: "success",
-		Data: TaskModel2Dto(originTask),
+		Data: TaskModel2PublicDto(originTask),
 	})
 	return
 }
@@ -553,7 +515,7 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 			return
 		}
 		if converter, ok := adaptor.(channel.OpenAIVideoConverter); ok {
-			openAIVideoData, err := converter.ConvertToOpenAIVideo(originTask)
+			openAIVideoData, err := converter.ConvertToOpenAIVideo(publicTaskSnapshot(originTask))
 			if err != nil {
 				taskResp = service.TaskErrorWrapper(err, "convert_to_openai_video_failed", http.StatusInternalServerError)
 				return
@@ -568,7 +530,7 @@ func videoFetchByIDRespBodyBuilder(c *gin.Context) (respBody []byte, taskResp *d
 	// 通用 TaskDto 格式
 	respBody, err = common.Marshal(dto.TaskResponse[any]{
 		Code: "success",
-		Data: TaskModel2Dto(originTask),
+		Data: TaskModel2PublicDto(originTask),
 	})
 	if err != nil {
 		taskResp = service.TaskErrorWrapper(err, "marshal_response_failed", http.StatusInternalServerError)
@@ -731,4 +693,19 @@ func TaskModel2Dto(task *model.Task) *dto.TaskDto {
 		Username:   task.Username,
 		Data:       task.Data,
 	}
+}
+
+func publicTaskSnapshot(task *model.Task) *model.Task {
+	if task == nil {
+		return nil
+	}
+	copy := *task
+	if copy.Status == model.TaskStatusFailure && copy.FailReason != "" {
+		copy.FailReason = "当前模型不可用"
+	}
+	return &copy
+}
+
+func TaskModel2PublicDto(task *model.Task) *dto.TaskDto {
+	return TaskModel2Dto(publicTaskSnapshot(task))
 }

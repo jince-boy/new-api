@@ -65,8 +65,6 @@ func EmbeddingHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 	defer closer.Close()
 	jsonData = nil
 	var requestBody io.Reader = body
-	statusCodeMappingStr := c.GetString("status_code_mapping")
-	errorResponseMappingStr := c.GetString("error_response_mapping")
 	info.MarkUpstreamRequestStart()
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	info.MarkUpstreamResponse()
@@ -79,16 +77,12 @@ func EmbeddingHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *
 		httpResp = resp.(*http.Response)
 		if httpResp.StatusCode != http.StatusOK {
 			newAPIError = service.RelayErrorHandler(c.Request.Context(), httpResp, false)
-			// reset status code 重置状态码
-			service.ApplyStatusCodeAndErrorResponseMapping(newAPIError, statusCodeMappingStr, errorResponseMappingStr)
 			return newAPIError
 		}
 	}
 
 	usage, newAPIError := adaptor.DoResponse(c, httpResp, info)
 	if newAPIError != nil {
-		// reset status code 重置状态码
-		service.ApplyStatusCodeAndErrorResponseMapping(newAPIError, statusCodeMappingStr, errorResponseMappingStr)
 		return newAPIError
 	}
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)

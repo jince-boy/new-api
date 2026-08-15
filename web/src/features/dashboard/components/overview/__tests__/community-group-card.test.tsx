@@ -123,7 +123,14 @@ describe('CommunityGroupCard', () => {
     const button = [...rendered.container.querySelectorAll('button')].find(
       (item) => item.textContent?.includes('View QR code')
     )
+    const card = rendered.container.querySelector(
+      'section[aria-labelledby="user-community-title"]'
+    )
+    assert.ok(card)
+    assert.ok(card.classList.contains('rounded-2xl'))
+    assert.ok(card.classList.contains('bg-card/95'))
     assert.ok(button)
+    assert.ok(button.classList.contains('bg-primary'))
 
     await act(async () => button.click())
 

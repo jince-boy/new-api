@@ -111,9 +111,6 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 		}
 	}
 
-	statusCodeMappingStr := c.GetString("status_code_mapping")
-	errorResponseMappingStr := c.GetString("error_response_mapping")
-
 	info.MarkUpstreamRequestStart()
 	resp, err := adaptor.DoRequest(c, info, requestBody)
 	info.MarkUpstreamResponse()
@@ -130,8 +127,6 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 				httpResp.StatusCode = http.StatusOK
 			} else {
 				newAPIError = service.RelayErrorHandler(c.Request.Context(), httpResp, false)
-				// reset status code 重置状态码
-				service.ApplyStatusCodeAndErrorResponseMapping(newAPIError, statusCodeMappingStr, errorResponseMappingStr)
 				return newAPIError
 			}
 		}
@@ -139,8 +134,6 @@ func ImageHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *type
 
 	usage, newAPIError := adaptor.DoResponse(c, httpResp, info)
 	if newAPIError != nil {
-		// reset status code 重置状态码
-		service.ApplyStatusCodeAndErrorResponseMapping(newAPIError, statusCodeMappingStr, errorResponseMappingStr)
 		return newAPIError
 	}
 

@@ -355,7 +355,6 @@ export const FIELD_PLACEHOLDERS = {
   REMARK: 'Optional notes about this channel',
   PARAM_OVERRIDE: '{"temperature": 0.7}',
   HEADER_OVERRIDE: '{"X-Custom-Header": "value"}',
-  STATUS_CODE_MAPPING: '{"400": "500"}',
 } as const
 
 export const FIELD_DESCRIPTIONS = {
@@ -372,7 +371,6 @@ export const FIELD_DESCRIPTIONS = {
   WEIGHT: 'Used for load balancing. Higher weight = more requests',
   TEST_MODEL: 'Model to use when testing channel connectivity',
   AUTO_BAN: 'Automatically disable channel on repeated failures',
-  STATUS_CODE_MAPPING: 'Map response status codes (JSON format)',
   TAG: 'Group channels by tag for batch operations',
   REMARK: 'Internal notes (not shown to users)',
   SETTING: 'Channel-specific settings (JSON format)',

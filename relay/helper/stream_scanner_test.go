@@ -84,6 +84,27 @@ func TestMeaningfulStreamDataIgnoresRoleAndLifecycleEvents(t *testing.T) {
 	assert.True(t, IsMeaningfulStreamData(`{"event_type":"text-generation","text":"hello"}`))
 }
 
+func TestDetectUpstreamStreamErrorCapturesErrorWithoutForwardingPayload(t *testing.T) {
+	t.Parallel()
+
+	err := detectUpstreamStreamError(`{"error":{"message":"upstream balance exhausted","status_code":403}}`)
+
+	require.NotNil(t, err)
+	require.True(t, err.IsUpstream())
+	require.Equal(t, http.StatusForbidden, err.StatusCode)
+	details := err.UpstreamError()
+	require.NotNil(t, details)
+	require.Contains(t, details.Body, "upstream balance exhausted")
+}
+
+func TestDetectUpstreamStreamErrorIgnoresNormalChunk(t *testing.T) {
+	t.Parallel()
+
+	err := detectUpstreamStreamError(`{"choices":[{"delta":{"content":"hello"}}]}`)
+
+	require.Nil(t, err)
+}
+
 func TestNewStreamScanner_AllowsLargeStreamLine(t *testing.T) {
 	oldBufferMB := constant.StreamScannerMaxBufferMB
 	constant.StreamScannerMaxBufferMB = 1

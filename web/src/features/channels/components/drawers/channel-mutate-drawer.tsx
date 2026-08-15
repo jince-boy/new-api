@@ -64,7 +64,6 @@ import {
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
 import { JsonCodeEditor } from '@/components/json-code-editor'
-import { JsonEditor } from '@/components/json-editor'
 import { MultiSelect } from '@/components/multi-select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -170,10 +169,6 @@ import {
   validateModelMappingJson,
   hasAdvancedSettingsErrors,
 } from '../../lib'
-import {
-  collectInvalidStatusCodeEntries,
-  collectNewDisallowedStatusCodeRedirects,
-} from '../../lib/status-code-risk-guard'
 import type { Channel } from '../../types'
 import { useChannels } from '../channels-provider'
 import { AdvancedCustomEditorDialog } from '../dialogs/advanced-custom-editor-dialog'
@@ -183,7 +178,6 @@ import {
   type MissingModelsAction,
 } from '../dialogs/missing-models-confirmation-dialog'
 import { ParamOverrideEditorDialog } from '../dialogs/param-override-editor-dialog'
-import { StatusCodeRiskDialog } from '../dialogs/status-code-risk-dialog'
 import { ModelMappingEditor } from '../model-mapping-editor'
 import {
   ChannelAdvancedSection,
@@ -333,8 +327,6 @@ function hasAdvancedSettingsValues(values: ChannelFormValues): boolean {
     hasConfiguredOverrideValue(values.param_override) ||
     hasConfiguredOverrideValue(values.header_override) ||
     values.advanced_custom?.trim() ||
-    hasConfiguredOverrideValue(values.status_code_mapping) ||
-    hasConfiguredOverrideValue(values.error_response_mapping) ||
     values.tag?.trim() ||
     values.remark?.trim() ||
     values.priority ||
@@ -629,14 +621,6 @@ export function ChannelMutateDrawer({
     useState(false)
   const initialModelsRef = useRef<string[]>([])
   const initialModelMappingRef = useRef<string>('')
-  const initialStatusCodeMappingRef = useRef<string>('')
-  const [statusCodeRiskOpen, setStatusCodeRiskOpen] = useState(false)
-  const [statusCodeRiskDetailItems, setStatusCodeRiskDetailItems] = useState<
-    string[]
-  >([])
-  const statusCodeRiskResolveRef = useRef<
-    ((confirmed: boolean) => void) | null
-  >(null)
   const [missingModelsDialogOpen, setMissingModelsDialogOpen] = useState(false)
   const [missingModelsList, setMissingModelsList] = useState<string[]>([])
   const missingModelsResolveRef = useRef<
@@ -744,8 +728,6 @@ export function ChannelMutateDrawer({
   const currentAutoBan = form.watch('auto_ban')
   const currentTag = form.watch('tag')
   const currentRemark = form.watch('remark')
-  const currentStatusCodeMapping = form.watch('status_code_mapping')
-  const currentErrorResponseMapping = form.watch('error_response_mapping')
   const currentParamOverride = form.watch('param_override')
   const currentHeaderOverride = form.watch('header_override')
   const currentForceFormat = form.watch('force_format')
@@ -1015,8 +997,6 @@ export function ChannelMutateDrawer({
     currentTag?.trim() || currentRemark?.trim()
   )
   const overrideRulesConfigured = Boolean(
-    hasConfiguredOverrideValue(currentStatusCodeMapping) ||
-    hasConfiguredOverrideValue(currentErrorResponseMapping) ||
     hasConfiguredOverrideValue(currentParamOverride) ||
     hasConfiguredOverrideValue(currentHeaderOverride)
   )
@@ -1264,14 +1244,11 @@ export function ChannelMutateDrawer({
         channelData.data.models || ''
       )
       initialModelMappingRef.current = channelData.data.model_mapping || ''
-      initialStatusCodeMappingRef.current =
-        channelData.data.status_code_mapping || ''
     } else if (!isEditing) {
       form.reset(CHANNEL_FORM_DEFAULT_VALUES)
       setAdvancedSettingsOpen(false)
       initialModelsRef.current = []
       initialModelMappingRef.current = ''
-      initialStatusCodeMappingRef.current = ''
     }
   }, [isEditing, channelData, form])
 
@@ -1592,34 +1569,6 @@ export function ChannelMutateDrawer({
     []
   )
 
-  const confirmStatusCodeRisk = useCallback(
-    (detailItems: string[]): Promise<boolean> =>
-      new Promise((resolve) => {
-        statusCodeRiskResolveRef.current = resolve
-        setStatusCodeRiskDetailItems(detailItems)
-        setStatusCodeRiskOpen(true)
-      }),
-    []
-  )
-
-  const handleStatusCodeRiskAction = useCallback((confirmed: boolean) => {
-    setStatusCodeRiskOpen(false)
-    setStatusCodeRiskDetailItems([])
-    if (statusCodeRiskResolveRef.current) {
-      statusCodeRiskResolveRef.current(confirmed)
-      statusCodeRiskResolveRef.current = null
-    }
-  }, [])
-
-  useEffect(() => {
-    return () => {
-      if (statusCodeRiskResolveRef.current) {
-        statusCodeRiskResolveRef.current(false)
-        statusCodeRiskResolveRef.current = null
-      }
-    }
-  }, [])
-
   const channelMutation = useChannelMutateForm({
     currentRow,
     isEditing,
@@ -1653,30 +1602,6 @@ export function ChannelMutateDrawer({
             t('You do not have permission to edit sensitive channel settings.')
           )
           return
-        }
-      }
-
-      // Validate status_code_mapping entries
-      if (data.status_code_mapping?.trim()) {
-        const invalidEntries = collectInvalidStatusCodeEntries(
-          data.status_code_mapping
-        )
-        if (invalidEntries.length > 0) {
-          toast.error(
-            t('Invalid status code mapping entries: {{entries}}', {
-              entries: invalidEntries.join(', '),
-            })
-          )
-          return
-        }
-
-        const riskyRedirects = collectNewDisallowedStatusCodeRedirects(
-          initialStatusCodeMappingRef.current,
-          data.status_code_mapping
-        )
-        if (riskyRedirects.length > 0) {
-          const confirmed = await confirmStatusCodeRisk(riskyRedirects)
-          if (!confirmed) return
         }
       }
 
@@ -1735,7 +1660,6 @@ export function ChannelMutateDrawer({
       sensitiveLocked,
       form,
       confirmMissingModelMappings,
-      confirmStatusCodeRisk,
       channelMutation,
       t,
     ]
@@ -3814,42 +3738,6 @@ export function ChannelMutateDrawer({
                               iconTone='chart-4'
                             />
 
-                            <FormField
-                              control={form.control}
-                              name='status_code_mapping'
-                              render={({ field }) => (
-                                <FormItem className='space-y-3'>
-                                  <div className='space-y-1'>
-                                    <FormLabel>
-                                      {t('Status Code Mapping')}
-                                    </FormLabel>
-                                    <FormDescription>
-                                      {t(
-                                        'Map upstream status codes to different codes'
-                                      )}
-                                    </FormDescription>
-                                  </div>
-                                  <FormControl>
-                                    <JsonEditor
-                                      value={field.value || ''}
-                                      onChange={field.onChange}
-                                      disabled={isSubmitting}
-                                      keyPlaceholder='400'
-                                      valuePlaceholder='500'
-                                      keyLabel='Original Code'
-                                      valueLabel='Mapped Code'
-                                      emptyMessage={t(
-                                        'No status code mappings configured.'
-                                      )}
-                                      template={{ '400': '500', '429': '503' }}
-                                      valueType='string'
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-
                             {sensitiveLocked && (
                               <p className='text-muted-foreground text-xs'>
                                 {t('No permission to perform this action')}
@@ -3859,53 +3747,6 @@ export function ChannelMutateDrawer({
                               disabled={sensitiveLocked}
                               className='space-y-4 disabled:opacity-60'
                             >
-                              <FormField
-                                control={form.control}
-                                name='error_response_mapping'
-                                render={({ field }) => (
-                                  <FormItem className='space-y-3 border-t pt-4'>
-                                    <div className='space-y-1'>
-                                      <FormLabel>
-                                        {t('Error Response Mapping')}
-                                      </FormLabel>
-                                      <FormDescription>
-                                        {t(
-                                          'Rewrite upstream error status and response body'
-                                        )}
-                                      </FormDescription>
-                                    </div>
-                                    <FormControl>
-                                      <JsonEditor
-                                        value={field.value || ''}
-                                        onChange={field.onChange}
-                                        disabled={
-                                          sensitiveLocked || isSubmitting
-                                        }
-                                        keyPlaceholder='403'
-                                        valuePlaceholder='{"status_code":429,"message":"Too Many Requests"}'
-                                        keyLabel={t('Status Code')}
-                                        valueLabel={t('Response Override')}
-                                        emptyMessage={t(
-                                          'No error response mappings configured.'
-                                        )}
-                                        template={{
-                                          '403': {
-                                            status_code: 429,
-                                            message: 'Too Many Requests',
-                                            type: 'rate_limit_error',
-                                            code: 'rate_limit_exceeded',
-                                            message_contains:
-                                              'pre-consumed quota failed',
-                                          },
-                                        }}
-                                        valueType='any'
-                                      />
-                                    </FormControl>
-                                    <FormMessage />
-                                  </FormItem>
-                                )}
-                              />
-
                               <FormField
                                 control={form.control}
                                 name='param_override'
@@ -4910,15 +4751,6 @@ export function ChannelMutateDrawer({
         missingModels={missingModelsList}
         onConfirm={handleMissingModelsAction}
         onOpenChange={setMissingModelsDialogOpen}
-      />
-
-      <StatusCodeRiskDialog
-        open={statusCodeRiskOpen}
-        onOpenChange={(v) => {
-          if (!v) handleStatusCodeRiskAction(false)
-        }}
-        detailItems={statusCodeRiskDetailItems}
-        onConfirm={() => handleStatusCodeRiskAction(true)}
       />
     </>
   )

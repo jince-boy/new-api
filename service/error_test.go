@@ -8,61 +8,12 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
-
-func TestResetStatusCode(t *testing.T) {
-	t.Parallel()
-
-	testCases := []struct {
-		name             string
-		statusCode       int
-		statusCodeConfig string
-		expectedCode     int
-	}{
-		{
-			name:             "map string value",
-			statusCode:       429,
-			statusCodeConfig: `{"429":"503"}`,
-			expectedCode:     503,
-		},
-		{
-			name:             "map int value",
-			statusCode:       429,
-			statusCodeConfig: `{"429":503}`,
-			expectedCode:     503,
-		},
-		{
-			name:             "skip invalid string value",
-			statusCode:       429,
-			statusCodeConfig: `{"429":"bad-code"}`,
-			expectedCode:     429,
-		},
-		{
-			name:             "skip status code 200",
-			statusCode:       200,
-			statusCodeConfig: `{"200":503}`,
-			expectedCode:     200,
-		},
-	}
-
-	for _, tc := range testCases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			newAPIError := &types.NewAPIError{
-				StatusCode: tc.statusCode,
-			}
-			ResetStatusCode(newAPIError, tc.statusCodeConfig)
-			require.Equal(t, tc.expectedCode, newAPIError.StatusCode)
-		})
-	}
-}
 
 func TestRelayErrorHandlerTruncatesInvalidJSONBodyInLog(t *testing.T) {
 	withDebugEnabled(t, false)
@@ -122,7 +73,7 @@ func TestRelayErrorHandlerKeepsOpenAIErrorMessage(t *testing.T) {
 	require.Equal(t, message, newAPIError.Error())
 }
 
-func TestApplyErrorResponseMappingRewritesUpstreamQuotaError(t *testing.T) {
+func TestRelayErrorHandlerCapturesPrivateUpstreamSnapshot(t *testing.T) {
 	body := `{"error":{"message":"Please run /login · API Error: 403 预扣费额度失败, 用户剩余额度: ＄0.145778, 需要预扣费额度: ＄0.271876","type":"insufficient_user_quota","code":"insufficient_user_quota"}}`
 	resp := &http.Response{
 		StatusCode: http.StatusForbidden,
@@ -130,17 +81,33 @@ func TestApplyErrorResponseMappingRewritesUpstreamQuotaError(t *testing.T) {
 	}
 
 	newAPIError := RelayErrorHandler(context.Background(), resp, false)
-	ApplyStatusCodeAndErrorResponseMapping(
-		newAPIError,
-		"",
-		`{"403":{"status_code":429,"message":"Too Many Requests","type":"rate_limit_error","code":"rate_limit_exceeded","message_contains":"预扣费额度失败"}}`,
-	)
-
 	require.NotNil(t, newAPIError)
-	require.Equal(t, http.StatusTooManyRequests, newAPIError.StatusCode)
-	require.Equal(t, "Too Many Requests", newAPIError.ToOpenAIError().Message)
-	require.Equal(t, "rate_limit_error", newAPIError.ToOpenAIError().Type)
-	require.Equal(t, "rate_limit_exceeded", newAPIError.ToOpenAIError().Code)
+	require.True(t, newAPIError.IsUpstream())
+	details := newAPIError.UpstreamError()
+	require.NotNil(t, details)
+	require.Equal(t, http.StatusForbidden, details.StatusCode)
+	require.Contains(t, details.Body, "insufficient_user_quota")
+}
+
+func TestUpstreamErrorBodyForAdminMasksCredentials(t *testing.T) {
+	body := `{"api_key":"sk-secret","access_token":"access-secret","authorization":"Bearer bearer-secret","message":"insufficient balance"}`
+
+	masked := UpstreamErrorBodyForAdmin(body)
+
+	require.NotContains(t, masked, "sk-secret")
+	require.NotContains(t, masked, "access-secret")
+	require.NotContains(t, masked, "bearer-secret")
+	require.Contains(t, masked, "insufficient balance")
+}
+
+func TestUpstreamErrorBodyForAdminKeepsUTF8WithinLimit(t *testing.T) {
+	body := strings.Repeat("余", upstreamErrorBodyLimit)
+
+	masked := UpstreamErrorBodyForAdmin(body)
+
+	require.LessOrEqual(t, len(masked), upstreamErrorBodyLimit)
+	require.True(t, utf8.ValidString(masked))
+	require.Contains(t, masked, "[truncated")
 }
 
 func TestRelayErrorHandlerKeepsInvalidJSONBodyInDebugLog(t *testing.T) {

@@ -23,10 +23,6 @@ import { useTranslation } from 'react-i18next'
 
 import { IconWeChat } from '@/assets/brand-icons/icon-wechat'
 import { Dialog } from '@/components/dialog'
-import {
-  CardStaggerContainer,
-  CardStaggerItem,
-} from '@/components/page-transition'
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
 import { useStatus } from '@/hooks/use-status'
@@ -103,59 +99,49 @@ export function CommunityGroupCardContent(
 
   return (
     <>
-      <CardStaggerContainer>
-        <CardStaggerItem>
-          <section
-            className='bg-card relative overflow-hidden rounded-2xl border border-emerald-500/20 shadow-xs'
-            aria-labelledby='user-community-title'
-          >
-            <div
-              className='pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_20%,color-mix(in_oklch,#07c160_14%,transparent),transparent_30%),linear-gradient(105deg,transparent_48%,color-mix(in_oklch,#07c160_7%,transparent)_100%)]'
-              aria-hidden='true'
-            />
-            <div className='relative flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:p-5'>
-              <div className='flex min-w-0 flex-1 items-start gap-3.5'>
-                <span className='flex size-11 shrink-0 items-center justify-center rounded-2xl bg-[#07c160]/10 text-[#07c160] ring-1 ring-[#07c160]/20'>
-                  <IconWeChat className='size-6' aria-hidden='true' />
-                </span>
-                <div className='min-w-0'>
-                  <p className='text-muted-foreground mb-1 text-xs font-medium tracking-wider uppercase'>
-                    {t('User community')}
-                  </p>
-                  <h3
-                    id='user-community-title'
-                    className='text-base font-semibold tracking-tight sm:text-lg'
-                  >
-                    {t('Join the user community')}
-                  </h3>
-                  <p className='text-muted-foreground mt-1 max-w-2xl text-sm leading-relaxed'>
-                    {t(
-                      'Connect with other users, share practical experience, and get help faster.'
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              <div className='flex shrink-0 flex-col gap-2 sm:items-end'>
-                {expirationText ? (
-                  <p className='text-muted-foreground text-xs'>
-                    {expirationText}
-                  </p>
-                ) : null}
-                <Button
-                  type='button'
-                  className='bg-[#07c160] text-white shadow-sm hover:bg-[#06ad56]'
-                  onClick={() => handleDialogOpenChange(true)}
-                >
-                  <QrCode data-icon='inline-start' />
-                  {t('View QR code')}
-                  <ArrowRight data-icon='inline-end' />
-                </Button>
-              </div>
+      <section
+        className='border-border/60 bg-card/95 h-full overflow-hidden rounded-2xl border shadow-sm'
+        aria-labelledby='user-community-title'
+      >
+        <div className='flex h-full flex-col justify-between gap-6 p-5'>
+          <div className='flex min-w-0 items-start gap-4'>
+            <span className='bg-success/10 text-success ring-success/20 flex size-11 shrink-0 items-center justify-center rounded-xl ring-1'>
+              <IconWeChat className='size-6' aria-hidden='true' />
+            </span>
+            <div className='min-w-0'>
+              <p className='text-success text-xs font-semibold'>
+                {t('User community')}
+              </p>
+              <h3
+                id='user-community-title'
+                className='mt-1 text-lg font-semibold tracking-tight'
+              >
+                {t('Join the user community')}
+              </h3>
+              <p className='text-muted-foreground mt-2 text-sm leading-relaxed'>
+                {t(
+                  'Connect with other users, share practical experience, and get help faster.'
+                )}
+              </p>
             </div>
-          </section>
-        </CardStaggerItem>
-      </CardStaggerContainer>
+          </div>
+
+          <div className='flex shrink-0 flex-col gap-3'>
+            {expirationText ? (
+              <p className='text-muted-foreground text-xs'>{expirationText}</p>
+            ) : null}
+            <Button
+              type='button'
+              className='w-full justify-between'
+              onClick={() => handleDialogOpenChange(true)}
+            >
+              <QrCode data-icon='inline-start' />
+              {t('View QR code')}
+              <ArrowRight data-icon='inline-end' />
+            </Button>
+          </div>
+        </div>
+      </section>
 
       <Dialog
         open={dialogOpen}
@@ -165,7 +151,7 @@ export function CommunityGroupCardContent(
         contentClassName='sm:max-w-md'
         bodyClassName='flex flex-col items-center gap-4 py-2'
       >
-        <div className='flex size-70 items-center justify-center rounded-2xl bg-white p-3 shadow-sm ring-1 ring-black/10 sm:size-78'>
+        <div className='flex size-70 items-center justify-center rounded-lg bg-white p-3 ring-1 ring-black/10 sm:size-78'>
           {qrCodeContent}
         </div>
         <div className='flex max-w-sm flex-col items-center gap-1.5 text-center'>

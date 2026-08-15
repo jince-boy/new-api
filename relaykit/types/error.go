@@ -96,6 +96,43 @@ type NewAPIError struct {
 	errorCode      ErrorCode
 	StatusCode     int
 	Metadata       json.RawMessage
+	upstream       *UpstreamError
+}
+
+// UpstreamError is private diagnostic data captured from a provider response.
+// It is intentionally not part of any client-facing error representation.
+type UpstreamError struct {
+	StatusCode  int
+	ContentType string
+	Body        string
+}
+
+func (e *NewAPIError) MarkUpstream() {
+	if e == nil {
+		return
+	}
+	if e.upstream == nil {
+		e.upstream = &UpstreamError{}
+	}
+}
+
+func (e *NewAPIError) IsUpstream() bool {
+	return e != nil && e.upstream != nil
+}
+
+func (e *NewAPIError) SetUpstreamError(statusCode int, contentType string, body string) {
+	if e == nil {
+		return
+	}
+	e.upstream = &UpstreamError{StatusCode: statusCode, ContentType: contentType, Body: body}
+}
+
+func (e *NewAPIError) UpstreamError() *UpstreamError {
+	if e == nil || e.upstream == nil {
+		return nil
+	}
+	copy := *e.upstream
+	return &copy
 }
 
 // Unwrap enables errors.Is / errors.As to work with NewAPIError by exposing the underlying error.

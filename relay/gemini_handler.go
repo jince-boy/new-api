@@ -181,24 +181,18 @@ func GeminiHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		return types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
 	}
 
-	statusCodeMappingStr := c.GetString("status_code_mapping")
-	errorResponseMappingStr := c.GetString("error_response_mapping")
-
 	var httpResp *http.Response
 	if resp != nil {
 		httpResp = resp.(*http.Response)
 		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
 		if httpResp.StatusCode != http.StatusOK {
 			newAPIError = service.RelayErrorHandler(c.Request.Context(), httpResp, false)
-			// reset status code 重置状态码
-			service.ApplyStatusCodeAndErrorResponseMapping(newAPIError, statusCodeMappingStr, errorResponseMappingStr)
 			return newAPIError
 		}
 	}
 
 	usage, openaiErr := adaptor.DoResponse(c, resp.(*http.Response), info)
 	if openaiErr != nil {
-		service.ApplyStatusCodeAndErrorResponseMapping(openaiErr, statusCodeMappingStr, errorResponseMappingStr)
 		return openaiErr
 	}
 
@@ -287,21 +281,17 @@ func GeminiEmbeddingHandler(c *gin.Context, info *relaycommon.RelayInfo) (newAPI
 		return types.NewOpenAIError(err, types.ErrorCodeDoRequestFailed, http.StatusInternalServerError)
 	}
 
-	statusCodeMappingStr := c.GetString("status_code_mapping")
-	errorResponseMappingStr := c.GetString("error_response_mapping")
 	var httpResp *http.Response
 	if resp != nil {
 		httpResp = resp.(*http.Response)
 		if httpResp.StatusCode != http.StatusOK {
 			newAPIError = service.RelayErrorHandler(c.Request.Context(), httpResp, false)
-			service.ApplyStatusCodeAndErrorResponseMapping(newAPIError, statusCodeMappingStr, errorResponseMappingStr)
 			return newAPIError
 		}
 	}
 
 	usage, openaiErr := adaptor.DoResponse(c, resp.(*http.Response), info)
 	if openaiErr != nil {
-		service.ApplyStatusCodeAndErrorResponseMapping(openaiErr, statusCodeMappingStr, errorResponseMappingStr)
 		return openaiErr
 	}
 

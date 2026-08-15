@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { TFunction } from 'i18next'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -35,6 +34,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import type { TFunction } from 'i18next'
 import {
   Copy,
   Check,
@@ -214,26 +214,10 @@ type TaskUpstreamDiagnostics = NonNullable<
   NonNullable<LogOtherData['admin_info']>['task_upstream']
 >
 
-function taskMappingResult(
-  t: TFunction,
-  configured?: boolean,
-  applied?: boolean
-): string {
-  if (!configured) return t('Not configured')
-  return applied ? t('Matched') : t('No matching results')
-}
-
 export function UpstreamTaskMappingDetails(props: {
   diagnostics: TaskUpstreamDiagnostics
 }) {
   const { t } = useTranslation()
-  const statusCodeMappingResult = props.diagnostics.status_code_mapping_applied
-    ? `${props.diagnostics.gateway_status_before_mapping} → ${props.diagnostics.gateway_status_after_mapping}`
-    : taskMappingResult(
-        t,
-        props.diagnostics.status_code_mapping_configured,
-        props.diagnostics.status_code_mapping_applied
-      )
 
   return (
     <DetailSection
@@ -270,22 +254,82 @@ export function UpstreamTaskMappingDetails(props: {
         label={t('Error path matched')}
         value={props.diagnostics.error_path_matched ? t('Yes') : t('No')}
       />
-      {props.diagnostics.gateway_status_before_mapping != null ? (
-        <>
-          <DetailRow
-            label={t('Status Code Mapping')}
-            value={statusCodeMappingResult}
-            mono={props.diagnostics.status_code_mapping_applied}
-          />
-          <DetailRow
-            label={t('Error Response Mapping')}
-            value={taskMappingResult(
-              t,
-              props.diagnostics.error_response_mapping_configured,
-              props.diagnostics.error_response_mapping_applied
-            )}
-          />
-        </>
+      {props.diagnostics.content_type ? (
+        <DetailRow
+          label={t('Content type')}
+          value={props.diagnostics.content_type}
+          mono
+        />
+      ) : null}
+      {props.diagnostics.body ? (
+        <DetailRow
+          label={t('Response body')}
+          value={props.diagnostics.body}
+          mono
+        />
+      ) : null}
+    </DetailSection>
+  )
+}
+
+type UpstreamErrorDiagnostics = NonNullable<
+  NonNullable<LogOtherData['admin_info']>['upstream_error']
+>
+
+export function UpstreamErrorDetails(props: {
+  diagnostics: UpstreamErrorDiagnostics
+}) {
+  const { t } = useTranslation()
+  return (
+    <DetailSection
+      icon={<AlertTriangle className='size-3' aria-hidden='true' />}
+      iconTone='destructive'
+      label={t('Upstream error details')}
+      variant='danger'
+    >
+      {props.diagnostics.attempt != null ? (
+        <DetailRow
+          label={t('Attempt')}
+          value={String(props.diagnostics.attempt)}
+        />
+      ) : null}
+      {props.diagnostics.channel_id != null ? (
+        <DetailRow
+          label={t('Channel ID')}
+          value={String(props.diagnostics.channel_id)}
+          mono
+        />
+      ) : null}
+      {props.diagnostics.channel_name ? (
+        <DetailRow
+          label={t('Channel name')}
+          value={props.diagnostics.channel_name}
+        />
+      ) : null}
+      {props.diagnostics.status_code != null ? (
+        <DetailRow
+          label={t('Upstream HTTP status')}
+          value={String(props.diagnostics.status_code)}
+          mono
+        />
+      ) : null}
+      {props.diagnostics.content_type ? (
+        <DetailRow
+          label={t('Content type')}
+          value={props.diagnostics.content_type}
+          mono
+        />
+      ) : null}
+      <DetailRow
+        label={t('Streaming')}
+        value={props.diagnostics.stream ? t('Yes') : t('No')}
+      />
+      {props.diagnostics.body ? (
+        <DetailRow
+          label={t('Response body')}
+          value={props.diagnostics.body}
+          mono
+        />
       ) : null}
     </DetailSection>
   )
@@ -1185,6 +1229,10 @@ export function DetailsDialog(props: DetailsDialogProps) {
               mono
             />
           </DetailSection>
+        )}
+
+        {props.isAdmin && other?.admin_info?.upstream_error && (
+          <UpstreamErrorDetails diagnostics={other.admin_info.upstream_error} />
         )}
 
         {props.isAdmin && other?.admin_info?.task_upstream && (

@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 
@@ -264,6 +265,11 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 				continue
 			}
 			if !strings.HasPrefix(data, "[DONE]") {
+				if upstreamErr := detectUpstreamStreamError(data); upstreamErr != nil {
+					info.UpstreamStreamError = upstreamErr
+					info.StreamStatus.SetEndReason(relaycommon.StreamEndReasonHandlerStop, upstreamErr)
+					return
+				}
 				info.SetFirstResponseTime()
 				if IsMeaningfulStreamData(data) {
 					info.MarkUpstreamFirstContent()
@@ -311,6 +317,36 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 	} else {
 		logger.LogError(c, fmt.Sprintf("stream ended: %s, received=%d", info.StreamStatus.Summary(), info.ReceivedResponseCount))
 	}
+}
+
+func detectUpstreamStreamError(data string) *types.NewAPIError {
+	if !gjson.Valid(data) {
+		return nil
+	}
+	parsed := gjson.Parse(data)
+	eventType := strings.ToLower(strings.TrimSpace(parsed.Get("type").String()))
+	errorValue := parsed.Get("error")
+	hasError := errorValue.Exists() && errorValue.Type != gjson.Null && strings.TrimSpace(errorValue.Raw) != "{}"
+	if !hasError && eventType != "error" && eventType != "response.error" && eventType != "response.failed" {
+		return nil
+	}
+
+	message := "upstream stream error"
+	for _, path := range []string{"error.message", "response.error.message", "message", "error"} {
+		if value := strings.TrimSpace(parsed.Get(path).String()); value != "" {
+			message = value
+			break
+		}
+	}
+	statusCode := http.StatusInternalServerError
+	for _, path := range []string{"error.status_code", "error.status", "status_code", "status"} {
+		if value := int(parsed.Get(path).Int()); value >= 100 && value <= 599 {
+			statusCode = value
+			break
+		}
+	}
+	err := types.NewOpenAIError(fmt.Errorf("%s", message), types.ErrorCodeBadResponse, statusCode)
+	return service.MarkUpstreamError(err, statusCode, "text/event-stream", data)
 }
 
 func IsMeaningfulStreamData(data string) bool {

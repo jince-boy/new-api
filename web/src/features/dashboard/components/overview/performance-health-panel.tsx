@@ -34,6 +34,8 @@ import {
 import type { PerfModelSummary } from '@/features/performance-metrics/types'
 import { cn } from '@/lib/utils'
 
+import { PanelWrapper } from '../ui/panel-wrapper'
+
 const PERFORMANCE_WINDOW_HOURS = 24
 const TOP_MODEL_LIMIT = 6
 
@@ -92,89 +94,88 @@ export function PerformanceHealthPanel() {
   const hasData = models.length > 0
 
   return (
-    <section className='bg-card h-full overflow-hidden rounded-2xl border shadow-xs'>
-      <div className='flex items-center gap-2 border-b px-4 py-3 sm:px-5'>
-        <IconBadge tone='success' size='sm'>
-          <HeartPulse />
-        </IconBadge>
-        <h3 className='text-sm font-semibold'>{t('Performance health')}</h3>
-        <span className='text-muted-foreground ml-auto text-xs'>
-          {t('Performance metrics for the last 24 hours')}
+    <PanelWrapper
+      title={
+        <span className='flex items-center gap-2'>
+          <IconBadge tone='success' size='sm'>
+            <HeartPulse />
+          </IconBadge>
+          {t('Performance health')}
         </span>
+      }
+      description={t('Performance metrics for the last 24 hours')}
+      contentClassName='flex flex-col gap-3 overflow-y-auto'
+    >
+      <div className='grid grid-cols-3 gap-2'>
+        <MetricCell
+          icon={HeartPulse}
+          label={t('Success rate')}
+          value={formatUptimePct(summary.successRate)}
+          loading={loading}
+          valueClassName={getSuccessRateTextClass(summary.successRate)}
+          tone='success'
+        />
+        <MetricCell
+          icon={Timer}
+          label={t('Average latency')}
+          value={formatLatency(summary.avgLatencyMs)}
+          loading={loading}
+          tone='warning'
+        />
+        <MetricCell
+          icon={Gauge}
+          label={t('Throughput')}
+          value={formatThroughput(summary.avgTps)}
+          loading={loading}
+          tone='info'
+        />
       </div>
 
-      <div className='space-y-3 p-4 sm:p-5'>
-        <div className='grid grid-cols-3 gap-2'>
-          <MetricCell
-            icon={HeartPulse}
-            label={t('Success rate')}
-            value={formatUptimePct(summary.successRate)}
-            loading={loading}
-            valueClassName={getSuccessRateTextClass(summary.successRate)}
-            tone='success'
-          />
-          <MetricCell
-            icon={Timer}
-            label={t('Average latency')}
-            value={formatLatency(summary.avgLatencyMs)}
-            loading={loading}
-            tone='warning'
-          />
-          <MetricCell
-            icon={Gauge}
-            label={t('Throughput')}
-            value={formatThroughput(summary.avgTps)}
-            loading={loading}
-            tone='info'
-          />
+      {loading ? (
+        <div className='flex flex-col gap-1'>
+          {['success', 'latency', 'throughput'].map((key) => (
+            <Skeleton key={key} className='h-5 w-full rounded' />
+          ))}
         </div>
-
-        {loading ? (
-          <div className='space-y-1'>
-            {['success', 'latency', 'throughput'].map((key) => (
-              <Skeleton key={key} className='h-5 w-full rounded' />
-            ))}
-          </div>
-        ) : (
-          hasData && (
-            <div>
-              <span className='text-muted-foreground mb-1 block text-[11px] font-medium'>
-                {t('Top models by traffic')}
-              </span>
-              <div className='grid grid-cols-1 gap-x-4 sm:grid-cols-2'>
-                {topModels.map((model) => (
-                  <div
-                    key={model.model_name}
-                    className='flex items-center justify-between gap-2 rounded px-1.5 py-1'
-                  >
-                    <span className='min-w-0 flex-1 truncate font-mono text-[11px]'>
-                      {model.model_name}
+      ) : (
+        hasData && (
+          <div>
+            <span className='text-muted-foreground mb-1 block text-[11px] font-medium'>
+              {t('Top models by traffic')}
+            </span>
+            <div className='grid grid-cols-1 gap-x-4'>
+              {topModels.map((model) => (
+                <div
+                  key={model.model_name}
+                  className='hover:bg-muted/30 flex items-center justify-between gap-2 rounded-md px-1.5 py-1 transition-colors'
+                >
+                  <span className='min-w-0 flex-1 truncate font-mono text-[11px]'>
+                    {model.model_name}
+                  </span>
+                  <span className='inline-flex shrink-0 items-center gap-1'>
+                    <span
+                      className={cn(
+                        'size-1.5 rounded-full',
+                        getSuccessRateDotClass(model.success_rate)
+                      )}
+                      aria-hidden='true'
+                    />
+                    <span
+                      className={cn(
+                        'font-mono text-[11px] font-semibold tabular-nums',
+                        getSuccessRateTextClass(model.success_rate)
+                      )}
+                    >
+                      {formatUptimePct(model.success_rate)}
                     </span>
-                    <span className='inline-flex shrink-0 items-center gap-1'>
-                      <span
-                        className={cn(
-                          'size-1.5 rounded-full',
-                          getSuccessRateDotClass(model.success_rate)
-                        )}
-                        aria-hidden='true'
-                      />
-                      <span
-                        className={cn(
-                          'font-mono text-[11px] font-semibold tabular-nums',
-                          getSuccessRateTextClass(model.success_rate)
-                        )}
-                      >
-                        {formatUptimePct(model.success_rate)}
-                      </span>
-                    </span>
-                  </div>
-                ))}
-              </div>
+                  </span>
+                </div>
+              ))}
             </div>
-          )
-        )}
-      </div>
-    </section>
+          </div>
+        )
+      )}
+    </PanelWrapper>
   )
 }
 
@@ -188,7 +189,7 @@ function MetricCell(props: {
 }) {
   const Icon = props.icon
   return (
-    <div className='bg-muted/40 rounded-xl px-3 py-2.5'>
+    <div className='bg-muted/35 rounded-lg px-3 py-2.5'>
       <div className='text-muted-foreground flex items-center gap-1.5 text-[11px] font-medium'>
         <IconBadge tone={props.tone} size='xs'>
           <Icon />

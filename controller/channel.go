@@ -536,16 +536,6 @@ func validateChannel(channel *model.Channel, isAdd bool) error {
 		}
 	}
 
-	if channel.ErrorResponseMapping != nil && strings.TrimSpace(*channel.ErrorResponseMapping) != "" {
-		var errorResponseMapping map[string]any
-		if err := common.Unmarshal([]byte(*channel.ErrorResponseMapping), &errorResponseMapping); err != nil {
-			return fmt.Errorf("error response mapping must be a valid JSON object")
-		}
-		if errorResponseMapping == nil {
-			return fmt.Errorf("error response mapping must be a valid JSON object")
-		}
-	}
-
 	return nil
 }
 

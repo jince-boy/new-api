@@ -133,6 +133,19 @@ export interface LogOtherData {
     admin_id?: number | string
     admin_role?: number
     auth_method?: 'session' | 'access_token' | string
+    channel_id?: number
+    channel_name?: string
+    channel_type?: number
+    upstream_error?: {
+      attempt?: number
+      status_code?: number
+      content_type?: string
+      body?: string
+      channel_id?: number
+      channel_name?: string
+      channel_type?: number
+      stream?: boolean
+    }
     // Quota saturation marker: set when a quota conversion clamped at the
     // int32 bound (overflow/underflow) or hit a NaN fallback while computing
     // this request's charge. Admin-only (nested under admin_info).
@@ -148,12 +161,8 @@ export interface LogOtherData {
       mapped_status?: string
       status_mapping_applied?: boolean
       error_path_matched?: boolean
-      gateway_status_before_mapping?: number
-      gateway_status_after_mapping?: number
-      status_code_mapping_configured?: boolean
-      status_code_mapping_applied?: boolean
-      error_response_mapping_configured?: boolean
-      error_response_mapping_applied?: boolean
+      content_type?: string
+      body?: string
     }
   }
   // Language-independent operation descriptor (audit/login logs).

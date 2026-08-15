@@ -77,7 +77,8 @@ const guides: ApiDocItem[] = [
     id: 'errors',
     group: 'start',
     title: 'Errors and retries',
-    summary: 'Handle failures without creating duplicate requests or charges.',
+    summary:
+      'Provider failures return a generic model-unavailable error without exposing upstream account details.',
   },
 ]
 
@@ -907,7 +908,7 @@ export const apiEndpoints: ApiEndpoint[] = [
   "usage": {"input_tokens": 12, "output_tokens": 38}
 }`,
     responseDescription:
-      'Claude errors retain the native type/error envelope so Anthropic SDKs can handle them normally.',
+      'Claude errors retain the native type/error envelope. Provider failures use HTTP 500 with the generic current-model-unavailable message.',
   },
   {
     kind: 'endpoint',

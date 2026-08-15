@@ -33,8 +33,6 @@ const ADVANCED_SETTINGS_FIELDS = new Set<FieldPath<ChannelFormValues>>([
   'remark',
   'param_override',
   'header_override',
-  'status_code_mapping',
-  'error_response_mapping',
   'advanced_custom',
   'force_format',
   'thinking_to_content',
