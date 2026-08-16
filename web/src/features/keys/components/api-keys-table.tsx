@@ -41,7 +41,6 @@ import {
 } from '@/components/ui/empty'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useStatus } from '@/hooks/use-status'
 import { useTableUrlState } from '@/hooks/use-table-url-state'
 import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -53,9 +52,7 @@ import {
   API_KEY_STATUSES,
   ERROR_MESSAGES,
 } from '../constants'
-import { resolveApiBaseUrls } from '../lib/base-urls'
 import type { ApiKey } from '../types'
-import { ApiBaseUrlFields } from './api-base-url-fields'
 import { ApiKeyUsageStats } from './api-key-usage-stats'
 import { ApiKeyCell, UnlimitedQuotaBadge } from './api-keys-cells'
 import { useApiKeysColumns } from './api-keys-columns'
@@ -196,7 +193,6 @@ function ApiKeysMobileList({
 export function ApiKeysTable() {
   const { t } = useTranslation()
   const { refreshTrigger } = useApiKeys()
-  const { status } = useStatus()
   const [now, setNow] = useState(() => Date.now())
   const columns = useApiKeysColumns(now)
 
@@ -237,9 +233,6 @@ export function ApiKeysTable() {
     onColumnFiltersChange,
   })
   const shouldSearch = Boolean(globalFilter?.trim() || tokenFilter.trim())
-  const currentOrigin =
-    typeof window === 'undefined' ? '' : window.location.origin
-  const apiBaseUrls = resolveApiBaseUrls(status?.server_address, currentOrigin)
 
   // Fetch data with React Query
   // eslint-disable-next-line @tanstack/query/exhaustive-deps
@@ -336,7 +329,6 @@ export function ApiKeysTable() {
             singleSelect: true,
           },
         ],
-        leftActions: <ApiBaseUrlFields urls={apiBaseUrls} />,
       }}
       mobile={<ApiKeysMobileList table={table} isLoading={isLoading} />}
       getRowClassName={(row) =>

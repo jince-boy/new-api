@@ -102,11 +102,6 @@ export function CommonLogsStats() {
         value={stats?.tpm || 0}
         accent='bg-slate-400/70'
       />
-      <span className='text-muted-foreground min-w-0 text-xs leading-5'>
-        {t(
-          'This site is hosted overseas. If the first-token response is slow, use a US node to access it.'
-        )}
-      </span>
     </div>
   )
 }
