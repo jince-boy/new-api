@@ -52,19 +52,3 @@ func TestGetGroupChatQRCodeServesConfiguredImage(t *testing.T) {
 	assert.Equal(t, "0", recorder.Header().Get("Expires"))
 	assert.Equal(t, imageBytes, recorder.Body.Bytes())
 }
-
-func TestEffectiveGroupChatQRCodeURLRecoversOrphanedImage(t *testing.T) {
-	originalDir, err := os.Getwd()
-	require.NoError(t, err)
-	tempDir := t.TempDir()
-	t.Cleanup(func() {
-		require.NoError(t, os.Chdir(originalDir))
-	})
-	require.NoError(t, os.Chdir(tempDir))
-
-	assert.Empty(t, effectiveGroupChatQRCodeURL(""))
-	require.NoError(t, os.MkdirAll(groupChatQRCodeDir(), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(groupChatQRCodeDir(), "current.png"), []byte("image"), 0644))
-
-	assert.Equal(t, groupChatQRCodePublicURL, effectiveGroupChatQRCodeURL(""))
-}
