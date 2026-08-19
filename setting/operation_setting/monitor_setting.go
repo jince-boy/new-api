@@ -13,6 +13,7 @@ type MonitorSetting struct {
 	AutoTestChannelMinutes       float64 `json:"auto_test_channel_minutes"`
 	ChannelTestMode              string  `json:"channel_test_mode"`
 	AsyncTaskPollIntervalSeconds int     `json:"async_task_poll_interval_seconds"`
+	ChannelTestConcurrency       int     `json:"channel_test_concurrency"`
 }
 
 const (
@@ -22,6 +23,10 @@ const (
 	ChannelTestModeScheduledAll    = "scheduled_all"
 	ChannelTestModeAutoBanOnly     = "auto_ban_only"
 	ChannelTestModePassiveRecovery = "passive_recovery"
+
+	ChannelTestConcurrencyOptionKey = "monitor_setting.channel_test_concurrency"
+	DefaultChannelTestConcurrency   = 1
+	MaxChannelTestConcurrency       = 32
 )
 
 // 默认配置
@@ -30,6 +35,7 @@ var monitorSetting = MonitorSetting{
 	AutoTestChannelMinutes:       10,
 	ChannelTestMode:              ChannelTestModeScheduledAll,
 	AsyncTaskPollIntervalSeconds: 15,
+	ChannelTestConcurrency:       DefaultChannelTestConcurrency,
 }
 
 func init() {
@@ -60,6 +66,7 @@ func GetMonitorSetting() *MonitorSetting {
 	if monitorSetting.AsyncTaskPollIntervalSeconds < minAsyncTaskPollInterval {
 		monitorSetting.AsyncTaskPollIntervalSeconds = minAsyncTaskPollInterval
 	}
+	monitorSetting.ChannelTestConcurrency = NormalizeChannelTestConcurrency(monitorSetting.ChannelTestConcurrency)
 	return &monitorSetting
 }
 
@@ -67,6 +74,24 @@ func ValidateAsyncTaskPollInterval(value string) error {
 	seconds, err := strconv.Atoi(value)
 	if err != nil || seconds < minAsyncTaskPollInterval || seconds%minAsyncTaskPollInterval != 0 {
 		return fmt.Errorf("async task poll interval must be a multiple of %d seconds", minAsyncTaskPollInterval)
+	}
+	return nil
+}
+
+func NormalizeChannelTestConcurrency(concurrency int) int {
+	if concurrency < 1 {
+		return DefaultChannelTestConcurrency
+	}
+	if concurrency > MaxChannelTestConcurrency {
+		return MaxChannelTestConcurrency
+	}
+	return concurrency
+}
+
+func ValidateChannelTestConcurrency(value string) error {
+	concurrency, err := strconv.Atoi(value)
+	if err != nil || concurrency < 1 || concurrency > MaxChannelTestConcurrency {
+		return fmt.Errorf("channel test concurrency must be between 1 and %d", MaxChannelTestConcurrency)
 	}
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
@@ -42,6 +43,16 @@ func currentGroupChatQRCodeFile() (string, string, bool) {
 		}
 	}
 	return "", "", false
+}
+
+func effectiveGroupChatQRCodeURL(configuredURL string) string {
+	if strings.TrimSpace(configuredURL) != "" {
+		return configuredURL
+	}
+	if _, _, ok := currentGroupChatQRCodeFile(); ok {
+		return groupChatQRCodePublicURL
+	}
+	return ""
 }
 
 func UploadGroupChatQRCode(c *gin.Context) {
@@ -133,17 +144,6 @@ func UploadGroupChatQRCode(c *gin.Context) {
 }
 
 func GetGroupChatQRCode(c *gin.Context) {
-	common.OptionMapRWMutex.RLock()
-	configuredURL := common.OptionMap[groupChatQRCodeOptionKey]
-	common.OptionMapRWMutex.RUnlock()
-	if configuredURL == "" {
-		c.JSON(http.StatusNotFound, gin.H{
-			"success": false,
-			"message": "group chat QR code is not configured",
-		})
-		return
-	}
-
 	filePath, contentType, ok := currentGroupChatQRCodeFile()
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{

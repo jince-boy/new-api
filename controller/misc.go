@@ -49,6 +49,7 @@ func GetStatus(c *gin.Context) {
 
 	passkeySetting := system_setting.GetPasskeySettings()
 	legalSetting := system_setting.GetLegalSettings()
+	groupChatQRCodeURL := effectiveGroupChatQRCodeURL(common.GroupChatQRCodeImageURL)
 
 	data := gin.H{
 		"version":                      common.Version,
@@ -67,7 +68,7 @@ func GetStatus(c *gin.Context) {
 		"system_name":                  common.SystemName,
 		"logo":                         common.Logo,
 		"footer_html":                  common.Footer,
-		"group_chat_qrcode":            common.GroupChatQRCodeImageURL,
+		"group_chat_qrcode":            groupChatQRCodeURL,
 		"group_chat_qrcode_expires_at": common.GroupChatQRCodeExpiresAt,
 		"wechat_qrcode":                common.WeChatAccountQRCodeImageURL,
 		"wechat_login":                 common.WeChatAuthEnabled,

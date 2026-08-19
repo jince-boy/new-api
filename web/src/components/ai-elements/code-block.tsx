@@ -279,7 +279,7 @@ function getCodeBlockMaxHeight(
 
 function getCodeMirrorExtensions(options: {
   language: BundledLanguage | string
-  onKeyDown?: (event: globalThis.KeyboardEvent) => void
+  onKeyDown: (event: globalThis.KeyboardEvent) => void
   readOnly: boolean
   showLineNumbers: boolean
 }): Extension[] {
@@ -290,22 +290,18 @@ function getCodeMirrorExtensions(options: {
     EditorState.tabSize.of(2),
     EditorState.readOnly.of(options.readOnly),
     EditorView.editable.of(!options.readOnly),
+    EditorView.domEventHandlers({
+      keydown(event) {
+        options.onKeyDown(event)
+        return event.defaultPrevented
+      },
+    }),
   ]
 
   if (options.showLineNumbers) {
     extensions.unshift(lineNumbers())
   }
 
-  if (options.onKeyDown) {
-    extensions.push(
-      EditorView.domEventHandlers({
-        keydown(event) {
-          options.onKeyDown?.(event)
-          return event.defaultPrevented
-        },
-      })
-    )
-  }
   return extensions
 }
 
@@ -325,22 +321,31 @@ function CodeMirrorCodeView({
   const editorViewRef = useRef<EditorView | null>(null)
   const initialValueRef = useRef(value)
   const onChangeRef = useRef(onChange)
+  const onKeyDownRef = useRef(onKeyDown)
   const suppressChangeRef = useRef(false)
   const [isFocused, setIsFocused] = useState(false)
-  onChangeRef.current = onChange
   const editorMinHeight = `${Math.max(4, rows) * 1.5 + 2}rem`
   const placeholderLines = placeholder?.split('\n') || []
   const showPlaceholder = Boolean(placeholder && !value && !isFocused)
+  // onKeyDown is delivered through a ref so a new handler identity from the
+  // parent (recreated on every keystroke-driven render) does not invalidate
+  // the extensions and tear down the EditorView, which would reset the cursor
+  // to the document start and make typing appear right-to-left.
   const editorExtensions = useMemo(
     () =>
       getCodeMirrorExtensions({
         language,
-        onKeyDown,
+        onKeyDown: (event) => onKeyDownRef.current?.(event),
         readOnly,
         showLineNumbers,
       }),
-    [language, onKeyDown, readOnly, showLineNumbers]
+    [language, readOnly, showLineNumbers]
   )
+
+  useEffect(() => {
+    onChangeRef.current = onChange
+    onKeyDownRef.current = onKeyDown
+  }, [onChange, onKeyDown])
 
   useEffect(() => {
     const editorHost = editorHostRef.current
@@ -382,6 +387,10 @@ function CodeMirrorCodeView({
   }, [autoFocus, editorExtensions])
 
   useEffect(() => {
+    // Track the latest value so a future editor rebuild (e.g. language change)
+    // starts from the current document instead of the mount-time snapshot.
+    initialValueRef.current = value
+
     const editorView = editorViewRef.current
     if (!editorView) {
       return

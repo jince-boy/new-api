@@ -274,6 +274,8 @@ func validateOptionValue(key string, value string) error {
 				return fmt.Errorf("video worker URL must use http or https")
 			}
 		}
+	case operation_setting.ChannelTestConcurrencyOptionKey:
+		return operation_setting.ValidateChannelTestConcurrency(value)
 	case "MaxTokenAutoGroups":
 		return setting.ValidateMaxTokenAutoGroups(value)
 	}
