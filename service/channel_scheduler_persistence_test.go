@@ -307,7 +307,7 @@ func TestRateLimitFaultDisablesWholeChannelAndFailsOver(t *testing.T) {
 	channel, err := model.GetChannelById(91401, true)
 	require.NoError(t, err)
 	relayErr := types.NewOpenAIError(fmt.Errorf("rate limited"), types.ErrorCodeBadResponseStatusCode, 429)
-	for range intelligentSchedulingFailureThreshold - 1 {
+	for range operation_setting.ChannelSchedulingDefaultFailureCount - 1 {
 		finishSchedulerFailure(channel, group, relayErr)
 	}
 	stillEnabled, err := model.GetChannelById(91401, true)
@@ -348,7 +348,7 @@ func TestLastIntelligentSchedulingChannelIsNeverAutoDisabled(t *testing.T) {
 	channel, err := model.GetChannelById(91411, true)
 	require.NoError(t, err)
 	relayErr := types.NewOpenAIError(fmt.Errorf("upstream failed"), types.ErrorCodeBadResponseStatusCode, 524)
-	for range intelligentSchedulingFailureThreshold + 2 {
+	for range operation_setting.ChannelSchedulingDefaultFailureCount + 2 {
 		finishSchedulerFailure(channel, group, relayErr)
 	}
 
@@ -358,7 +358,7 @@ func TestLastIntelligentSchedulingChannelIsNeverAutoDisabled(t *testing.T) {
 	assert.False(t, model.IsChannelSchedulingFault(stillEnabled))
 	streak, exists := getChannelFailureStreakForTest(channel.Id)
 	assert.True(t, exists)
-	assert.Equal(t, intelligentSchedulingFailureThreshold+2, streak.Count)
+	assert.Equal(t, operation_setting.ChannelSchedulingDefaultFailureCount+2, streak.Count)
 }
 
 func TestLastChannelProtectionCountsLowerPriorityFallbackAsAvailable(t *testing.T) {
@@ -372,7 +372,7 @@ func TestLastChannelProtectionCountsLowerPriorityFallbackAsAvailable(t *testing.
 
 	channel, err := model.GetChannelById(91421, true)
 	require.NoError(t, err)
-	for range intelligentSchedulingFailureThreshold {
+	for range operation_setting.ChannelSchedulingDefaultFailureCount {
 		finishSchedulerFailure(channel, group, types.NewOpenAIError(
 			fmt.Errorf("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusForbidden,
 		))
@@ -399,7 +399,7 @@ func TestUnrelatedEnabledChannelDoesNotBypassLastPoolChannelProtection(t *testin
 
 	channel, err := model.GetChannelById(91423, true)
 	require.NoError(t, err)
-	for range intelligentSchedulingFailureThreshold + 1 {
+	for range operation_setting.ChannelSchedulingDefaultFailureCount + 1 {
 		finishSchedulerFailure(channel, group, types.NewOpenAIError(
 			fmt.Errorf("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway,
 		))
@@ -424,7 +424,7 @@ func TestConcurrentThresholdFailuresStillLeaveOneChannelEnabled(t *testing.T) {
 		channel, err := model.GetChannelById(channelId, true)
 		require.NoError(t, err)
 		channels = append(channels, channel)
-		for range intelligentSchedulingFailureThreshold - 1 {
+		for range operation_setting.ChannelSchedulingDefaultFailureCount - 1 {
 			finishSchedulerFailure(channel, group, types.NewOpenAIError(
 				fmt.Errorf("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway,
 			))
@@ -474,7 +474,7 @@ func TestModelErrorDisablesWholeChannelOnlyAfterConsecutiveFailures(t *testing.T
 	channel, err := model.GetChannelById(91501, true)
 	require.NoError(t, err)
 	relayErr := types.NewOpenAIError(fmt.Errorf("model not found"), types.ErrorCodeModelNotFound, 404)
-	for range intelligentSchedulingFailureThreshold {
+	for range operation_setting.ChannelSchedulingDefaultFailureCount {
 		finishSchedulerFailure(channel, group, relayErr)
 	}
 	t.Cleanup(func() {
@@ -514,7 +514,7 @@ func TestSuccessfulAttemptResetsChannelFailureStreak(t *testing.T) {
 	channel, err := model.GetChannelById(91511, true)
 	require.NoError(t, err)
 	relayErr := types.NewOpenAIError(fmt.Errorf("upstream failed"), types.ErrorCodeBadResponseStatusCode, 524)
-	for range intelligentSchedulingFailureThreshold - 1 {
+	for range operation_setting.ChannelSchedulingDefaultFailureCount - 1 {
 		finishSchedulerFailure(channel, group, relayErr)
 	}
 	finishSchedulerSuccess(channel, group)
@@ -523,7 +523,48 @@ func TestSuccessfulAttemptResetsChannelFailureStreak(t *testing.T) {
 	assert.True(t, hasState)
 	assert.Zero(t, streak.Count)
 
-	for range intelligentSchedulingFailureThreshold - 1 {
+	for range operation_setting.ChannelSchedulingDefaultFailureCount - 1 {
+		finishSchedulerFailure(channel, group, relayErr)
+	}
+	stillEnabled, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusEnabled, stillEnabled.Status)
+
+	finishSchedulerFailure(channel, group, relayErr)
+	disabled, err := model.GetChannelById(channel.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusAutoDisabled, disabled.Status)
+	t.Cleanup(func() {
+		if restored, restoreErr := RestoreScheduledChannel(channel.Id); restoreErr == nil {
+			assert.True(t, restored)
+		}
+	})
+}
+
+func TestConfiguredFailureThresholdDelaysChannelDisable(t *testing.T) {
+	db := setupChannelSchedulerPersistenceTest(t)
+	const group = "scheduler-configured-failure-threshold-test"
+	configureSchedulerGroupStrategyForTest(t, group, operation_setting.ChannelSchedulingStrategyIntelligent)
+	createSchedulerCandidate(t, db, 91521, group, 10)
+	createSchedulerCandidate(t, db, 91522, group, 10)
+	common.MemoryCacheEnabled = true
+	model.InitChannelCache()
+
+	original := operation_setting.GetChannelSchedulingSetting()
+	const configuredThreshold = 7
+	require.NoError(t, operation_setting.ApplyChannelSchedulingConfig(map[string]string{
+		"failure_threshold": fmt.Sprintf("%d", configuredThreshold),
+	}))
+	t.Cleanup(func() {
+		require.NoError(t, operation_setting.ApplyChannelSchedulingConfig(map[string]string{
+			"failure_threshold": fmt.Sprintf("%d", original.FailureThreshold),
+		}))
+	})
+
+	channel, err := model.GetChannelById(91521, true)
+	require.NoError(t, err)
+	relayErr := types.NewOpenAIError(fmt.Errorf("upstream failed"), types.ErrorCodeBadResponseStatusCode, http.StatusBadGateway)
+	for range configuredThreshold - 1 {
 		finishSchedulerFailure(channel, group, relayErr)
 	}
 	stillEnabled, err := model.GetChannelById(channel.Id, true)
@@ -558,8 +599,10 @@ func TestExpiredChannelFailureStreakRestartsFromOne(t *testing.T) {
 		shard.streaks = make(map[int]channelFailureStreak)
 	}
 	shard.streaks[channel.Id] = channelFailureStreak{
-		Count:         intelligentSchedulingFailureThreshold - 1,
-		LastFailureAt: time.Now().Add(-intelligentSchedulingFailureWindow - time.Second),
+		Count: operation_setting.ChannelSchedulingDefaultFailureCount - 1,
+		LastFailureAt: time.Now().Add(
+			-time.Duration(operation_setting.ChannelSchedulingDefaultFailureSec)*time.Second - time.Second,
+		),
 	}
 	shard.mu.Unlock()
 
@@ -586,7 +629,7 @@ func TestIntelligentChannelTestFaultUsesManualOnlySchedulerDisable(t *testing.T)
 	channel, err := model.GetChannelById(91601, true)
 	require.NoError(t, err)
 	relayErr := types.NewOpenAIError(fmt.Errorf("rate limited"), types.ErrorCodeBadResponseStatusCode, 429)
-	for range intelligentSchedulingFailureThreshold - 1 {
+	for range operation_setting.ChannelSchedulingDefaultFailureCount - 1 {
 		assert.False(t, HandleIntelligentSchedulingChannelTestFault(channel, "gpt-test", relayErr))
 	}
 	assert.True(t, HandleIntelligentSchedulingChannelTestFault(channel, "gpt-test", relayErr))

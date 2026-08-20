@@ -40,6 +40,8 @@ func validChannelSchedulingSettingForTest() ChannelSchedulingSetting {
 		SampleWindowSize:     20,
 		SampleMaxAgeMinutes:  15,
 		SevereTtftMs:         60_000,
+		FailureThreshold:     8,
+		FailureWindowSeconds: 120,
 		MaxAttempts:          8,
 		RealtimeRetentionMin: 60,
 	}
@@ -55,6 +57,18 @@ func TestNormalizeAndValidateChannelSchedulingSetting(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ChannelSchedulingStrategyIntelligent, normalized.DefaultStrategy)
 	assert.Equal(t, map[string]string{"vip": ChannelSchedulingStrategyLegacy}, normalized.GroupStrategies)
+}
+
+func TestNormalizeAndValidateChannelSchedulingSettingDefaultsMissingFailureProtection(t *testing.T) {
+	setting := validChannelSchedulingSettingForTest()
+	setting.FailureThreshold = 0
+	setting.FailureWindowSeconds = 0
+
+	normalized, err := NormalizeAndValidateChannelSchedulingSetting(setting)
+
+	require.NoError(t, err)
+	assert.Equal(t, ChannelSchedulingDefaultFailureCount, normalized.FailureThreshold)
+	assert.Equal(t, ChannelSchedulingDefaultFailureSec, normalized.FailureWindowSeconds)
 }
 
 func TestNormalizeAndValidateChannelSchedulingSettingRejectsUnsafeFactors(t *testing.T) {
@@ -82,6 +96,12 @@ func TestNormalizeAndValidateChannelSchedulingSettingRejectsUnsafeFactors(t *tes
 			setting.SampleMaxAgeMinutes = ChannelSchedulingMaxSampleAgeMinutes + 1
 		}},
 		{name: "severe ttft too large", mutate: func(setting *ChannelSchedulingSetting) { setting.SevereTtftMs = ChannelSchedulingMaxSevereTtftMs + 1 }},
+		{name: "failure threshold too large", mutate: func(setting *ChannelSchedulingSetting) {
+			setting.FailureThreshold = ChannelSchedulingMaxFailureThreshold + 1
+		}},
+		{name: "failure window too large", mutate: func(setting *ChannelSchedulingSetting) {
+			setting.FailureWindowSeconds = ChannelSchedulingMaxFailureWindowSec + 1
+		}},
 	}
 
 	for _, test := range tests {
@@ -106,6 +126,8 @@ func TestChannelSchedulingRecommendedDefaults(t *testing.T) {
 	assert.Equal(t, 20, setting.SampleWindowSize)
 	assert.Equal(t, 15, setting.SampleMaxAgeMinutes)
 	assert.Equal(t, int64(60_000), setting.SevereTtftMs)
+	assert.Equal(t, ChannelSchedulingDefaultFailureCount, setting.FailureThreshold)
+	assert.Equal(t, ChannelSchedulingDefaultFailureSec, setting.FailureWindowSeconds)
 	assert.Equal(t, 8, setting.MaxAttempts)
 	assert.Equal(t, 60, setting.RealtimeRetentionMin)
 }

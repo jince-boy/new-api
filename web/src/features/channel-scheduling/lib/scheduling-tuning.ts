@@ -25,6 +25,8 @@ export const recommendedTuning = {
   sample_window_size: 20,
   sample_max_age_minutes: 15,
   severe_ttft_ms: 60000,
+  failure_threshold: 5,
+  failure_window_seconds: 60,
   max_attempts: 8,
   realtime_retention_minutes: 60,
 } as const
@@ -113,6 +115,31 @@ export const tuningSections = [
         step: 1000,
         min: 1000,
         max: 86400000,
+      },
+    ],
+  },
+  {
+    title: 'Failure protection',
+    description:
+      'A channel is isolated only after repeated consecutive upstream failures. Any successful request resets the failure count.',
+    fields: [
+      {
+        name: 'failure_threshold',
+        label: 'Consecutive failures before isolation',
+        description:
+          'Wait for 5 consecutive upstream failures before automatically disabling a channel. The last available channel is always kept online.',
+        step: 1,
+        min: 1,
+        max: 100,
+      },
+      {
+        name: 'failure_window_seconds',
+        label: 'Failure window (seconds)',
+        description:
+          'Only consecutive failures no more than 60 seconds apart belong to the same streak. A longer gap starts counting again.',
+        step: 1,
+        min: 1,
+        max: 3600,
       },
     ],
   },

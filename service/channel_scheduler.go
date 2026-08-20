@@ -28,11 +28,7 @@ type schedulingPoolKey struct {
 
 const intelligentSchedulingBaseWeight = 100
 
-const (
-	intelligentSchedulingFailureThreshold = 3
-	intelligentSchedulingFailureWindow    = 60 * time.Second
-	channelFailureShardCount              = 64
-)
+const channelFailureShardCount = 64
 
 type channelSchedulingTtftSample struct {
 	Ts     int64
@@ -838,6 +834,9 @@ func recordIntelligentSchedulingFailure(info *relaycommon.RelayInfo, channel *mo
 	if info == nil || channel == nil || !isIntelligentSchedulingUpstreamError(relayErr) {
 		return false
 	}
+	setting := operation_setting.GetChannelSchedulingSetting()
+	failureThreshold := setting.FailureThreshold
+	failureWindow := time.Duration(setting.FailureWindowSeconds) * time.Second
 
 	shard := getChannelFailureShard(channel.Id)
 	shard.mu.Lock()
@@ -854,25 +853,25 @@ func recordIntelligentSchedulingFailure(info *relaycommon.RelayInfo, channel *mo
 		return false
 	}
 	elapsed := now.Sub(streak.LastFailureAt)
-	if streak.LastFailureAt.IsZero() || elapsed < 0 || elapsed > intelligentSchedulingFailureWindow {
+	if streak.LastFailureAt.IsZero() || elapsed < 0 || elapsed > failureWindow {
 		streak.Count = 0
 	}
 	streak.Count++
 	streak.LastFailureAt = now
 	streak.LastOutcomeAt = now
 	shard.streaks[channel.Id] = streak
-	if streak.Count < intelligentSchedulingFailureThreshold {
+	if streak.Count < failureThreshold {
 		shard.mu.Unlock()
 		return false
 	}
 
 	lastError := relayErr.MaskSensitiveErrorWithStatusCode()
-	reason := fmt.Sprintf("%d consecutive upstream failures within %s; last error: %s", streak.Count, intelligentSchedulingFailureWindow, lastError)
+	reason := fmt.Sprintf("%d consecutive upstream failures with no gap longer than %s; last error: %s", streak.Count, failureWindow, lastError)
 	shard.mu.Unlock()
 	channelSchedulerDisableMu.Lock()
 	shard.mu.Lock()
 	current := shard.streaks[channel.Id]
-	if current.Count < intelligentSchedulingFailureThreshold || !current.LastOutcomeAt.Equal(now) || isChannelSchedulingDisabled(channel.Id, info.SchedulerModel) {
+	if current.Count < failureThreshold || !current.LastOutcomeAt.Equal(now) || isChannelSchedulingDisabled(channel.Id, info.SchedulerModel) {
 		shard.mu.Unlock()
 		channelSchedulerDisableMu.Unlock()
 		return false
@@ -976,12 +975,13 @@ func recordIntelligentSchedulingSuccess(channelId int, now time.Time) {
 }
 
 func cleanupChannelFailureStreaks(now time.Time) {
+	failureWindow := time.Duration(operation_setting.GetChannelSchedulingSetting().FailureWindowSeconds) * time.Second
 	for index := range channelScheduler.failureShards {
 		shard := &channelScheduler.failureShards[index]
 		shard.mu.Lock()
 		for channelId, streak := range shard.streaks {
 			elapsed := now.Sub(streak.LastOutcomeAt)
-			if streak.LastOutcomeAt.IsZero() || elapsed < 0 || elapsed > intelligentSchedulingFailureWindow {
+			if streak.LastOutcomeAt.IsZero() || elapsed < 0 || elapsed > failureWindow {
 				delete(shard.streaks, channelId)
 			}
 		}

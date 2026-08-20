@@ -38,6 +38,8 @@ export const schedulingSettingsSchema = z
     sample_window_size: z.number().int().min(1).max(1000),
     sample_max_age_minutes: z.number().int().min(1).max(1440),
     severe_ttft_ms: z.number().int().min(1).max(86400000),
+    failure_threshold: z.number().int().min(1).max(100),
+    failure_window_seconds: z.number().int().min(1).max(3600),
     max_attempts: z.number().int().min(1).max(64),
     realtime_retention_minutes: z.number().int().min(1).max(1440),
   })

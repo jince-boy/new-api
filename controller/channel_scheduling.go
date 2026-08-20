@@ -79,6 +79,8 @@ func UpdateChannelSchedulingSetting(c *gin.Context) {
 		"channel_scheduling_setting.sample_window_size":         strconv.Itoa(request.SampleWindowSize),
 		"channel_scheduling_setting.sample_max_age_minutes":     strconv.Itoa(request.SampleMaxAgeMinutes),
 		"channel_scheduling_setting.severe_ttft_ms":             strconv.FormatInt(request.SevereTtftMs, 10),
+		"channel_scheduling_setting.failure_threshold":          strconv.Itoa(request.FailureThreshold),
+		"channel_scheduling_setting.failure_window_seconds":     strconv.Itoa(request.FailureWindowSeconds),
 		"channel_scheduling_setting.max_attempts":               strconv.Itoa(request.MaxAttempts),
 		"channel_scheduling_setting.realtime_retention_minutes": strconv.Itoa(request.RealtimeRetentionMin),
 	}

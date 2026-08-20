@@ -19,6 +19,10 @@ const (
 	ChannelSchedulingMaxSampleWindow     = 1_000
 	ChannelSchedulingMaxSampleAgeMinutes = 24 * 60
 	ChannelSchedulingMaxSevereTtftMs     = int64(24 * 60 * 60 * 1000)
+	ChannelSchedulingMaxFailureThreshold = 100
+	ChannelSchedulingMaxFailureWindowSec = 60 * 60
+	ChannelSchedulingDefaultFailureCount = 5
+	ChannelSchedulingDefaultFailureSec   = 60
 )
 
 type ChannelSchedulingSetting struct {
@@ -32,6 +36,8 @@ type ChannelSchedulingSetting struct {
 	SampleWindowSize     int               `json:"sample_window_size"`
 	SampleMaxAgeMinutes  int               `json:"sample_max_age_minutes"`
 	SevereTtftMs         int64             `json:"severe_ttft_ms"`
+	FailureThreshold     int               `json:"failure_threshold"`
+	FailureWindowSeconds int               `json:"failure_window_seconds"`
 	MaxAttempts          int               `json:"max_attempts"`
 	RealtimeRetentionMin int               `json:"realtime_retention_minutes"`
 }
@@ -47,6 +53,8 @@ var channelSchedulingSetting = ChannelSchedulingSetting{
 	SampleWindowSize:     20,
 	SampleMaxAgeMinutes:  15,
 	SevereTtftMs:         60_000,
+	FailureThreshold:     ChannelSchedulingDefaultFailureCount,
+	FailureWindowSeconds: ChannelSchedulingDefaultFailureSec,
 	MaxAttempts:          8,
 	RealtimeRetentionMin: 60,
 }
@@ -91,6 +99,12 @@ func GetChannelSchedulingSetting() ChannelSchedulingSetting {
 	if setting.SevereTtftMs <= 0 || setting.SevereTtftMs > ChannelSchedulingMaxSevereTtftMs {
 		setting.SevereTtftMs = 60_000
 	}
+	if setting.FailureThreshold <= 0 || setting.FailureThreshold > ChannelSchedulingMaxFailureThreshold {
+		setting.FailureThreshold = ChannelSchedulingDefaultFailureCount
+	}
+	if setting.FailureWindowSeconds <= 0 || setting.FailureWindowSeconds > ChannelSchedulingMaxFailureWindowSec {
+		setting.FailureWindowSeconds = ChannelSchedulingDefaultFailureSec
+	}
 	if setting.MaxAttempts <= 0 {
 		setting.MaxAttempts = 8
 	}
@@ -110,6 +124,14 @@ func NormalizeAndValidateChannelSchedulingSetting(setting ChannelSchedulingSetti
 	setting.DefaultStrategy = strings.ToLower(strings.TrimSpace(setting.DefaultStrategy))
 	if setting.DefaultStrategy != ChannelSchedulingStrategyLegacy && setting.DefaultStrategy != ChannelSchedulingStrategyIntelligent {
 		return ChannelSchedulingSetting{}, errors.New("invalid default strategy")
+	}
+	// Keep rolling upgrades compatible with older dashboards that do not send
+	// the newly added failure-protection fields yet.
+	if setting.FailureThreshold == 0 {
+		setting.FailureThreshold = ChannelSchedulingDefaultFailureCount
+	}
+	if setting.FailureWindowSeconds == 0 {
+		setting.FailureWindowSeconds = ChannelSchedulingDefaultFailureSec
 	}
 
 	normalizedGroups := make(map[string]string, len(setting.GroupStrategies))
@@ -135,6 +157,8 @@ func NormalizeAndValidateChannelSchedulingSetting(setting ChannelSchedulingSetti
 		setting.WarmupSamples > setting.SampleWindowSize ||
 		setting.SampleMaxAgeMinutes <= 0 || setting.SampleMaxAgeMinutes > ChannelSchedulingMaxSampleAgeMinutes ||
 		setting.SevereTtftMs <= 0 || setting.SevereTtftMs > ChannelSchedulingMaxSevereTtftMs ||
+		setting.FailureThreshold <= 0 || setting.FailureThreshold > ChannelSchedulingMaxFailureThreshold ||
+		setting.FailureWindowSeconds <= 0 || setting.FailureWindowSeconds > ChannelSchedulingMaxFailureWindowSec ||
 		setting.MaxAttempts <= 0 || setting.MaxAttempts > 64 ||
 		setting.RealtimeRetentionMin <= 0 || setting.RealtimeRetentionMin > 24*60 {
 		return ChannelSchedulingSetting{}, errors.New("invalid scheduling parameters")

@@ -51,6 +51,8 @@ test('settings lead with the safe two-step rollout and hide tuning complexity', 
     sample_window_size: 20,
     sample_max_age_minutes: 15,
     severe_ttft_ms: 60000,
+    failure_threshold: 5,
+    failure_window_seconds: 60,
     max_attempts: 8,
     realtime_retention_minutes: 60,
   }
@@ -71,6 +73,11 @@ test('settings lead with the safe two-step rollout and hide tuning complexity', 
 })
 
 test('all recommended numbers satisfy their HTML input step constraints', () => {
+  assert.ok(
+    tuningSections.some((section) =>
+      section.fields.some((field) => field.name === 'failure_threshold')
+    )
+  )
   for (const section of tuningSections) {
     for (const field of section.fields) {
       const value = recommendedTuning[field.name]

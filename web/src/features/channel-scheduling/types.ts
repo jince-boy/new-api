@@ -29,6 +29,8 @@ export interface ChannelSchedulingSetting {
   sample_window_size: number
   sample_max_age_minutes: number
   severe_ttft_ms: number
+  failure_threshold: number
+  failure_window_seconds: number
   max_attempts: number
   realtime_retention_minutes: number
 }
