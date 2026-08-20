@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/relaykit/types"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
@@ -205,6 +206,139 @@ func TestIntelligentSchedulingExhaustsCurrentPriorityBeforeFailover(t *testing.T
 
 	assert.Equal(t, []int64{20, 20, 10}, selectedPriorities)
 	assert.Len(t, selectedChannels, 3)
+}
+
+func TestLegacySchedulingSkipsRateLimitedChannelsBeforeFallingBackPriority(t *testing.T) {
+	db := setupChannelSchedulerPersistenceTest(t)
+	const group = "scheduler-legacy-rate-limit-test"
+	configureSchedulerGroupStrategyForTest(t, group, operation_setting.ChannelSchedulingStrategyLegacy)
+	createSchedulerCandidate(t, db, 91111, group, 20)
+	createSchedulerCandidate(t, db, 91112, group, 20)
+	createSchedulerCandidate(t, db, 91113, group, 10)
+	common.MemoryCacheEnabled = true
+	model.InitChannelCache()
+
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	param := &RetryParam{Ctx: context, ModelName: "gpt-test", TokenGroup: group, RequestPath: "/v1/chat/completions"}
+	param.MarkRateLimited(91111, 15_000)
+
+	selected, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	assert.Equal(t, group, selectedGroup)
+	assert.Equal(t, 91112, selected.Id)
+
+	param.MarkRateLimited(91112, 10_000)
+	selected, selectedGroup, err = CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	assert.Equal(t, group, selectedGroup)
+	assert.Equal(t, 91113, selected.Id)
+	assert.Equal(t, int64(10_000), param.RateLimitRetryAfterMillis())
+	param.MarkRateLimited(91113, 30_000)
+	selected, selectedGroup, err = CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	assert.Nil(t, selected)
+	assert.Equal(t, group, selectedGroup)
+	assert.True(t, param.HasRateLimitedChannels())
+
+	for _, channelId := range []int{91111, 91112, 91113} {
+		channel, getErr := model.GetChannelById(channelId, true)
+		require.NoError(t, getErr)
+		assert.Equal(t, common.ChannelStatusEnabled, channel.Status)
+	}
+}
+
+func TestIntelligentSchedulingKeepsRateLimitedChannelStateAndFallsBackPriority(t *testing.T) {
+	db := setupChannelSchedulerPersistenceTest(t)
+	const group = "scheduler-intelligent-rate-limit-test"
+	configureSchedulerGroupStrategyForTest(t, group, operation_setting.ChannelSchedulingStrategyIntelligent)
+	createSchedulerCandidate(t, db, 91121, group, 20)
+	createSchedulerCandidate(t, db, 91122, group, 20)
+	createSchedulerCandidate(t, db, 91123, group, 10)
+	common.MemoryCacheEnabled = true
+	model.InitChannelCache()
+
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	param := &RetryParam{Ctx: context, ModelName: "gpt-test", TokenGroup: group, RequestPath: "/v1/chat/completions"}
+	first, _, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	assert.Equal(t, 91121, first.Id)
+
+	key := schedulingPoolKey{Group: group, Model: "gpt-test", Priority: 20}
+	pool := getSchedulingPool(key)
+	pool.mu.Lock()
+	pool.channels[91121].RequestCount = 7
+	pool.channels[91121].LastError = "preserve-rate-limited-state"
+	pool.mu.Unlock()
+
+	param.MarkRateLimited(91121, 20_000)
+	selected, _, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	assert.Equal(t, 91122, selected.Id)
+
+	pool.mu.Lock()
+	preserved := *pool.channels[91121]
+	pool.mu.Unlock()
+	assert.Equal(t, int64(7), preserved.RequestCount)
+	assert.Equal(t, "preserve-rate-limited-state", preserved.LastError)
+
+	param.MarkRateLimited(91122, 10_000)
+	selected, _, err = CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	assert.Equal(t, 91123, selected.Id)
+
+	limitedChannel, err := model.GetChannelById(91121, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusEnabled, limitedChannel.Status)
+}
+
+func TestRedisRateLimitFailureCanFallBackToUnlimitedChannel(t *testing.T) {
+	db := setupChannelSchedulerPersistenceTest(t)
+	const group = "scheduler-rate-limit-redis-fallback-test"
+	configureSchedulerGroupStrategyForTest(t, group, operation_setting.ChannelSchedulingStrategyLegacy)
+	createSchedulerCandidate(t, db, 91131, group, 20)
+	createSchedulerCandidate(t, db, 91132, group, 20)
+
+	configured, err := model.GetChannelById(91131, true)
+	require.NoError(t, err)
+	configured.SetOtherSettings(dto.ChannelOtherSettings{RequestRateLimit: &dto.ChannelRequestRateLimit{
+		MaxRequests: 30, WindowSeconds: 60,
+	}})
+	require.NoError(t, db.Model(&model.Channel{}).Where("id = ?", configured.Id).Update("settings", configured.OtherSettings).Error)
+	common.MemoryCacheEnabled = true
+	model.InitChannelCache()
+
+	originalRedisEnabled := common.RedisEnabled
+	originalRDB := common.RDB
+	common.RedisEnabled = true
+	common.RDB = nil
+	t.Cleanup(func() {
+		common.RedisEnabled = originalRedisEnabled
+		common.RDB = originalRDB
+	})
+
+	context, _ := gin.CreateTestContext(httptest.NewRecorder())
+	param := &RetryParam{Ctx: context, ModelName: "gpt-test", TokenGroup: group, RequestPath: "/v1/chat/completions"}
+	first, err := model.CacheGetChannel(91131)
+	require.NoError(t, err)
+
+	reservation, _, reserveErr := ReserveChannelRequest(context, first)
+	assert.Nil(t, reservation)
+	require.Error(t, reserveErr)
+	param.MarkRateLimitUnavailable(first.Id, reserveErr)
+
+	fallback, _, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, fallback)
+	assert.Equal(t, 91132, fallback.Id)
+	reservation, decision, reserveErr := ReserveChannelRequest(context, fallback)
+	require.NoError(t, reserveErr)
+	assert.Nil(t, reservation)
+	assert.True(t, decision.Allowed)
 }
 
 func TestLegacySchedulingAlsoSkipsPersistentlyDisabledModelCapability(t *testing.T) {

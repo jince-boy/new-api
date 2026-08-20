@@ -89,6 +89,16 @@ export const STATIC_I18N_KEYS = [
   'Dashboard history (minutes)',
   'Keeps 60 minutes of real-time chart data and inactive pools. It does not change the number of TTFT samples.',
 
+  // Per-channel rolling request limits
+  'Maximum requests must be a whole number',
+  'Maximum requests must be at least 1',
+  'Maximum requests must not exceed 100000',
+  'Rolling window must be a whole number of seconds',
+  'Rolling window must be at least 1 second',
+  'Rolling window must not exceed 86400 seconds',
+  'Enter the maximum requests or leave both rate limit fields empty',
+  'Enter the rolling window or leave both rate limit fields empty',
+
   // Advanced custom task validation
   'Business error code path is required when safe error messages are configured',
   'Safe error message map contains an empty code or message',

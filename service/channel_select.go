@@ -17,6 +17,9 @@ type RetryParam struct {
 	RequestPath  string
 	Retry        *int
 	attempted    map[int]struct{}
+	rateLimited  map[int]struct{}
+	retryAfterMs int64
+	rateLimitErr error
 	resetNextTry bool
 }
 
@@ -62,6 +65,61 @@ func (p *RetryParam) HasAttempted(channelId int) bool {
 	}
 	_, ok := p.attempted[channelId]
 	return ok
+}
+
+func (p *RetryParam) MarkRateLimited(channelId int, retryAfterMillis int64) {
+	if p == nil || channelId <= 0 {
+		return
+	}
+	if p.rateLimited == nil {
+		p.rateLimited = make(map[int]struct{})
+	}
+	p.rateLimited[channelId] = struct{}{}
+	if retryAfterMillis > 0 && (p.retryAfterMs == 0 || retryAfterMillis < p.retryAfterMs) {
+		p.retryAfterMs = retryAfterMillis
+	}
+}
+
+func (p *RetryParam) HasRateLimited(channelId int) bool {
+	if p == nil || p.rateLimited == nil {
+		return false
+	}
+	_, ok := p.rateLimited[channelId]
+	return ok
+}
+
+func (p *RetryParam) HasRateLimitedChannels() bool {
+	return p != nil && len(p.rateLimited) > 0
+}
+
+func (p *RetryParam) RateLimitRetryAfterMillis() int64 {
+	if p == nil {
+		return 0
+	}
+	return p.retryAfterMs
+}
+
+func (p *RetryParam) MarkRateLimitUnavailable(channelId int, err error) {
+	p.MarkRateLimited(channelId, 0)
+	if p != nil && p.rateLimitErr == nil {
+		p.rateLimitErr = err
+	}
+}
+
+func (p *RetryParam) RateLimitError() error {
+	if p == nil {
+		return nil
+	}
+	return p.rateLimitErr
+}
+
+func (p *RetryParam) ResetRateLimitState() {
+	if p == nil {
+		return
+	}
+	p.rateLimited = nil
+	p.retryAfterMs = 0
+	p.rateLimitErr = nil
 }
 
 // CacheGetRandomSatisfiedChannel tries to get a random channel that satisfies the requirements.

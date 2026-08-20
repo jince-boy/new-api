@@ -76,6 +76,8 @@ function isOptionalProxyURL(value: string | undefined): boolean {
 export const HTTP_PROTOCOL_AUTO = 'auto'
 export const HTTP_PROTOCOL_HTTP1 = 'http1'
 export const MAX_HTTP2_CONNECTION_SHARDS = 8
+export const MAX_CHANNEL_RATE_LIMIT_REQUESTS = 100_000
+export const MAX_CHANNEL_RATE_LIMIT_WINDOW_SECONDS = 86_400
 
 export function normalizeHttpProtocol(
   value: string | undefined | null
@@ -194,6 +196,24 @@ export const channelFormSchema = z
     weight: z.number().optional(),
     test_model: z.string().optional(),
     auto_ban: z.number().optional(),
+    request_rate_limit_max: z
+      .number()
+      .int('Maximum requests must be a whole number')
+      .min(1, 'Maximum requests must be at least 1')
+      .max(
+        MAX_CHANNEL_RATE_LIMIT_REQUESTS,
+        'Maximum requests must not exceed 100000'
+      )
+      .optional(),
+    request_rate_limit_window_seconds: z
+      .number()
+      .int('Rolling window must be a whole number of seconds')
+      .min(1, 'Rolling window must be at least 1 second')
+      .max(
+        MAX_CHANNEL_RATE_LIMIT_WINDOW_SECONDS,
+        'Rolling window must not exceed 86400 seconds'
+      )
+      .optional(),
     status: z.number(),
     tag: z.string().optional(),
     remark: z
@@ -255,6 +275,24 @@ export const channelFormSchema = z
     upstream_model_update_ignored_models: z.string().optional(),
   })
   .superRefine((data, ctx) => {
+    const hasRateLimitMaximum = data.request_rate_limit_max != null
+    const hasRateLimitWindow = data.request_rate_limit_window_seconds != null
+    if (hasRateLimitMaximum !== hasRateLimitWindow) {
+      if (!hasRateLimitMaximum) {
+        addRequiredIssue(
+          ctx,
+          'request_rate_limit_max',
+          'Enter the maximum requests or leave both rate limit fields empty'
+        )
+      }
+      if (!hasRateLimitWindow) {
+        addRequiredIssue(
+          ctx,
+          'request_rate_limit_window_seconds',
+          'Enter the rolling window or leave both rate limit fields empty'
+        )
+      }
+    }
     if (
       [3, 8, 36, 45, CHANNEL_TYPE_NEW_API].includes(data.type) &&
       !data.base_url?.trim()
@@ -385,6 +423,8 @@ export const CHANNEL_FORM_DEFAULT_VALUES: ChannelFormValues = {
   weight: 0,
   test_model: '',
   auto_ban: 1,
+  request_rate_limit_max: undefined,
+  request_rate_limit_window_seconds: undefined,
   status: CHANNEL_STATUS.ENABLED,
   tag: '',
   remark: '',
@@ -484,6 +524,8 @@ export function transformChannelToFormDefaults(
   let allowSpeed = false
   let claudeBetaQuery = false
   let disableTaskPollingSleep = false
+  let requestRateLimitMax: number | undefined
+  let requestRateLimitWindowSeconds: number | undefined
   let upstreamModelUpdateCheckEnabled = false
   let upstreamModelUpdateAutoSyncEnabled = false
   let upstreamModelUpdateIgnoredModels = ''
@@ -504,6 +546,14 @@ export function transformChannelToFormDefaults(
       allowSpeed = parsed.allow_speed === true
       claudeBetaQuery = parsed.claude_beta_query === true
       disableTaskPollingSleep = parsed.disable_task_polling_sleep === true
+      if (
+        parsed.request_rate_limit &&
+        typeof parsed.request_rate_limit.max_requests === 'number' &&
+        typeof parsed.request_rate_limit.window_seconds === 'number'
+      ) {
+        requestRateLimitMax = parsed.request_rate_limit.max_requests
+        requestRateLimitWindowSeconds = parsed.request_rate_limit.window_seconds
+      }
       upstreamModelUpdateCheckEnabled =
         parsed.upstream_model_update_check_enabled === true
       upstreamModelUpdateAutoSyncEnabled =
@@ -535,6 +585,8 @@ export function transformChannelToFormDefaults(
     weight: channel.weight || 0,
     test_model: channel.test_model || '',
     auto_ban: channel.auto_ban ?? 1,
+    request_rate_limit_max: requestRateLimitMax,
+    request_rate_limit_window_seconds: requestRateLimitWindowSeconds,
     status: channel.status,
     tag: channel.tag || '',
     remark: channel.remark || '',
@@ -694,6 +746,18 @@ function buildSettingsJSON(formData: ChannelFormValues): string {
 
   settingsObj.disable_task_polling_sleep =
     formData.disable_task_polling_sleep === true
+
+  if (
+    formData.request_rate_limit_max != null &&
+    formData.request_rate_limit_window_seconds != null
+  ) {
+    settingsObj.request_rate_limit = {
+      max_requests: formData.request_rate_limit_max,
+      window_seconds: formData.request_rate_limit_window_seconds,
+    }
+  } else if ('request_rate_limit' in settingsObj) {
+    delete settingsObj.request_rate_limit
+  }
 
   // Upstream model update settings (for model-fetchable channel types)
   if (MODEL_FETCHABLE_TYPES.has(formData.type)) {

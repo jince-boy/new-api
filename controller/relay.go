@@ -233,14 +233,61 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	attemptLimit := service.GetRelayAttemptLimit(retryParam)
 	for attempt := 0; attempt < attemptLimit; attempt++ {
+		retryParam.ResetRateLimitState()
 		if attempt > 0 {
 			retryParam.IncreaseRetry()
 		}
 		relayInfo.RetryIndex = retryParam.GetRetry()
-		channel, channelErr := getChannel(c, relayInfo, retryParam)
+		var channel *model.Channel
+		var reservation *service.ChannelRateLimitReservation
+		var channelErr *types.NewAPIError
+		var waitCandidate *channelRateLimitWaitCandidate
+		for {
+			channel, channelErr = getChannel(c, relayInfo, retryParam)
+			if channelErr != nil {
+				if channelErr.GetErrorCode() == types.ErrorCodeChannelRateLimited && waitCandidate != nil {
+					channel, reservation, channelErr = waitForRateLimitedChannel(c, relayInfo, retryParam, waitCandidate)
+				}
+				break
+			}
+			var decision service.ChannelRateLimitDecision
+			var reserveErr error
+			reservation, decision, reserveErr = service.ReserveChannelRequest(c.Request.Context(), channel)
+			if reserveErr != nil {
+				rateLimitErr := fmt.Errorf("check request rate limit for channel %d: %w", channel.Id, reserveErr)
+				retryParam.MarkRateLimitUnavailable(channel.Id, rateLimitErr)
+				if _, specificChannel := c.Get("specific_channel_id"); specificChannel {
+					channelErr = types.NewErrorWithStatusCode(
+						rateLimitErr,
+						types.ErrorCodeGetChannelFailed,
+						http.StatusServiceUnavailable,
+						types.ErrOptionWithSkipRetry(),
+					)
+					break
+				}
+				relayInfo.ChannelMeta = nil
+				continue
+			}
+			if decision.Allowed {
+				break
+			}
+			retryParam.MarkRateLimited(channel.Id, decision.RetryAfterMillis)
+			if _, specificChannel := c.Get("specific_channel_id"); specificChannel {
+				candidate := &channelRateLimitWaitCandidate{channel: channel, group: relayInfo.UsingGroup, retryAfterMillis: decision.RetryAfterMillis}
+				channel, reservation, channelErr = waitForRateLimitedChannel(c, relayInfo, retryParam, candidate)
+				break
+			}
+			if waitCandidate == nil || decision.RetryAfterMillis < waitCandidate.retryAfterMillis {
+				waitCandidate = &channelRateLimitWaitCandidate{
+					channel: channel, group: relayInfo.UsingGroup, retryAfterMillis: decision.RetryAfterMillis,
+				}
+			}
+			relayInfo.ChannelMeta = nil
+		}
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
-			if service.IsIntelligentSchedulingForGroup(common.GetContextKeyString(c, constant.ContextKeyUsingGroup)) && relayInfo.LastError != nil {
+			if waitCandidate == nil && channelErr.GetErrorCode() != types.ErrorCodeChannelRateLimited && retryParam.RateLimitError() == nil &&
+				service.IsIntelligentSchedulingForGroup(common.GetContextKeyString(c, constant.ContextKeyUsingGroup)) && relayInfo.LastError != nil {
 				newAPIError = relayInfo.LastError
 			} else {
 				newAPIError = channelErr
@@ -250,12 +297,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		addUsedChannel(c, channel.Id)
 		retryParam.MarkAttempted(channel.Id)
 		if billingErr := service.PrepareTieredBillingForSelectedGroup(c, relayInfo); billingErr != nil {
+			service.ReleaseChannelRequestReservation(reservation)
 			newAPIError = billingErr
 			break
 		}
 
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
+			service.ReleaseChannelRequestReservation(reservation)
 			// Ensure consistent 413 for oversized bodies even when error occurs later (e.g., retry path)
 			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
 				newAPIError = types.NewErrorWithStatusCode(bodyErr, types.ErrorCodeReadRequestBodyFailed, http.StatusRequestEntityTooLarge, types.ErrOptionWithSkipRetry())
@@ -286,6 +335,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			newAPIError.MarkUpstream()
 		}
 		service.FinishScheduledChannelAttempt(relayInfo, channel, newAPIError == nil, newAPIError)
+		if relayInfo.UpstreamStartTime.IsZero() {
+			service.ReleaseChannelRequestReservation(reservation)
+		}
 
 		if newAPIError == nil {
 			relayInfo.LastError = nil
@@ -312,6 +364,61 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			perfmetrics.RecordRelaySample(relayInfo, false, 0)
 		})
 	}
+}
+
+type channelRateLimitWaitCandidate struct {
+	channel          *model.Channel
+	group            string
+	retryAfterMillis int64
+}
+
+func waitForRateLimitedChannel(
+	c *gin.Context,
+	info *relaycommon.RelayInfo,
+	retryParam *service.RetryParam,
+	candidate *channelRateLimitWaitCandidate,
+) (*model.Channel, *service.ChannelRateLimitReservation, *types.NewAPIError) {
+	if candidate == nil || candidate.channel == nil {
+		return nil, nil, types.NewErrorWithStatusCode(
+			errors.New("request rate limit wait candidate is unavailable"),
+			types.ErrorCodeGetChannelFailed,
+			http.StatusServiceUnavailable,
+			types.ErrOptionWithSkipRetry(),
+		)
+	}
+	reservation, err := service.WaitForChannelRequest(c.Request.Context(), candidate.channel)
+	if err != nil {
+		return nil, nil, types.NewErrorWithStatusCode(
+			fmt.Errorf("wait for channel %d request rate limit: %w", candidate.channel.Id, err),
+			types.ErrorCodeGetChannelFailed,
+			http.StatusServiceUnavailable,
+			types.ErrOptionWithSkipRetry(),
+		)
+	}
+	channel, err := model.CacheGetChannel(candidate.channel.Id)
+	if err != nil || channel.Status != common.ChannelStatusEnabled {
+		service.ReleaseChannelRequestReservation(reservation)
+		if err == nil {
+			err = fmt.Errorf("channel %d became unavailable while waiting", candidate.channel.Id)
+		}
+		return nil, nil, types.NewErrorWithStatusCode(
+			err,
+			types.ErrorCodeGetChannelFailed,
+			http.StatusServiceUnavailable,
+			types.ErrOptionWithSkipRetry(),
+		)
+	}
+	if candidate.group != "" {
+		info.UsingGroup = candidate.group
+		common.SetContextKey(c, constant.ContextKeyUsingGroup, candidate.group)
+	}
+	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
+	if setupErr := middleware.SetupContextForSelectedChannel(c, channel, info.OriginModelName); setupErr != nil {
+		service.ReleaseChannelRequestReservation(reservation)
+		return nil, nil, setupErr
+	}
+	retryParam.ResetRateLimitState()
+	return channel, reservation, nil
 }
 
 var upgrader = websocket.Upgrader{
@@ -357,36 +464,30 @@ func fastTokenCountMetaForPricing(request dto.Request) *types.TokenCountMeta {
 }
 
 func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service.RetryParam) (*model.Channel, *types.NewAPIError) {
-	if info.ChannelMeta == nil {
+	if info.ChannelMeta == nil && !retryParam.HasRateLimited(c.GetInt("channel_id")) {
 		channelId := c.GetInt("channel_id")
-		usingGroup := info.UsingGroup
-		if usingGroup == "" {
-			usingGroup = common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+		channel, err := model.CacheGetChannel(channelId)
+		if err != nil {
+			return nil, types.NewError(err, types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 		}
-		if service.IsIntelligentSchedulingForGroup(usingGroup) {
-			channel, err := model.CacheGetChannel(channelId)
-			if err != nil {
-				return nil, types.NewError(err, types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
-			}
-			return channel, nil
-		}
-		autoBan := c.GetBool("auto_ban")
-		autoBanInt := 1
-		if !autoBan {
-			autoBanInt = 0
-		}
-		return &model.Channel{
-			Id:      channelId,
-			Type:    c.GetInt("channel_type"),
-			Name:    c.GetString("channel_name"),
-			AutoBan: &autoBanInt,
-		}, nil
+		return channel, nil
 	}
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
 	if err != nil {
 		return nil, types.NewError(fmt.Errorf("获取分组 %s 下模型 %s 的可用渠道失败（retry）: %s", selectGroup, info.OriginModelName, err.Error()), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 	if channel == nil {
+		if rateLimitErr := retryParam.RateLimitError(); rateLimitErr != nil {
+			return nil, types.NewErrorWithStatusCode(rateLimitErr, types.ErrorCodeGetChannelFailed, http.StatusServiceUnavailable, types.ErrOptionWithSkipRetry())
+		}
+		if retryParam.HasRateLimitedChannels() {
+			return nil, types.NewErrorWithStatusCode(
+				fmt.Errorf("all available channels in group %s reached their request rate limits", selectGroup),
+				types.ErrorCodeChannelRateLimited,
+				http.StatusServiceUnavailable,
+				types.ErrOptionWithSkipRetry(),
+			)
+		}
 		return nil, types.NewError(fmt.Errorf("分组 %s 下模型 %s 的可用渠道不存在（retry）", selectGroup, info.OriginModelName), types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
 	}
 
@@ -662,35 +763,98 @@ func RelayTask(c *gin.Context) {
 
 	attemptLimit := service.GetRelayAttemptLimit(retryParam)
 	for attempt := 0; attempt < attemptLimit; attempt++ {
+		retryParam.ResetRateLimitState()
 		if attempt > 0 {
 			retryParam.IncreaseRetry()
 		}
 		var channel *model.Channel
-
-		if lockedCh, ok := relayInfo.LockedChannel.(*model.Channel); ok && lockedCh != nil {
-			channel = lockedCh
-			if retryParam.GetRetry() > 0 {
-				if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
-					taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
+		var reservation *service.ChannelRateLimitReservation
+		lockedChannel, channelLocked := relayInfo.LockedChannel.(*model.Channel)
+		channelLocked = channelLocked && lockedChannel != nil
+		_, specificChannel := c.Get("specific_channel_id")
+		fixedChannel := channelLocked || specificChannel
+		channelSelectionFailed := false
+		var waitCandidate *channelRateLimitWaitCandidate
+		for {
+			if channelLocked {
+				channel = lockedChannel
+				if retryParam.GetRetry() > 0 {
+					if setupErr := middleware.SetupContextForSelectedChannel(c, channel, relayInfo.OriginModelName); setupErr != nil {
+						taskErr = service.TaskErrorWrapperLocal(setupErr.Err, "setup_locked_channel_failed", http.StatusInternalServerError)
+						channelSelectionFailed = true
+						break
+					}
+				}
+			} else {
+				var channelErr *types.NewAPIError
+				channel, channelErr = getChannel(c, relayInfo, retryParam)
+				if channelErr != nil {
+					if channelErr.GetErrorCode() == types.ErrorCodeChannelRateLimited && waitCandidate != nil {
+						channel, reservation, channelErr = waitForRateLimitedChannel(c, relayInfo, retryParam, waitCandidate)
+						if channelErr == nil {
+							break
+						}
+					}
+					logger.LogError(c, channelErr.Error())
+					if taskErr == nil ||
+						channelErr.GetErrorCode() == types.ErrorCodeChannelRateLimited ||
+						retryParam.RateLimitError() != nil ||
+						!service.IsIntelligentSchedulingForGroup(common.GetContextKeyString(c, constant.ContextKeyUsingGroup)) {
+						code := string(channelErr.GetErrorCode())
+						if code == "" {
+							code = "get_channel_failed"
+						}
+						taskErr = service.TaskErrorWrapperLocal(channelErr.Err, code, channelErr.StatusCode)
+					}
+					channelSelectionFailed = true
 					break
 				}
 			}
-		} else {
-			var channelErr *types.NewAPIError
-			channel, channelErr = getChannel(c, relayInfo, retryParam)
-			if channelErr != nil {
-				logger.LogError(c, channelErr.Error())
-				if taskErr == nil || !service.IsIntelligentSchedulingForGroup(common.GetContextKeyString(c, constant.ContextKeyUsingGroup)) {
-					taskErr = service.TaskErrorWrapperLocal(channelErr.Err, "get_channel_failed", http.StatusInternalServerError)
+
+			var decision service.ChannelRateLimitDecision
+			var reserveErr error
+			reservation, decision, reserveErr = service.ReserveChannelRequest(c.Request.Context(), channel)
+			if reserveErr != nil {
+				rateLimitErr := fmt.Errorf("check request rate limit for channel %d: %w", channel.Id, reserveErr)
+				retryParam.MarkRateLimitUnavailable(channel.Id, rateLimitErr)
+				if fixedChannel {
+					taskErr = service.TaskErrorWrapperLocal(rateLimitErr, "channel_rate_limit_unavailable", http.StatusServiceUnavailable)
+					channelSelectionFailed = true
+					break
+				}
+				relayInfo.ChannelMeta = nil
+				continue
+			}
+			if decision.Allowed {
+				break
+			}
+			retryParam.MarkRateLimited(channel.Id, decision.RetryAfterMillis)
+			if fixedChannel {
+				candidate := &channelRateLimitWaitCandidate{channel: channel, group: relayInfo.UsingGroup, retryAfterMillis: decision.RetryAfterMillis}
+				var waitErr *types.NewAPIError
+				channel, reservation, waitErr = waitForRateLimitedChannel(c, relayInfo, retryParam, candidate)
+				if waitErr != nil {
+					taskErr = service.TaskErrorWrapperLocal(waitErr.Err, string(waitErr.GetErrorCode()), waitErr.StatusCode)
+					channelSelectionFailed = true
 				}
 				break
 			}
+			if waitCandidate == nil || decision.RetryAfterMillis < waitCandidate.retryAfterMillis {
+				waitCandidate = &channelRateLimitWaitCandidate{
+					channel: channel, group: relayInfo.UsingGroup, retryAfterMillis: decision.RetryAfterMillis,
+				}
+			}
+			relayInfo.ChannelMeta = nil
+		}
+		if channelSelectionFailed {
+			break
 		}
 
 		addUsedChannel(c, channel.Id)
 		retryParam.MarkAttempted(channel.Id)
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
 		if bodyErr != nil {
+			service.ReleaseChannelRequestReservation(reservation)
 			if common.IsRequestBodyTooLargeError(bodyErr) || errors.Is(bodyErr, common.ErrRequestBodyTooLarge) {
 				taskErr = service.TaskErrorWrapperLocal(bodyErr, "read_request_body_failed", http.StatusRequestEntityTooLarge)
 			} else {
@@ -700,8 +864,12 @@ func RelayTask(c *gin.Context) {
 		}
 		c.Request.Body = io.NopCloser(bodyStorage)
 
+		relayInfo.ResetUpstreamTiming()
 		service.BeginScheduledChannelAttempt(c, relayInfo, channel)
 		result, taskErr = relay.RelayTaskSubmit(c, relayInfo)
+		if relayInfo.UpstreamStartTime.IsZero() {
+			service.ReleaseChannelRequestReservation(reservation)
+		}
 		if taskErr == nil {
 			service.FinishScheduledChannelAttempt(relayInfo, channel, true, nil)
 			break

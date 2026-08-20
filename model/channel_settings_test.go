@@ -41,6 +41,18 @@ func TestChannelValidateSettingsRejectsInvalidHTTPTransport(t *testing.T) {
 	}
 }
 
+func TestChannelValidateSettingsRejectsIncompleteRequestRateLimit(t *testing.T) {
+	channel := &Channel{}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{
+		RequestRateLimit: &dto.ChannelRequestRateLimit{MaxRequests: 30},
+	})
+
+	err := channel.ValidateSettings()
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "request_rate_limit.window_seconds")
+}
+
 func TestAdvancedCustomChannelRequiresModelListRouteOnlyWhenUpdateChecksEnabled(t *testing.T) {
 	inferenceRoute := dto.AdvancedCustomRoute{
 		IncomingPath: "/v1/chat/completions",

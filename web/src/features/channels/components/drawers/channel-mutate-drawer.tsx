@@ -726,6 +726,8 @@ export function ChannelMutateDrawer({
   const currentWeight = form.watch('weight')
   const currentTestModel = form.watch('test_model')
   const currentAutoBan = form.watch('auto_ban')
+  const currentRateLimitMax = form.watch('request_rate_limit_max')
+  const currentRateLimitWindow = form.watch('request_rate_limit_window_seconds')
   const currentTag = form.watch('tag')
   const currentRemark = form.watch('remark')
   const currentParamOverride = form.watch('param_override')
@@ -991,6 +993,8 @@ export function ChannelMutateDrawer({
     currentPriority ||
     currentWeight ||
     currentTestModel?.trim() ||
+    currentRateLimitMax != null ||
+    currentRateLimitWindow != null ||
     (currentAutoBan ?? 1) !== 1
   )
   const internalNotesConfigured = Boolean(
@@ -3619,6 +3623,102 @@ export function ChannelMutateDrawer({
                                   </FormItem>
                                 )}
                               />
+                            </div>
+
+                            <div className='space-y-4 rounded-lg border p-4'>
+                              <div className='space-y-1'>
+                                <p className='text-sm font-medium'>
+                                  {t('Request rate limit (optional)')}
+                                </p>
+                                <p className='text-muted-foreground text-sm'>
+                                  {t(
+                                    'Limits how many upstream requests this channel can receive within any rolling time window. Leave both fields empty for unlimited.'
+                                  )}
+                                </p>
+                              </div>
+                              <div className='grid gap-4 sm:grid-cols-2'>
+                                <FormField
+                                  control={form.control}
+                                  name='request_rate_limit_max'
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>
+                                        {t('Maximum requests')}
+                                      </FormLabel>
+                                      <FormControl>
+                                        <Input
+                                          type='number'
+                                          inputMode='numeric'
+                                          min={1}
+                                          max={100000}
+                                          placeholder={t('Unlimited')}
+                                          value={field.value ?? ''}
+                                          onChange={(event) => {
+                                            const value = event.target.value
+                                            field.onChange(
+                                              value === ''
+                                                ? undefined
+                                                : Number(value)
+                                            )
+                                          }}
+                                        />
+                                      </FormControl>
+                                      <FormDescription>
+                                        {t(
+                                          'Maximum upstream requests allowed during the rolling window.'
+                                        )}
+                                      </FormDescription>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+
+                                <FormField
+                                  control={form.control}
+                                  name='request_rate_limit_window_seconds'
+                                  render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>
+                                        {t('Rolling window (seconds)')}
+                                      </FormLabel>
+                                      <FormControl>
+                                        <Input
+                                          type='number'
+                                          inputMode='numeric'
+                                          min={1}
+                                          max={86400}
+                                          placeholder={t('Unlimited')}
+                                          value={field.value ?? ''}
+                                          onChange={(event) => {
+                                            const value = event.target.value
+                                            field.onChange(
+                                              value === ''
+                                                ? undefined
+                                                : Number(value)
+                                            )
+                                          }}
+                                        />
+                                      </FormControl>
+                                      <FormDescription>
+                                        {t(
+                                          'For example, 30 requests in 60 seconds means at most 30 requests in any consecutive 60-second period.'
+                                        )}
+                                      </FormDescription>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )}
+                                />
+                              </div>
+                              <p className='text-muted-foreground text-xs'>
+                                {t(
+                                  'When the limit is reached, routing temporarily skips this channel without disabling it.'
+                                )}
+                              </p>
+                              <p className='text-muted-foreground text-xs'>
+                                {t(
+                                  'If all eligible channels are at their limits, the request waits for the next available slot instead of receiving a rate-limit error.'
+                                )}
+                              </p>
                             </div>
 
                             <FormField

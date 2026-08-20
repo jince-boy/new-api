@@ -29,6 +29,8 @@ const ADVANCED_SETTINGS_FIELDS = new Set<FieldPath<ChannelFormValues>>([
   'weight',
   'test_model',
   'auto_ban',
+  'request_rate_limit_max',
+  'request_rate_limit_window_seconds',
   'tag',
   'remark',
   'param_override',

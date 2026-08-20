@@ -278,19 +278,16 @@ func GetRelayAttemptLimit(param *RetryParam) int {
 
 func selectLegacyChannel(param *RetryParam, group string, retry int) (*model.Channel, error) {
 	normalizedModel := ratio_setting.FormatMatchingModelName(param.ModelName)
-	if !hasChannelModelSchedulingFault(normalizedModel) {
-		return model.GetRandomSatisfiedChannel(group, param.ModelName, retry, param.RequestPath)
-	}
-
 	candidates, err := model.GetSatisfiedChannels(group, param.ModelName, param.RequestPath)
 	if err != nil || len(candidates) == 0 {
 		return nil, err
 	}
 	available := make([]*model.Channel, 0, len(candidates))
 	for _, channel := range candidates {
-		if !isChannelModelSchedulingDisabled(channel.Id, normalizedModel) {
-			available = append(available, channel)
+		if isChannelModelSchedulingDisabled(channel.Id, normalizedModel) || param.HasRateLimited(channel.Id) {
+			continue
 		}
+		available = append(available, channel)
 	}
 	if len(available) == 0 {
 		return nil, nil
@@ -362,19 +359,39 @@ func selectIntelligentChannel(param *RetryParam, group string) (*model.Channel, 
 		return nil, err
 	}
 	normalizedModel := ratio_setting.FormatMatchingModelName(param.ModelName)
-	available := make([]*model.Channel, 0, len(candidates))
+	active := make([]*model.Channel, 0, len(candidates))
 	for _, channel := range candidates {
-		if param.HasAttempted(channel.Id) || isChannelSchedulingDisabled(channel.Id, normalizedModel) {
+		if isChannelSchedulingDisabled(channel.Id, normalizedModel) {
 			continue
 		}
-		available = append(available, channel)
+		active = append(active, channel)
 	}
-	if len(available) == 0 {
+	if len(active) == 0 {
 		return nil, nil
 	}
 
-	targetPriority, tier := highestPrioritySchedulingTier(available)
-	return selectSmoothWeightedChannel(schedulingPoolKey{Group: group, Model: normalizedModel, Priority: targetPriority}, tier), nil
+	for len(active) > 0 {
+		targetPriority, activeTier := highestPrioritySchedulingTier(active)
+		eligibleTier := make([]*model.Channel, 0, len(activeTier))
+		for _, channel := range activeTier {
+			if param.HasAttempted(channel.Id) || param.HasRateLimited(channel.Id) {
+				continue
+			}
+			eligibleTier = append(eligibleTier, channel)
+		}
+		if len(eligibleTier) > 0 {
+			key := schedulingPoolKey{Group: group, Model: normalizedModel, Priority: targetPriority}
+			return selectSmoothWeightedEligibleChannel(key, activeTier, eligibleTier), nil
+		}
+		remaining := active[:0]
+		for _, channel := range active {
+			if channel.GetPriority() != targetPriority {
+				remaining = append(remaining, channel)
+			}
+		}
+		active = remaining
+	}
+	return nil, nil
 }
 
 func highestPrioritySchedulingTier(channels []*model.Channel) (int64, []*model.Channel) {
@@ -397,7 +414,11 @@ func highestPrioritySchedulingTier(channels []*model.Channel) (int64, []*model.C
 }
 
 func selectSmoothWeightedChannel(key schedulingPoolKey, candidates []*model.Channel) *model.Channel {
-	if len(candidates) == 0 {
+	return selectSmoothWeightedEligibleChannel(key, candidates, candidates)
+}
+
+func selectSmoothWeightedEligibleChannel(key schedulingPoolKey, activeCandidates []*model.Channel, eligibleCandidates []*model.Channel) *model.Channel {
+	if len(activeCandidates) == 0 || len(eligibleCandidates) == 0 {
 		return nil
 	}
 	pool := getSchedulingPool(key)
@@ -405,8 +426,8 @@ func selectSmoothWeightedChannel(key schedulingPoolKey, candidates []*model.Chan
 	defer pool.mu.Unlock()
 
 	now := time.Now().Unix()
-	active := make(map[int]*model.Channel, len(candidates))
-	for _, channel := range candidates {
+	active := make(map[int]*model.Channel, len(activeCandidates))
+	for _, channel := range activeCandidates {
 		active[channel.Id] = channel
 		state, ok := pool.channels[channel.Id]
 		if !ok {
@@ -427,7 +448,7 @@ func selectSmoothWeightedChannel(key schedulingPoolKey, candidates []*model.Chan
 	var selected *model.Channel
 	var selectedState *channelSchedulingState
 	totalWeight := 0.0
-	for _, channel := range candidates {
+	for _, channel := range eligibleCandidates {
 		state := pool.channels[channel.Id]
 		state.CurrentWeight += state.EffectiveWeight
 		totalWeight += state.EffectiveWeight

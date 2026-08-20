@@ -90,6 +90,10 @@ export interface ChannelSettings {
 }
 
 export interface ChannelOtherSettings {
+  request_rate_limit?: {
+    max_requests: number
+    window_seconds: number
+  }
   azure_responses_version?: string
   vertex_key_type?: 'json' | 'api_key'
   openrouter_enterprise?: boolean
