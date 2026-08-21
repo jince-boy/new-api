@@ -346,10 +346,14 @@ func UpdateOptionsBulk(values map[string]string) error {
 
 	keys := make([]string, 0, len(normalizedValues))
 	channelSchedulingConfig := make(map[string]string)
+	smartProtectionConfig := make(map[string]string)
 	for key := range normalizedValues {
 		keys = append(keys, key)
 		if configKey, ok := strings.CutPrefix(key, "channel_scheduling_setting."); ok {
 			channelSchedulingConfig[configKey] = normalizedValues[key]
+		}
+		if configKey, ok := strings.CutPrefix(key, "smart_protection_setting."); ok {
+			smartProtectionConfig[configKey] = normalizedValues[key]
 		}
 	}
 	sort.Strings(keys)
@@ -399,6 +403,9 @@ func UpdateOptionsBulk(values map[string]string) error {
 		if _, ok := strings.CutPrefix(k, "channel_scheduling_setting."); ok {
 			continue
 		}
+		if _, ok := strings.CutPrefix(k, "smart_protection_setting."); ok {
+			continue
+		}
 		v := normalizedValues[k]
 		if err := updateOptionMap(k, v); err != nil {
 			return err
@@ -413,6 +420,18 @@ func UpdateOptionsBulk(values map[string]string) error {
 		}
 		common.OptionMapRWMutex.Unlock()
 		if err := operation_setting.ApplyChannelSchedulingConfig(channelSchedulingConfig); err != nil {
+			return err
+		}
+	}
+	if len(smartProtectionConfig) > 0 {
+		common.OptionMapRWMutex.Lock()
+		for key, value := range normalizedValues {
+			if strings.HasPrefix(key, "smart_protection_setting.") {
+				common.OptionMap[key] = value
+			}
+		}
+		common.OptionMapRWMutex.Unlock()
+		if err := operation_setting.ApplySmartProtectionConfig(smartProtectionConfig); err != nil {
 			return err
 		}
 	}
@@ -792,6 +811,12 @@ func handleConfigUpdate(key, value string) bool {
 	if configName == "channel_scheduling_setting" {
 		if err := operation_setting.ApplyChannelSchedulingConfig(map[string]string{configKey: value}); err != nil {
 			common.SysError("failed to update channel scheduling setting: " + err.Error())
+		}
+		return true
+	}
+	if configName == "smart_protection_setting" {
+		if err := operation_setting.ApplySmartProtectionConfig(map[string]string{configKey: value}); err != nil {
+			common.SysError("failed to update smart protection setting: " + err.Error())
 		}
 		return true
 	}

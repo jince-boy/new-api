@@ -47,6 +47,7 @@ import { Route as AuthenticatedModelsSectionRouteImport } from './routes/_authen
 import { Route as AuthenticatedPlaygroundIndexRouteImport } from './routes/_authenticated/playground/index'
 import { Route as AuthenticatedProfileIndexRouteImport } from './routes/_authenticated/profile/index'
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
+import { Route as AuthenticatedSmartProtectionIndexRouteImport } from './routes/_authenticated/smart-protection/index'
 import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_authenticated/subscriptions/index'
 import { Route as AuthenticatedSystemInfoIndexRouteImport } from './routes/_authenticated/system-info/index'
 import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
@@ -67,6 +68,7 @@ import { Route as AuthenticatedSystemSettingsOperationsIndexRouteImport } from '
 import { Route as AuthenticatedSystemSettingsOperationsSectionRouteImport } from './routes/_authenticated/system-settings/operations/$section'
 import { Route as AuthenticatedSystemSettingsSecurityIndexRouteImport } from './routes/_authenticated/system-settings/security/index'
 import { Route as AuthenticatedSystemSettingsSecuritySectionRouteImport } from './routes/_authenticated/system-settings/security/$section'
+import { Route as AuthenticatedSystemSettingsSecuritySmartProtectionRouteImport } from './routes/_authenticated/system-settings/security/smart-protection'
 import { Route as AuthenticatedSystemSettingsSiteIndexRouteImport } from './routes/_authenticated/system-settings/site/index'
 import { Route as AuthenticatedSystemSettingsSiteSectionRouteImport } from './routes/_authenticated/system-settings/site/$section'
 
@@ -270,6 +272,12 @@ const AuthenticatedRedemptionCodesIndexRoute =
     path: '/redemption-codes/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedSmartProtectionIndexRoute =
+  AuthenticatedSmartProtectionIndexRouteImport.update({
+    id: '/smart-protection/',
+    path: '/smart-protection/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 const AuthenticatedSubscriptionsIndexRoute =
   AuthenticatedSubscriptionsIndexRouteImport.update({
     id: '/subscriptions/',
@@ -388,6 +396,12 @@ const AuthenticatedSystemSettingsSecuritySectionRoute =
     path: '/security/$section',
     getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
   } as any)
+const AuthenticatedSystemSettingsSecuritySmartProtectionRoute =
+  AuthenticatedSystemSettingsSecuritySmartProtectionRouteImport.update({
+    id: '/security/smart-protection',
+    path: '/security/smart-protection',
+    getParentRoute: () => AuthenticatedSystemSettingsRouteRoute,
+  } as any)
 const AuthenticatedSystemSettingsSiteIndexRoute =
   AuthenticatedSystemSettingsSiteIndexRouteImport.update({
     id: '/site/',
@@ -439,6 +453,7 @@ export interface FileRoutesByFullPath {
   '/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/profile/': typeof AuthenticatedProfileIndexRoute
   '/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
+  '/smart-protection/': typeof AuthenticatedSmartProtectionIndexRoute
   '/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
@@ -452,6 +467,7 @@ export interface FileRoutesByFullPath {
   '/system-settings/models/$section': typeof AuthenticatedSystemSettingsModelsSectionRoute
   '/system-settings/operations/$section': typeof AuthenticatedSystemSettingsOperationsSectionRoute
   '/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
+  '/system-settings/security/smart-protection': typeof AuthenticatedSystemSettingsSecuritySmartProtectionRoute
   '/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
   '/system-settings/auth/': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/system-settings/billing/': typeof AuthenticatedSystemSettingsBillingIndexRoute
@@ -498,6 +514,7 @@ export interface FileRoutesByTo {
   '/playground': typeof AuthenticatedPlaygroundIndexRoute
   '/profile': typeof AuthenticatedProfileIndexRoute
   '/redemption-codes': typeof AuthenticatedRedemptionCodesIndexRoute
+  '/smart-protection': typeof AuthenticatedSmartProtectionIndexRoute
   '/subscriptions': typeof AuthenticatedSubscriptionsIndexRoute
   '/system-info': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings': typeof AuthenticatedSystemSettingsIndexRoute
@@ -511,6 +528,7 @@ export interface FileRoutesByTo {
   '/system-settings/models/$section': typeof AuthenticatedSystemSettingsModelsSectionRoute
   '/system-settings/operations/$section': typeof AuthenticatedSystemSettingsOperationsSectionRoute
   '/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
+  '/system-settings/security/smart-protection': typeof AuthenticatedSystemSettingsSecuritySmartProtectionRoute
   '/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
   '/system-settings/auth': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/system-settings/billing': typeof AuthenticatedSystemSettingsBillingIndexRoute
@@ -561,6 +579,7 @@ export interface FileRoutesById {
   '/_authenticated/playground/': typeof AuthenticatedPlaygroundIndexRoute
   '/_authenticated/profile/': typeof AuthenticatedProfileIndexRoute
   '/_authenticated/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
+  '/_authenticated/smart-protection/': typeof AuthenticatedSmartProtectionIndexRoute
   '/_authenticated/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/_authenticated/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/_authenticated/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
@@ -574,6 +593,7 @@ export interface FileRoutesById {
   '/_authenticated/system-settings/models/$section': typeof AuthenticatedSystemSettingsModelsSectionRoute
   '/_authenticated/system-settings/operations/$section': typeof AuthenticatedSystemSettingsOperationsSectionRoute
   '/_authenticated/system-settings/security/$section': typeof AuthenticatedSystemSettingsSecuritySectionRoute
+  '/_authenticated/system-settings/security/smart-protection': typeof AuthenticatedSystemSettingsSecuritySmartProtectionRoute
   '/_authenticated/system-settings/site/$section': typeof AuthenticatedSystemSettingsSiteSectionRoute
   '/_authenticated/system-settings/auth/': typeof AuthenticatedSystemSettingsAuthIndexRoute
   '/_authenticated/system-settings/billing/': typeof AuthenticatedSystemSettingsBillingIndexRoute
@@ -623,6 +643,7 @@ export interface FileRouteTypes {
     | '/playground/'
     | '/profile/'
     | '/redemption-codes/'
+    | '/smart-protection/'
     | '/subscriptions/'
     | '/system-info/'
     | '/system-settings/'
@@ -636,6 +657,7 @@ export interface FileRouteTypes {
     | '/system-settings/models/$section'
     | '/system-settings/operations/$section'
     | '/system-settings/security/$section'
+    | '/system-settings/security/smart-protection'
     | '/system-settings/site/$section'
     | '/system-settings/auth/'
     | '/system-settings/billing/'
@@ -682,6 +704,7 @@ export interface FileRouteTypes {
     | '/playground'
     | '/profile'
     | '/redemption-codes'
+    | '/smart-protection'
     | '/subscriptions'
     | '/system-info'
     | '/system-settings'
@@ -695,6 +718,7 @@ export interface FileRouteTypes {
     | '/system-settings/models/$section'
     | '/system-settings/operations/$section'
     | '/system-settings/security/$section'
+    | '/system-settings/security/smart-protection'
     | '/system-settings/site/$section'
     | '/system-settings/auth'
     | '/system-settings/billing'
@@ -744,6 +768,7 @@ export interface FileRouteTypes {
     | '/_authenticated/playground/'
     | '/_authenticated/profile/'
     | '/_authenticated/redemption-codes/'
+    | '/_authenticated/smart-protection/'
     | '/_authenticated/subscriptions/'
     | '/_authenticated/system-info/'
     | '/_authenticated/system-settings/'
@@ -757,6 +782,7 @@ export interface FileRouteTypes {
     | '/_authenticated/system-settings/models/$section'
     | '/_authenticated/system-settings/operations/$section'
     | '/_authenticated/system-settings/security/$section'
+    | '/_authenticated/system-settings/security/smart-protection'
     | '/_authenticated/system-settings/site/$section'
     | '/_authenticated/system-settings/auth/'
     | '/_authenticated/system-settings/billing/'
@@ -1054,6 +1080,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRedemptionCodesIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/smart-protection/': {
+      id: '/_authenticated/smart-protection/'
+      path: '/smart-protection'
+      fullPath: '/smart-protection/'
+      preLoaderRoute: typeof AuthenticatedSmartProtectionIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/subscriptions/': {
       id: '/_authenticated/subscriptions/'
       path: '/subscriptions'
@@ -1194,6 +1227,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedSystemSettingsSecuritySectionRouteImport
       parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
     }
+    '/_authenticated/system-settings/security/smart-protection': {
+      id: '/_authenticated/system-settings/security/smart-protection'
+      path: '/security/smart-protection'
+      fullPath: '/system-settings/security/smart-protection'
+      preLoaderRoute: typeof AuthenticatedSystemSettingsSecuritySmartProtectionRouteImport
+      parentRoute: typeof AuthenticatedSystemSettingsRouteRoute
+    }
     '/_authenticated/system-settings/site/': {
       id: '/_authenticated/system-settings/site/'
       path: '/site'
@@ -1245,6 +1285,7 @@ interface AuthenticatedSystemSettingsRouteRouteChildren {
   AuthenticatedSystemSettingsModelsSectionRoute: typeof AuthenticatedSystemSettingsModelsSectionRoute
   AuthenticatedSystemSettingsOperationsSectionRoute: typeof AuthenticatedSystemSettingsOperationsSectionRoute
   AuthenticatedSystemSettingsSecuritySectionRoute: typeof AuthenticatedSystemSettingsSecuritySectionRoute
+  AuthenticatedSystemSettingsSecuritySmartProtectionRoute: typeof AuthenticatedSystemSettingsSecuritySmartProtectionRoute
   AuthenticatedSystemSettingsSiteSectionRoute: typeof AuthenticatedSystemSettingsSiteSectionRoute
   AuthenticatedSystemSettingsAuthIndexRoute: typeof AuthenticatedSystemSettingsAuthIndexRoute
   AuthenticatedSystemSettingsBillingIndexRoute: typeof AuthenticatedSystemSettingsBillingIndexRoute
@@ -1271,6 +1312,8 @@ const AuthenticatedSystemSettingsRouteRouteChildren: AuthenticatedSystemSettings
       AuthenticatedSystemSettingsOperationsSectionRoute,
     AuthenticatedSystemSettingsSecuritySectionRoute:
       AuthenticatedSystemSettingsSecuritySectionRoute,
+    AuthenticatedSystemSettingsSecuritySmartProtectionRoute:
+      AuthenticatedSystemSettingsSecuritySmartProtectionRoute,
     AuthenticatedSystemSettingsSiteSectionRoute:
       AuthenticatedSystemSettingsSiteSectionRoute,
     AuthenticatedSystemSettingsAuthIndexRoute:
@@ -1311,6 +1354,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedPlaygroundIndexRoute: typeof AuthenticatedPlaygroundIndexRoute
   AuthenticatedProfileIndexRoute: typeof AuthenticatedProfileIndexRoute
   AuthenticatedRedemptionCodesIndexRoute: typeof AuthenticatedRedemptionCodesIndexRoute
+  AuthenticatedSmartProtectionIndexRoute: typeof AuthenticatedSmartProtectionIndexRoute
   AuthenticatedSubscriptionsIndexRoute: typeof AuthenticatedSubscriptionsIndexRoute
   AuthenticatedSystemInfoIndexRoute: typeof AuthenticatedSystemInfoIndexRoute
   AuthenticatedUsageLogsIndexRoute: typeof AuthenticatedUsageLogsIndexRoute
@@ -1338,6 +1382,8 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedProfileIndexRoute: AuthenticatedProfileIndexRoute,
   AuthenticatedRedemptionCodesIndexRoute:
     AuthenticatedRedemptionCodesIndexRoute,
+  AuthenticatedSmartProtectionIndexRoute:
+    AuthenticatedSmartProtectionIndexRoute,
   AuthenticatedSubscriptionsIndexRoute: AuthenticatedSubscriptionsIndexRoute,
   AuthenticatedSystemInfoIndexRoute: AuthenticatedSystemInfoIndexRoute,
   AuthenticatedUsageLogsIndexRoute: AuthenticatedUsageLogsIndexRoute,

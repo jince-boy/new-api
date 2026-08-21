@@ -31,6 +31,7 @@ import {
   Radio,
   ServerCog,
   Settings,
+  ShieldCheck,
   GitBranch,
   Ticket,
   User,
@@ -143,6 +144,11 @@ export function useSidebarData(): SidebarData {
             title: t('Intelligent Scheduling'),
             url: '/channel-scheduling',
             icon: GitBranch,
+          },
+          {
+            title: t('Smart Protection'),
+            url: '/smart-protection',
+            icon: ShieldCheck,
           },
           {
             title: t('Models'),

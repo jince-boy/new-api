@@ -167,10 +167,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
+	needSmartProtection := service.SmartProtectionEnabled()
 	needCountToken := constant.CountToken
 	// Avoid building huge CombineText (strings.Join) when token counting and sensitive check are both disabled.
 	var meta *types.TokenCountMeta
-	if needSensitiveCheck || needCountToken {
+	if needSensitiveCheck || needSmartProtection || needCountToken {
 		meta = request.GetTokenCountMeta()
 	} else {
 		meta = fastTokenCountMetaForPricing(request)
@@ -230,6 +231,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
+	smartProtectionReviewed := false
 
 	attemptLimit := service.GetRelayAttemptLimit(retryParam)
 	for attempt := 0; attempt < attemptLimit; attempt++ {
@@ -300,6 +302,14 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			service.ReleaseChannelRequestReservation(reservation)
 			newAPIError = billingErr
 			break
+		}
+		if !smartProtectionReviewed && service.ShouldProtectChannel(channel.Id) {
+			if smartProtectionErr := service.CheckSmartProtection(c, relayInfo, channel.Id, channel.Name, meta); smartProtectionErr != nil {
+				service.ReleaseChannelRequestReservation(reservation)
+				newAPIError = smartProtectionErr
+				break
+			}
+			smartProtectionReviewed = true
 		}
 
 		bodyStorage, bodyErr := common.GetBodyStorage(c)
