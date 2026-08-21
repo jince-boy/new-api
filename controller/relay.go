@@ -357,7 +357,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		newAPIError = service.NormalizeViolationFeeError(newAPIError)
 		relayInfo.LastError = newAPIError
 
-		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
+		processChannelError(c, relayInfo, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
 		if !shouldRetry(c, relayInfo, newAPIError, attemptLimit-attempt-1) {
 			break
@@ -567,7 +567,7 @@ func canRetryIntelligentRelayResponse(c *gin.Context, relayInfo *relaycommon.Rel
 	return !relayInfo.HasSendResponse() && !c.Writer.Written()
 }
 
-func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
+func processChannelError(c *gin.Context, relayInfo *relaycommon.RelayInfo, channelError types.ChannelError, err *types.NewAPIError) {
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
@@ -639,12 +639,17 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 			adminInfo["multi_key_index"] = common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex)
 		}
 		service.AppendChannelAffinityAdminInfo(c, adminInfo)
+		service.AppendChannelRateLimitQueueAdminInfo(adminInfo, relayInfo)
+		service.AppendSmartProtectionReviewAdminInfo(adminInfo, relayInfo)
 		other["admin_info"] = adminInfo
 		startTime := common.GetContextKeyTime(c, constant.ContextKeyRequestStartTime)
 		if startTime.IsZero() {
 			startTime = time.Now()
 		}
 		useTimeSeconds := int(time.Since(startTime).Seconds())
+		if relayInfo != nil {
+			useTimeSeconds = int(relayInfo.ElapsedRequestSeconds(time.Now()))
+		}
 		content := err.MaskSensitiveErrorWithStatusCode()
 		if err.IsUpstream() {
 			content = "当前模型不可用"
@@ -686,7 +691,7 @@ func RelayMidjourney(c *gin.Context) {
 		upstreamErr := types.NewOpenAIError(errors.New(upstreamMessage), types.ErrorCodeBadResponse, http.StatusBadRequest)
 		body, _ := common.Marshal(mjErr)
 		service.MarkUpstreamError(upstreamErr, http.StatusBadRequest, "application/json", string(body))
-		processChannelError(c, *types.NewChannelError(
+		processChannelError(c, relayInfo, *types.NewChannelError(
 			c.GetInt("channel_id"),
 			c.GetInt("channel_type"),
 			c.GetString("channel_name"),
@@ -897,7 +902,7 @@ func RelayTask(c *gin.Context) {
 		service.FinishScheduledChannelAttempt(relayInfo, channel, false, schedulingErr)
 
 		if !taskErr.LocalError {
-			processChannelError(c,
+			processChannelError(c, relayInfo,
 				*types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey,
 					common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()),
 				schedulingErr)

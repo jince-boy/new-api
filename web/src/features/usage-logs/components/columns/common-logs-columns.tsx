@@ -37,7 +37,11 @@ import {
 } from '@/components/ui/tooltip'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatBillingCurrencyFromUSD } from '@/lib/currency'
-import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
+import {
+  formatLogQuota,
+  formatTimestampToDate,
+  formatUseTime,
+} from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { LOG_TYPE_ALL_VALUE } from '../../constants'
@@ -739,73 +743,117 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           />
         )
       },
-    },
-
-    {
-      accessorKey: 'content',
-      header: t('Details'),
-      cell: function DetailsCell({ row }) {
-        const [dialogOpen, setDialogOpen] = useState(false)
-        const log = row.original
-        const other = parseLogOther(log.other)
-
-        const segments = buildDetailSegments(log, other, t, isAdmin)
-        const primary = segments[0]
-        const hasMore = segments.length > 1
-        let primaryTextClass = 'text-foreground'
-        if (primary?.muted) {
-          primaryTextClass = 'text-muted-foreground/60'
-        } else if (primary?.danger) {
-          primaryTextClass = 'text-red-600 dark:text-red-400'
-        }
-        let detailPreview = <span className='text-muted-foreground/40'>—</span>
-        if (primary) {
-          detailPreview = (
-            <span
-              className={cn(
-                'truncate leading-snug group-hover:underline',
-                primaryTextClass
-              )}
-            >
-              {primary.text}
-              {hasMore && (
-                <span className='text-muted-foreground/40 ml-0.5'>
-                  +{segments.length - 1}
-                </span>
-              )}
-            </span>
-          )
-        } else if (log.content) {
-          detailPreview = (
-            <span className='text-muted-foreground truncate group-hover:underline'>
-              {log.content}
-            </span>
-          )
-        }
-
-        return (
-          <>
-            <button
-              type='button'
-              className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
-              onClick={() => setDialogOpen(true)}
-              title={t('Click to view full details')}
-            >
-              {detailPreview}
-            </button>
-            <DetailsDialog
-              log={log}
-              isAdmin={isAdmin}
-              open={dialogOpen}
-              onOpenChange={setDialogOpen}
-            />
-          </>
-        )
-      },
-      size: 180,
-      maxSize: 200,
     }
   )
+
+  if (isAdmin) {
+    columns.push({
+      id: 'rate_limit_queue',
+      header: t('Rate-limit queue'),
+      accessorFn: (log) =>
+        parseLogOther(log.other)?.admin_info?.channel_rate_limit_queue_ms ?? 0,
+      cell: ({ row }) => {
+        if (!isTimingLogType(row.original.type)) return null
+
+        const queueMs = row.getValue('rate_limit_queue') as number
+        if (queueMs <= 0) {
+          return <span className='text-muted-foreground/40'>—</span>
+        }
+        return (
+          <span className='font-mono text-xs tabular-nums'>
+            {formatUseTime(queueMs / 1000)}
+          </span>
+        )
+      },
+      size: 110,
+    })
+
+    columns.push({
+      id: 'smart_protection_review',
+      header: t('Security review'),
+      accessorFn: (log) =>
+        parseLogOther(log.other)?.admin_info?.smart_protection_review_ms ?? 0,
+      cell: ({ row }) => {
+        if (!isTimingLogType(row.original.type)) return null
+
+        const reviewMs = row.getValue('smart_protection_review') as number
+        if (reviewMs <= 0) {
+          return <span className='text-muted-foreground/40'>—</span>
+        }
+        return (
+          <span className='font-mono text-xs tabular-nums'>
+            {formatUseTime(reviewMs / 1000)}
+          </span>
+        )
+      },
+      size: 110,
+    })
+  }
+
+  columns.push({
+    accessorKey: 'content',
+    header: t('Details'),
+    cell: function DetailsCell({ row }) {
+      const [dialogOpen, setDialogOpen] = useState(false)
+      const log = row.original
+      const other = parseLogOther(log.other)
+
+      const segments = buildDetailSegments(log, other, t, isAdmin)
+      const primary = segments[0]
+      const hasMore = segments.length > 1
+      let primaryTextClass = 'text-foreground'
+      if (primary?.muted) {
+        primaryTextClass = 'text-muted-foreground/60'
+      } else if (primary?.danger) {
+        primaryTextClass = 'text-red-600 dark:text-red-400'
+      }
+      let detailPreview = <span className='text-muted-foreground/40'>—</span>
+      if (primary) {
+        detailPreview = (
+          <span
+            className={cn(
+              'truncate leading-snug group-hover:underline',
+              primaryTextClass
+            )}
+          >
+            {primary.text}
+            {hasMore && (
+              <span className='text-muted-foreground/40 ml-0.5'>
+                +{segments.length - 1}
+              </span>
+            )}
+          </span>
+        )
+      } else if (log.content) {
+        detailPreview = (
+          <span className='text-muted-foreground truncate group-hover:underline'>
+            {log.content}
+          </span>
+        )
+      }
+
+      return (
+        <>
+          <button
+            type='button'
+            className='group flex max-w-[200px] items-center gap-1 text-left text-xs'
+            onClick={() => setDialogOpen(true)}
+            title={t('Click to view full details')}
+          >
+            {detailPreview}
+          </button>
+          <DetailsDialog
+            log={log}
+            isAdmin={isAdmin}
+            open={dialogOpen}
+            onOpenChange={setDialogOpen}
+          />
+        </>
+      )
+    },
+    size: 180,
+    maxSize: 200,
+  })
 
   return columns
 }

@@ -69,8 +69,22 @@ func appendRequestPath(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, other
 	}
 }
 
-// attachChannelRateLimitQueueTime keeps rate-limit queueing out of public
-// timing fields while making it available to administrators for diagnostics.
+// AppendChannelRateLimitQueueAdminInfo exposes queueing only inside admin_info.
+func AppendChannelRateLimitQueueAdminInfo(adminInfo map[string]interface{}, relayInfo *relaycommon.RelayInfo) {
+	if adminInfo == nil || relayInfo == nil || relayInfo.ChannelRateLimitQueueTime <= 0 {
+		return
+	}
+	adminInfo["channel_rate_limit_queue_ms"] = relayInfo.ChannelRateLimitQueueTime.Milliseconds()
+}
+
+// AppendSmartProtectionReviewAdminInfo exposes safety-model latency only to admins.
+func AppendSmartProtectionReviewAdminInfo(adminInfo map[string]interface{}, relayInfo *relaycommon.RelayInfo) {
+	if adminInfo == nil || relayInfo == nil || relayInfo.SmartProtectionReviewTime <= 0 {
+		return
+	}
+	adminInfo["smart_protection_review_ms"] = relayInfo.SmartProtectionReviewTime.Milliseconds()
+}
+
 func attachChannelRateLimitQueueTime(other map[string]interface{}, relayInfo *relaycommon.RelayInfo) {
 	if other == nil || relayInfo == nil || relayInfo.ChannelRateLimitQueueTime <= 0 {
 		return
@@ -80,7 +94,19 @@ func attachChannelRateLimitQueueTime(other map[string]interface{}, relayInfo *re
 		adminInfo = map[string]interface{}{}
 		other["admin_info"] = adminInfo
 	}
-	adminInfo["channel_rate_limit_queue_ms"] = relayInfo.ChannelRateLimitQueueTime.Milliseconds()
+	AppendChannelRateLimitQueueAdminInfo(adminInfo, relayInfo)
+}
+
+func attachSmartProtectionReviewTime(other map[string]interface{}, relayInfo *relaycommon.RelayInfo) {
+	if other == nil || relayInfo == nil || relayInfo.SmartProtectionReviewTime <= 0 {
+		return
+	}
+	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	if !ok || adminInfo == nil {
+		adminInfo = map[string]interface{}{}
+		other["admin_info"] = adminInfo
+	}
+	AppendSmartProtectionReviewAdminInfo(adminInfo, relayInfo)
 }
 
 func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, modelRatio, groupRatio, completionRatio float64,
@@ -125,6 +151,7 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	}
 
 	AppendChannelAffinityAdminInfo(ctx, adminInfo)
+	AppendSmartProtectionReviewAdminInfo(adminInfo, relayInfo)
 
 	other["admin_info"] = adminInfo
 	attachChannelRateLimitQueueTime(other, relayInfo)
@@ -317,6 +344,7 @@ func GenerateMjOtherInfo(relayInfo *relaycommon.RelayInfo, priceData hosttypes.P
 		other["user_group_ratio"] = priceData.GroupRatioInfo.GroupSpecialRatio
 	}
 	attachChannelRateLimitQueueTime(other, relayInfo)
+	attachSmartProtectionReviewTime(other, relayInfo)
 	appendRequestPath(nil, relayInfo, other)
 	return other
 }

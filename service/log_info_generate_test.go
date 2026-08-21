@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGenerateTextOtherInfoUsesUpstreamTTFTAndKeepsQueueTimeAdminOnly(t *testing.T) {
+func TestGenerateTextOtherInfoUsesUpstreamTTFTAndKeepsInternalTimingAdminOnly(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
@@ -20,6 +20,7 @@ func TestGenerateTextOtherInfoUsesUpstreamTTFTAndKeepsQueueTimeAdminOnly(t *test
 		StartTime:                 start,
 		FirstResponseTime:         start.Add(6 * time.Second),
 		ChannelRateLimitQueueTime: 5 * time.Second,
+		SmartProtectionReviewTime: 1500 * time.Millisecond,
 		IsStream:                  true,
 		UpstreamStartTime:         start.Add(5 * time.Second),
 		UpstreamFirstContentTime:  start.Add(6 * time.Second),
@@ -32,4 +33,6 @@ func TestGenerateTextOtherInfoUsesUpstreamTTFTAndKeepsQueueTimeAdminOnly(t *test
 	adminInfo, ok := other["admin_info"].(map[string]interface{})
 	require.True(t, ok)
 	assert.Equal(t, int64(5000), adminInfo["channel_rate_limit_queue_ms"])
+	assert.Equal(t, int64(1500), adminInfo["smart_protection_review_ms"])
+	assert.NotContains(t, other, "smart_protection_review_ms")
 }

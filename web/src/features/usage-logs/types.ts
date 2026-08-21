@@ -157,6 +157,8 @@ export interface LogOtherData {
     }
     // Channel request-rate-limit queue time, in milliseconds. Admin-only.
     channel_rate_limit_queue_ms?: number
+    // Smart-protection safety review time, in milliseconds. Admin-only.
+    smart_protection_review_ms?: number
     task_upstream?: {
       http_status?: number
       upstream_status?: string

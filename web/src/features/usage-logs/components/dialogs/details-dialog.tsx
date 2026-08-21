@@ -910,17 +910,6 @@ export function DetailsDialog(props: DetailsDialogProps) {
               }
             />
           )}
-
-          {props.isAdmin &&
-            other?.admin_info?.channel_rate_limit_queue_ms != null &&
-            other.admin_info.channel_rate_limit_queue_ms > 0 && (
-              <DetailRow
-                label={t('Rate-limit queue')}
-                value={formatUseTime(
-                  other.admin_info.channel_rate_limit_queue_ms / 1000
-                )}
-              />
-            )}
         </div>
 
         {/* Request conversion (admin only, not for refund) */}

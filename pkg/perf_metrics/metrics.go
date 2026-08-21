@@ -34,7 +34,7 @@ func RecordRelaySample(info *relaycommon.RelayInfo, success bool, outputTokens i
 	if !hasTtft {
 		ttftMs = 0
 	}
-	latencyMs := now.Sub(info.StartTime).Milliseconds()
+	latencyMs := info.ElapsedRequestDuration(now).Milliseconds()
 	generationMs := latencyMs
 	if hasTtft {
 		generationMs = now.Sub(info.FirstResponseTime).Milliseconds()

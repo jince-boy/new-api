@@ -127,6 +127,7 @@ func CheckSmartProtection(c *gin.Context, info *relaycommon.RelayInfo, channelId
 	started := time.Now()
 	riskKey := strconv.Itoa(info.UserId) + ":" + strconv.Itoa(info.TokenId) + ":" + info.OriginModelName
 	decisions, err := reviewSmartProtectionContext(c.Request.Context(), setting, meta, riskKey)
+	info.AddSmartProtectionReviewTime(time.Since(started))
 	for _, decision := range decisions {
 		if !smartProtectionShouldBlock(setting, decision) {
 			continue

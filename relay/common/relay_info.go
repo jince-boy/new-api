@@ -105,6 +105,9 @@ type RelayInfo struct {
 	// ChannelRateLimitQueueTime is the time spent waiting for a channel-level
 	// request-rate-limit reservation. It is kept separate from upstream TTFT.
 	ChannelRateLimitQueueTime time.Duration
+	// SmartProtectionReviewTime is the wall time spent waiting for the safety
+	// model. It is excluded from customer-facing request duration and TTFT.
+	SmartProtectionReviewTime time.Duration
 	UpstreamStartTime         time.Time
 	UpstreamResponseTime      time.Time
 	UpstreamFirstContentTime  time.Time
@@ -894,6 +897,30 @@ func (info *RelayInfo) AddChannelRateLimitQueueTime(wait time.Duration) {
 		return
 	}
 	info.ChannelRateLimitQueueTime += wait
+}
+
+func (info *RelayInfo) AddSmartProtectionReviewTime(reviewTime time.Duration) {
+	if info == nil || reviewTime <= 0 {
+		return
+	}
+	info.SmartProtectionReviewTime += reviewTime
+}
+
+// ElapsedRequestDuration returns customer-visible gateway processing time.
+// Internal channel queueing and smart-protection review are reported separately.
+func (info *RelayInfo) ElapsedRequestDuration(now time.Time) time.Duration {
+	if info == nil || info.StartTime.IsZero() {
+		return 0
+	}
+	elapsed := now.Sub(info.StartTime) - info.ChannelRateLimitQueueTime - info.SmartProtectionReviewTime
+	if elapsed <= 0 {
+		return 0
+	}
+	return elapsed
+}
+
+func (info *RelayInfo) ElapsedRequestSeconds(now time.Time) int64 {
+	return int64(info.ElapsedRequestDuration(now) / time.Second)
 }
 
 func (info *RelayInfo) ResetUpstreamTiming() {

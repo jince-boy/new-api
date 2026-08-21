@@ -67,6 +67,7 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo) {
 		other["upstream_model_name"] = info.UpstreamModelName
 	}
 	attachChannelRateLimitQueueTime(other, info)
+	attachSmartProtectionReviewTime(other, info)
 	attachTaskUpstreamDiagnostics(other, info.TaskUpstreamDiagnostics)
 	attachQuotaSaturation(c, info, other)
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
@@ -147,6 +148,7 @@ func RecordTaskSubmissionFailure(c *gin.Context, info *relaycommon.RelayInfo, pl
 		other[key] = ratio
 	}
 	attachChannelRateLimitQueueTime(other, info)
+	attachSmartProtectionReviewTime(other, info)
 	attachTaskUpstreamDiagnostics(other, info.TaskUpstreamDiagnostics)
 	model.RecordTaskBillingLog(model.RecordTaskBillingLogParams{
 		UserId:            info.UserId,

@@ -49,7 +49,7 @@ const { createRoot } = await import('react-dom/client')
 const i18next = (await import('i18next')).default
 const { initReactI18next } = await import('react-i18next')
 await i18next.use(initReactI18next).init({ lng: 'en' })
-const { DetailsDialog, UpstreamErrorDetails, UpstreamTaskMappingDetails } =
+const { UpstreamErrorDetails, UpstreamTaskMappingDetails } =
   await import('../details-dialog')
 const reactTestGlobals = globalThis as typeof globalThis & {
   IS_REACT_ACT_ENVIRONMENT?: boolean
@@ -122,63 +122,6 @@ describe('UpstreamTaskMappingDetails', () => {
     assert.match(text, /private-channel/)
     assert.match(text, /403/)
     assert.match(text, /insufficient balance/)
-
-    await act(async () => root.unmount())
-    container.remove()
-  })
-
-  test('shows channel rate-limit queue time only to administrators', async () => {
-    const container = document.createElement('div')
-    document.body.append(container)
-    const root = createRoot(container)
-    const log = {
-      id: 1,
-      user_id: 2,
-      created_at: 1,
-      type: 2,
-      content: 'request',
-      username: 'user',
-      token_name: 'token',
-      model_name: 'model',
-      quota: 1,
-      prompt_tokens: 1,
-      completion_tokens: 1,
-      use_time: 8,
-      is_stream: true,
-      channel: 3,
-      channel_name: 'channel',
-      token_id: 4,
-      group: 'default',
-      ip: '',
-      other: JSON.stringify({
-        frt: 1000,
-        admin_info: { channel_rate_limit_queue_ms: 5000 },
-      }),
-      request_id: 'request',
-      upstream_request_id: '',
-    }
-
-    await act(async () => {
-      root.render(
-        <DetailsDialog isAdmin open onOpenChange={() => undefined} log={log} />
-      )
-    })
-
-    const text = document.body.textContent || ''
-    assert.match(text, /Rate-limit queue/)
-    assert.match(text, /5\.0s/)
-
-    await act(async () => {
-      root.render(
-        <DetailsDialog
-          isAdmin={false}
-          open
-          onOpenChange={() => undefined}
-          log={log}
-        />
-      )
-    })
-    assert.doesNotMatch(document.body.textContent || '', /Rate-limit queue/)
 
     await act(async () => root.unmount())
     container.remove()
