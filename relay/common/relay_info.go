@@ -93,19 +93,22 @@ type TaskUpstreamDiagnostics struct {
 }
 
 type RelayInfo struct {
-	TokenId                  int
-	TokenKey                 string
-	TokenGroup               string
-	UserId                   int
-	UsingGroup               string // 使用的分组，当auto跨分组重试时，会变动
-	UserGroup                string // 用户所在分组
-	TokenUnlimited           bool
-	StartTime                time.Time
-	FirstResponseTime        time.Time
-	UpstreamStartTime        time.Time
-	UpstreamResponseTime     time.Time
-	UpstreamFirstContentTime time.Time
-	isFirstResponse          bool
+	TokenId           int
+	TokenKey          string
+	TokenGroup        string
+	UserId            int
+	UsingGroup        string // 使用的分组，当auto跨分组重试时，会变动
+	UserGroup         string // 用户所在分组
+	TokenUnlimited    bool
+	StartTime         time.Time
+	FirstResponseTime time.Time
+	// ChannelRateLimitQueueTime is the time spent waiting for a channel-level
+	// request-rate-limit reservation. It is kept separate from upstream TTFT.
+	ChannelRateLimitQueueTime time.Duration
+	UpstreamStartTime         time.Time
+	UpstreamResponseTime      time.Time
+	UpstreamFirstContentTime  time.Time
+	isFirstResponse           bool
 	//SendLastReasoningResponse bool
 	IsStream               bool
 	IsGeminiBatchEmbedding bool
@@ -306,9 +309,10 @@ func (info *RelayInfo) ToString() string {
 	fmt.Fprintf(b, "Token{ Id: %d, Unlimited: %t, Key: ***masked*** }, ", info.TokenId, info.TokenUnlimited)
 
 	// Time info
-	latencyMs := info.FirstResponseTime.Sub(info.StartTime).Milliseconds()
-	fmt.Fprintf(b, "Timing{ Start: %s, FirstResponse: %s, LatencyMs: %d }, ",
-		info.StartTime.Format(time.RFC3339Nano), info.FirstResponseTime.Format(time.RFC3339Nano), latencyMs)
+	upstreamTTFT, hasUpstreamTTFT := info.UpstreamFirstResponseDuration()
+	fmt.Fprintf(b, "Timing{ Start: %s, FirstResponse: %s, UpstreamTTFTMs: %d, HasUpstreamTTFT: %t, RateLimitQueueMs: %d }, ",
+		info.StartTime.Format(time.RFC3339Nano), info.FirstResponseTime.Format(time.RFC3339Nano), upstreamTTFT,
+		hasUpstreamTTFT, info.ChannelRateLimitQueueTime.Milliseconds())
 
 	// Audio / realtime
 	if info.InputAudioFormat != "" || info.OutputAudioFormat != "" || len(info.RealtimeTools) > 0 || info.AudioUsage {
@@ -881,6 +885,15 @@ func (info *RelayInfo) SetFirstResponseTime() {
 		info.FirstResponseTime = time.Now()
 		info.isFirstResponse = false
 	}
+}
+
+// AddChannelRateLimitQueueTime records one rate-limit wait. Queueing happens
+// before the upstream request starts, so it must not be folded into TTFT.
+func (info *RelayInfo) AddChannelRateLimitQueueTime(wait time.Duration) {
+	if info == nil || wait <= 0 {
+		return
+	}
+	info.ChannelRateLimitQueueTime += wait
 }
 
 func (info *RelayInfo) ResetUpstreamTiming() {

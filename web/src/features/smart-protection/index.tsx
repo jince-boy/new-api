@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import {
   ArrowLeft01Icon,
   ArrowRight01Icon,
+  Delete02Icon,
   EyeIcon,
   SaveIcon,
   Search01Icon,
@@ -32,6 +33,16 @@ import { toast } from 'sonner'
 
 import { SectionPageLayout } from '@/components/layout/components/section-page-layout'
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -74,6 +85,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 
 import {
+  clearSmartProtectionEvents,
   getSmartProtectionChannels,
   getSmartProtectionEvent,
   getSmartProtectionEvents,
@@ -84,8 +96,8 @@ import {
 
 const DEFAULT_SETTINGS: SmartProtectionSettings = {
   enabled: false,
-  base_url: 'https://api.moark.ai/v1',
-  model: 'Qwen3Guard-Gen-4B',
+  base_url: '',
+  model: '',
   timeout_seconds: 15,
   max_context_chars: 24000,
   max_concurrent: 8,
@@ -184,6 +196,7 @@ export function SmartProtectionSection() {
   const [activeTab, setActiveTab] = useState('events')
   const [eventPage, setEventPage] = useState(1)
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null)
+  const [clearEventsOpen, setClearEventsOpen] = useState(false)
   const settingsQuery = useQuery({
     queryKey: ['smart-protection-settings'],
     queryFn: getSmartProtectionSettings,
@@ -216,6 +229,20 @@ export function SmartProtectionSection() {
       toast.success(t('Smart protection settings saved'))
     },
     onError: () => toast.error(t('Failed to save smart protection settings')),
+  })
+  const clearEventsMutation = useMutation({
+    mutationFn: clearSmartProtectionEvents,
+    onSuccess: (result) => {
+      setEventPage(1)
+      setSelectedEventId(null)
+      setClearEventsOpen(false)
+      queryClient.removeQueries({ queryKey: ['smart-protection-event'] })
+      queryClient.invalidateQueries({ queryKey: ['smart-protection-events'] })
+      toast.success(
+        t('Cleared {{count}} protection events', { count: result.deleted })
+      )
+    },
+    onError: () => toast.error(t('Failed to clear protection events')),
   })
 
   const selectedChannels = useMemo(
@@ -309,6 +336,9 @@ export function SmartProtectionSection() {
                     <Input
                       id='smart-protection-url'
                       value={settings.base_url}
+                      placeholder={t(
+                        'Example: https://security.example.com/v1'
+                      )}
                       onChange={(event) =>
                         update('base_url', event.target.value)
                       }
@@ -321,6 +351,7 @@ export function SmartProtectionSection() {
                     <Input
                       id='smart-protection-model'
                       value={settings.model}
+                      placeholder={t('Example: security-model-name')}
                       onChange={(event) => update('model', event.target.value)}
                     />
                   </Field>
@@ -334,7 +365,7 @@ export function SmartProtectionSection() {
                       value={apiKey}
                       placeholder={
                         settings.api_key_hint ||
-                        t('Leave blank to keep the current key')
+                        t('Example: sk-your-security-key')
                       }
                       onChange={(event) => setApiKey(event.target.value)}
                     />
@@ -603,11 +634,27 @@ export function SmartProtectionSection() {
 
           <TabsContent value='events'>
             <Card>
-              <CardHeader>
-                <CardTitle>{t('Recent protection events')}</CardTitle>
-                <CardDescription>
-                  {t('Blocked requests are visible only to administrators.')}
-                </CardDescription>
+              <CardHeader className='flex flex-row items-start justify-between gap-4'>
+                <div className='space-y-1.5'>
+                  <CardTitle>{t('Recent protection events')}</CardTitle>
+                  <CardDescription>
+                    {t('Blocked requests are visible only to administrators.')}
+                  </CardDescription>
+                </div>
+                <Button
+                  type='button'
+                  variant='destructive'
+                  size='sm'
+                  disabled={(eventsQuery.data?.total ?? 0) === 0}
+                  onClick={() => setClearEventsOpen(true)}
+                >
+                  <HugeiconsIcon
+                    icon={Delete02Icon}
+                    data-icon='inline-start'
+                    aria-hidden='true'
+                  />
+                  {t('Clear protection events')}
+                </Button>
               </CardHeader>
               <CardContent>
                 {eventsQuery.isLoading && (
@@ -824,7 +871,10 @@ export function SmartProtectionSection() {
                   <div className='text-muted-foreground mb-1'>
                     {t('Risk content')}
                   </div>
-                  <ScrollArea className='bg-muted/50 max-h-[min(45vh,420px)] rounded-lg border'>
+                  <ScrollArea
+                    data-testid='risk-content-scroll-area'
+                    className='bg-muted/50 h-[min(45vh,420px)] max-h-[420px] min-h-32 rounded-lg border'
+                  >
                     <pre className='min-h-24 p-3 text-xs leading-relaxed break-all whitespace-pre-wrap'>
                       {eventDetailQuery.data.content ||
                         t('Risk content was not saved')}
@@ -847,6 +897,32 @@ export function SmartProtectionSection() {
             )}
           </DialogContent>
         </Dialog>
+        <AlertDialog open={clearEventsOpen} onOpenChange={setClearEventsOpen}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {t('Clear all protection events?')}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {t(
+                  'This permanently deletes all smart protection event records and cannot be undone.'
+                )}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={clearEventsMutation.isPending}>
+                {t('Cancel')}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                variant='destructive'
+                disabled={clearEventsMutation.isPending}
+                onClick={() => clearEventsMutation.mutate()}
+              >
+                {t('Clear all')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </SectionPageLayout.Content>
     </SectionPageLayout>
   )

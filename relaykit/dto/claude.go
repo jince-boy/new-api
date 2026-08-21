@@ -282,10 +282,15 @@ func (c *ClaudeRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	for _, message := range c.Messages {
 		tokenCountMeta.MessagesCount++
 		texts = append(texts, message.Role)
+		messageTexts := make([]string, 0)
 		if message.IsStringContent() {
 			content := message.GetStringContent()
 			if content != "" {
 				texts = append(texts, content)
+				messageTexts = append(messageTexts, content)
+			}
+			if content := strings.TrimSpace(strings.Join(messageTexts, "\n")); content != "" {
+				tokenCountMeta.TextMessages = append(tokenCountMeta.TextMessages, types.TextMessageMeta{Role: message.Role, Content: content})
 			}
 			continue
 		}
@@ -294,7 +299,9 @@ func (c *ClaudeRequest) GetTokenCountMeta() *types.TokenCountMeta {
 		for _, media := range content {
 			switch media.Type {
 			case "text":
-				texts = append(texts, media.GetText())
+				text := media.GetText()
+				texts = append(texts, text)
+				messageTexts = append(messageTexts, text)
 			case "image":
 				if source := media.ToFileSource(); source != nil {
 					fileMeta = append(fileMeta, &types.FileMeta{
@@ -305,17 +312,23 @@ func (c *ClaudeRequest) GetTokenCountMeta() *types.TokenCountMeta {
 			case "tool_use":
 				if media.Name != "" {
 					texts = append(texts, media.Name)
+					messageTexts = append(messageTexts, media.Name)
 				}
 				if media.Input != nil {
 					b, _ := kitutil.Marshal(media.Input)
 					texts = append(texts, string(b))
+					messageTexts = append(messageTexts, string(b))
 				}
 			case "tool_result":
 				if media.Content != nil {
 					b, _ := kitutil.Marshal(media.Content)
 					texts = append(texts, string(b))
+					messageTexts = append(messageTexts, string(b))
 				}
 			}
+		}
+		if content := strings.TrimSpace(strings.Join(messageTexts, "\n")); content != "" {
+			tokenCountMeta.TextMessages = append(tokenCountMeta.TextMessages, types.TextMessageMeta{Role: message.Role, Content: content})
 		}
 	}
 

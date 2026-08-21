@@ -164,3 +164,13 @@ func GetSmartProtectionEvent(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": event})
 }
+
+func DeleteAllSmartProtectionEvents(c *gin.Context) {
+	deleted, err := model.DeleteAllSmartProtectionEvents()
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "smart_protection.events_clear", map[string]interface{}{"deleted": deleted})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": gin.H{"deleted": deleted}})
+}

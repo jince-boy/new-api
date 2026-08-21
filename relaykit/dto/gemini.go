@@ -73,10 +73,13 @@ func (r *GeminiChatRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	}
 
 	var inputTexts []string
+	var textMessages []types.TextMessageMeta
 	for _, content := range r.Contents {
+		messageTexts := make([]string, 0)
 		for _, part := range content.Parts {
 			if part.Text != "" {
 				inputTexts = append(inputTexts, part.Text)
+				messageTexts = append(messageTexts, part.Text)
 			}
 			if source := part.InlineData.ToFileSource(); source != nil {
 				mimeType := part.InlineData.MimeType
@@ -96,14 +99,25 @@ func (r *GeminiChatRequest) GetTokenCountMeta() *types.TokenCountMeta {
 				})
 			}
 		}
+		if text := strings.TrimSpace(strings.Join(messageTexts, "\n")); text != "" {
+			role := content.Role
+			if role == "model" {
+				role = "assistant"
+			} else if strings.TrimSpace(role) == "" {
+				role = "user"
+			}
+			textMessages = append(textMessages, types.TextMessageMeta{Role: role, Content: text})
+		}
 	}
 
 	inputText := strings.Join(inputTexts, "\n")
-	return &types.TokenCountMeta{
-		CombineText: inputText,
-		Files:       files,
-		MaxTokens:   maxTokens,
+	meta := &types.TokenCountMeta{
+		CombineText:  inputText,
+		TextMessages: textMessages,
+		Files:        files,
+		MaxTokens:    maxTokens,
 	}
+	return meta
 }
 
 func (r *GeminiChatRequest) IsStream(c *http.Request) bool {

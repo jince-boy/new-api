@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -57,11 +58,20 @@ var smartProtectionLabelPattern = regexp.MustCompile(`(?im)^\s*Safety\s*:\s*([^\
 var smartProtectionCategoryPattern = regexp.MustCompile(`(?im)^\s*Categories\s*:\s*([^\r\n]+)`)
 
 const (
-	smartProtectionMaxSafetyRunes    = 32
-	smartProtectionMaxCategoryRunes  = 128
-	smartProtectionMaxCategoryCount  = 64
-	smartProtectionMaxRawResultRunes = 4096
+	smartProtectionMaxSafetyRunes     = 32
+	smartProtectionMaxCategoryRunes   = 128
+	smartProtectionMaxCategoryCount   = 64
+	smartProtectionMaxRawResultRunes  = 4096
+	smartProtectionRecentMessages     = 5
+	smartProtectionMaxLatestChunks    = 4
+	smartProtectionDecisionCacheTTL   = 10 * time.Minute
+	smartProtectionDecisionCacheMax   = 2048
+	smartProtectionDecisionCacheBytes = 8 * 1024 * 1024
+	smartProtectionRiskStateTTL       = 30 * time.Minute
+	smartProtectionRiskStateMax       = 10000
 )
+
+var smartProtectionContextReferencePattern = regexp.MustCompile(`(?i)(continue|above|previous|earlier|as discussed|same (?:instructions|steps)|继续|上面|上述|前面|刚才|之前|照旧|按.{0,12}(?:内容|步骤|要求)|基于.{0,12}(?:内容|对话))`)
 
 var smartProtectionLimiter = struct {
 	sync.Mutex
@@ -70,6 +80,34 @@ var smartProtectionLimiter = struct {
 }{changed: make(chan struct{})}
 
 var smartProtectionLastCleanup atomic.Int64
+
+type smartProtectionReviewCall struct {
+	done     chan struct{}
+	decision smartProtectionDecision
+	err      error
+}
+
+type smartProtectionCachedDecision struct {
+	decision smartProtectionDecision
+	expires  time.Time
+	usedAt   time.Time
+	size     int
+}
+
+var smartProtectionDecisionCache = struct {
+	sync.Mutex
+	entries     map[string]smartProtectionCachedDecision
+	inFlight    map[string]*smartProtectionReviewCall
+	totalBytes  int
+	lastCleanup time.Time
+}{entries: make(map[string]smartProtectionCachedDecision), inFlight: make(map[string]*smartProtectionReviewCall)}
+
+var smartProtectionCacheCleanupOnce sync.Once
+
+var smartProtectionRiskState = struct {
+	sync.Mutex
+	entries map[string]time.Time
+}{entries: make(map[string]time.Time)}
 
 func SmartProtectionEnabled() bool {
 	setting := operation_setting.GetSmartProtectionSetting()
@@ -87,7 +125,8 @@ func CheckSmartProtection(c *gin.Context, info *relaycommon.RelayInfo, channelId
 		return nil
 	}
 	started := time.Now()
-	decisions, err := reviewSmartProtectionContext(c.Request.Context(), setting, meta.CombineText)
+	riskKey := strconv.Itoa(info.UserId) + ":" + strconv.Itoa(info.TokenId) + ":" + info.OriginModelName
+	decisions, err := reviewSmartProtectionContext(c.Request.Context(), setting, meta, riskKey)
 	for _, decision := range decisions {
 		if !smartProtectionShouldBlock(setting, decision) {
 			continue
@@ -106,9 +145,9 @@ func CheckSmartProtection(c *gin.Context, info *relaycommon.RelayInfo, channelId
 	return nil
 }
 
-func reviewSmartProtectionContext(ctx context.Context, setting operation_setting.SmartProtectionSetting, content string) ([]smartProtectionDecision, error) {
-	chunks := splitSmartProtectionContext(content, setting.MaxContextChars)
-	if len(chunks) == 0 {
+func reviewSmartProtectionContext(ctx context.Context, setting operation_setting.SmartProtectionSetting, meta *types.TokenCountMeta, riskKey string) ([]smartProtectionDecision, error) {
+	primaryChunks, expandedContext, referencesHistory := buildSmartProtectionReviewPlan(meta, setting.MaxContextChars)
+	if len(primaryChunks) == 0 {
 		return nil, nil
 	}
 	timeoutSeconds := setting.TimeoutSeconds
@@ -124,10 +163,36 @@ func reviewSmartProtectionContext(ctx context.Context, setting operation_setting
 	if concurrencyLimit > operation_setting.SmartProtectionMaxConcurrent {
 		concurrencyLimit = operation_setting.SmartProtectionMaxConcurrent
 	}
-	workerCount := concurrencyLimit
-	if workerCount > len(chunks) {
-		workerCount = len(chunks)
+	decisions, firstErr := reviewSmartProtectionChunks(reviewCtx, cancel, setting, primaryChunks, concurrencyLimit)
+	blocked := false
+	suspicious := false
+	for _, decision := range decisions {
+		if smartProtectionShouldBlock(setting, decision) {
+			blocked = true
+		}
+		if !strings.EqualFold(strings.TrimSpace(decision.Safety), "Safe") || len(decision.Categories) > 0 {
+			suspicious = true
+		}
 	}
+	if suspicious && riskKey != "" {
+		markSmartProtectionRisk(riskKey)
+	}
+	if firstErr != nil && len(decisions) == 0 {
+		return nil, firstErr
+	}
+	if blocked || expandedContext == "" || (!referencesHistory && !suspicious && !hasSmartProtectionRisk(riskKey)) {
+		return decisions, firstErr
+	}
+	expandedDecisions, expandedErr := reviewSmartProtectionChunks(reviewCtx, cancel, setting, []string{expandedContext}, concurrencyLimit)
+	decisions = append(decisions, expandedDecisions...)
+	if firstErr == nil {
+		firstErr = expandedErr
+	}
+	return decisions, firstErr
+}
+
+func reviewSmartProtectionChunks(ctx context.Context, cancel context.CancelFunc, setting operation_setting.SmartProtectionSetting, chunks []string, concurrencyLimit int) ([]smartProtectionDecision, error) {
+	workerCount := min(concurrencyLimit, len(chunks))
 	jobs := make(chan string, len(chunks))
 	results := make(chan smartProtectionDecision, len(chunks))
 	errorsCh := make(chan error, len(chunks))
@@ -141,12 +206,7 @@ func reviewSmartProtectionContext(ctx context.Context, setting operation_setting
 		go func() {
 			defer wg.Done()
 			for chunk := range jobs {
-				if err := acquireSmartProtectionSlot(reviewCtx, concurrencyLimit); err != nil {
-					errorsCh <- err
-					continue
-				}
-				decision, err := reviewSmartProtectionChunk(reviewCtx, setting, chunk)
-				releaseSmartProtectionSlot()
+				decision, err := reviewSmartProtectionChunkCached(ctx, setting, chunk, concurrencyLimit)
 				if err != nil {
 					errorsCh <- err
 					continue
@@ -161,17 +221,103 @@ func reviewSmartProtectionContext(ctx context.Context, setting operation_setting
 	wg.Wait()
 	close(results)
 	close(errorsCh)
+	decisions := make([]smartProtectionDecision, 0, len(chunks))
+	for decision := range results {
+		decisions = append(decisions, decision)
+	}
 	var firstErr error
 	for err := range errorsCh {
 		if firstErr == nil {
 			firstErr = err
 		}
 	}
-	decisions := make([]smartProtectionDecision, 0, len(chunks))
-	for result := range results {
-		decisions = append(decisions, result)
-	}
 	return decisions, firstErr
+}
+
+func reviewSmartProtectionChunkCached(ctx context.Context, setting operation_setting.SmartProtectionSetting, content string, concurrencyLimit int) (smartProtectionDecision, error) {
+	startSmartProtectionCacheCleanup()
+	// Include the credential fingerprint in the key without retaining the credential itself.
+	hash := sha256.Sum256([]byte(setting.BaseURL + "\x00" + setting.Model + "\x00" + setting.APIKey + "\x00" + content))
+	key := hex.EncodeToString(hash[:])
+	now := time.Now()
+	smartProtectionDecisionCache.Lock()
+	if cached, ok := smartProtectionDecisionCache.entries[key]; ok {
+		if now.Before(cached.expires) {
+			cached.usedAt = now
+			smartProtectionDecisionCache.entries[key] = cached
+			decision := cached.decision
+			decision.Categories = append([]string(nil), decision.Categories...)
+			decision.Content = content
+			decision.Latency = 0
+			smartProtectionDecisionCache.Unlock()
+			return decision, nil
+		}
+		delete(smartProtectionDecisionCache.entries, key)
+		smartProtectionDecisionCache.totalBytes -= cached.size
+	}
+	if call, ok := smartProtectionDecisionCache.inFlight[key]; ok {
+		smartProtectionDecisionCache.Unlock()
+		select {
+		case <-ctx.Done():
+			return smartProtectionDecision{}, ctx.Err()
+		case <-call.done:
+			decision := call.decision
+			decision.Categories = append([]string(nil), decision.Categories...)
+			decision.Content = content
+			return decision, call.err
+		}
+	}
+	call := &smartProtectionReviewCall{done: make(chan struct{})}
+	smartProtectionDecisionCache.inFlight[key] = call
+	smartProtectionDecisionCache.Unlock()
+
+	if err := acquireSmartProtectionSlot(ctx, concurrencyLimit); err != nil {
+		call.err = err
+	} else {
+		call.decision, call.err = reviewSmartProtectionChunk(ctx, setting, content)
+		releaseSmartProtectionSlot()
+	}
+
+	smartProtectionDecisionCache.Lock()
+	delete(smartProtectionDecisionCache.inFlight, key)
+	if call.err == nil {
+		cachedDecision := call.decision
+		cachedDecision.Content = ""
+		cachedDecision.Categories = append([]string(nil), cachedDecision.Categories...)
+		size := len(cachedDecision.Raw) + len(cachedDecision.Safety) + 64
+		for _, category := range cachedDecision.Categories {
+			size += len(category)
+		}
+		smartProtectionDecisionCache.entries[key] = smartProtectionCachedDecision{
+			decision: cachedDecision, expires: now.Add(smartProtectionDecisionCacheTTL), usedAt: now, size: size,
+		}
+		smartProtectionDecisionCache.totalBytes += size
+		pruneSmartProtectionDecisionCache(now)
+	}
+	close(call.done)
+	smartProtectionDecisionCache.Unlock()
+	return call.decision, call.err
+}
+
+func startSmartProtectionCacheCleanup() {
+	smartProtectionCacheCleanupOnce.Do(func() {
+		go func() {
+			ticker := time.NewTicker(time.Minute)
+			defer ticker.Stop()
+			for now := range ticker.C {
+				smartProtectionDecisionCache.Lock()
+				pruneSmartProtectionDecisionCache(now)
+				smartProtectionDecisionCache.Unlock()
+				smartProtectionRiskState.Lock()
+				for key, expires := range smartProtectionRiskState.entries {
+					if !now.Before(expires) {
+						delete(smartProtectionRiskState.entries, key)
+					}
+				}
+				smartProtectionRiskState.Unlock()
+			}
+		}()
+	})
 }
 
 func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.SmartProtectionSetting, content string) (smartProtectionDecision, error) {
@@ -278,6 +424,152 @@ func splitSmartProtectionContext(content string, limit int) []string {
 		}
 	}
 	return chunks
+}
+
+func buildSmartProtectionReviewPlan(meta *types.TokenCountMeta, limit int) ([]string, string, bool) {
+	if meta == nil {
+		return nil, "", false
+	}
+	messages := meta.TextMessages
+	latestIndex := -1
+	for index := len(messages) - 1; index >= 0; index-- {
+		role := strings.TrimSpace(messages[index].Role)
+		if (strings.EqualFold(role, "user") || role == "") && strings.TrimSpace(messages[index].Content) != "" {
+			latestIndex = index
+			break
+		}
+	}
+	if latestIndex < 0 {
+		content := strings.TrimSpace(meta.CombineText)
+		chunks := splitSmartProtectionContext(content, limit)
+		if len(chunks) > smartProtectionMaxLatestChunks {
+			chunks = chunks[len(chunks)-smartProtectionMaxLatestChunks:]
+		}
+		return chunks, "", false
+	}
+	latest := strings.TrimSpace(messages[latestIndex].Content)
+	primaryChunks := make([]string, 0, smartProtectionMaxLatestChunks)
+	start := max(0, latestIndex-smartProtectionRecentMessages+1)
+	var contextBuilder strings.Builder
+	for index := start; index <= latestIndex; index++ {
+		content := strings.TrimSpace(messages[index].Content)
+		if content == "" {
+			continue
+		}
+		contextBuilder.WriteString(strings.ToUpper(strings.TrimSpace(messages[index].Role)))
+		contextBuilder.WriteString(":\n")
+		contextBuilder.WriteString(content)
+		contextBuilder.WriteString("\n\n")
+	}
+	recentContext := trimSmartProtectionContextTail(contextBuilder.String(), limit)
+	if len([]rune(latest)) <= limit {
+		primaryChunks = append(primaryChunks, recentContext)
+	} else {
+		primaryChunks = splitSmartProtectionContext(latest, limit)
+		if len(primaryChunks) > smartProtectionMaxLatestChunks {
+			primaryChunks = primaryChunks[len(primaryChunks)-smartProtectionMaxLatestChunks:]
+		}
+	}
+	expandedStart := 0
+	expandedEnd := start
+	if len([]rune(latest)) > limit {
+		expandedStart = start
+		expandedEnd = latestIndex
+	}
+	var expandedBuilder strings.Builder
+	for index := expandedStart; index < expandedEnd; index++ {
+		content := strings.TrimSpace(messages[index].Content)
+		if content == "" {
+			continue
+		}
+		expandedBuilder.WriteString(strings.ToUpper(strings.TrimSpace(messages[index].Role)))
+		expandedBuilder.WriteString(":\n")
+		expandedBuilder.WriteString(content)
+		expandedBuilder.WriteString("\n\n")
+	}
+	expanded := trimSmartProtectionContextTail(expandedBuilder.String(), limit)
+	return primaryChunks, expanded, smartProtectionContextReferencePattern.MatchString(latest)
+}
+
+func trimSmartProtectionContextTail(content string, limit int) string {
+	content = strings.TrimSpace(content)
+	if content == "" || limit <= 0 {
+		return ""
+	}
+	runes := []rune(content)
+	if len(runes) <= limit {
+		return content
+	}
+	return string(runes[len(runes)-limit:])
+}
+
+func pruneSmartProtectionDecisionCache(now time.Time) {
+	if now.Sub(smartProtectionDecisionCache.lastCleanup) >= time.Minute {
+		for key, entry := range smartProtectionDecisionCache.entries {
+			if !now.Before(entry.expires) {
+				delete(smartProtectionDecisionCache.entries, key)
+				smartProtectionDecisionCache.totalBytes -= entry.size
+			}
+		}
+		smartProtectionDecisionCache.lastCleanup = now
+	}
+	for len(smartProtectionDecisionCache.entries) > smartProtectionDecisionCacheMax || smartProtectionDecisionCache.totalBytes > smartProtectionDecisionCacheBytes {
+		oldestKey := ""
+		var oldest time.Time
+		for key, entry := range smartProtectionDecisionCache.entries {
+			if oldestKey == "" || entry.usedAt.Before(oldest) {
+				oldestKey = key
+				oldest = entry.usedAt
+			}
+		}
+		if oldestKey == "" {
+			break
+		}
+		entry := smartProtectionDecisionCache.entries[oldestKey]
+		delete(smartProtectionDecisionCache.entries, oldestKey)
+		smartProtectionDecisionCache.totalBytes -= entry.size
+	}
+}
+
+func markSmartProtectionRisk(key string) {
+	if key == "" {
+		return
+	}
+	now := time.Now()
+	smartProtectionRiskState.Lock()
+	for entryKey, expires := range smartProtectionRiskState.entries {
+		if !now.Before(expires) {
+			delete(smartProtectionRiskState.entries, entryKey)
+		}
+	}
+	if len(smartProtectionRiskState.entries) >= smartProtectionRiskStateMax {
+		oldestKey := ""
+		var oldest time.Time
+		for entryKey, expires := range smartProtectionRiskState.entries {
+			if oldestKey == "" || expires.Before(oldest) {
+				oldestKey = entryKey
+				oldest = expires
+			}
+		}
+		delete(smartProtectionRiskState.entries, oldestKey)
+	}
+	smartProtectionRiskState.entries[key] = now.Add(smartProtectionRiskStateTTL)
+	smartProtectionRiskState.Unlock()
+}
+
+func hasSmartProtectionRisk(key string) bool {
+	if key == "" {
+		return false
+	}
+	now := time.Now()
+	smartProtectionRiskState.Lock()
+	expires, ok := smartProtectionRiskState.entries[key]
+	if ok && !now.Before(expires) {
+		delete(smartProtectionRiskState.entries, key)
+		ok = false
+	}
+	smartProtectionRiskState.Unlock()
+	return ok
 }
 
 func acquireSmartProtectionSlot(ctx context.Context, limit int) error {

@@ -244,6 +244,7 @@ func SetApiRouter(router *gin.Engine) {
 			smartProtectionRoute.PUT("/settings", controller.UpdateSmartProtectionSettings)
 			smartProtectionRoute.GET("/channels", controller.ListSmartProtectionChannels)
 			smartProtectionRoute.GET("/events", controller.ListSmartProtectionEvents)
+			smartProtectionRoute.DELETE("/events", middleware.CriticalRateLimit(), controller.DeleteAllSmartProtectionEvents)
 			smartProtectionRoute.GET("/events/:id", controller.GetSmartProtectionEvent)
 		}
 

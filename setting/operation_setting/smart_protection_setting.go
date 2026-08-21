@@ -10,8 +10,6 @@ import (
 )
 
 const (
-	SmartProtectionDefaultURL    = "https://api.moark.ai/v1"
-	SmartProtectionDefaultModel  = "Qwen3Guard-Gen-4B"
 	SmartProtectionMaxTimeout    = 60
 	SmartProtectionMinContext    = 1000
 	SmartProtectionMaxContext    = 24000
@@ -35,8 +33,6 @@ type SmartProtectionSetting struct {
 }
 
 var smartProtectionSetting = SmartProtectionSetting{
-	BaseURL:           SmartProtectionDefaultURL,
-	Model:             SmartProtectionDefaultModel,
 	TimeoutSeconds:    15,
 	MaxContextChars:   24000,
 	MaxConcurrent:     8,
@@ -78,14 +74,16 @@ func GetSmartProtectionSetting() SmartProtectionSetting {
 
 func NormalizeAndValidateSmartProtectionSetting(setting SmartProtectionSetting) (SmartProtectionSetting, error) {
 	setting = normalizeSmartProtectionSetting(setting)
-	if setting.BaseURL == "" {
+	if setting.Enabled && setting.BaseURL == "" {
 		return SmartProtectionSetting{}, errors.New("smart protection URL is required")
 	}
-	parsed, err := url.Parse(setting.BaseURL)
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return SmartProtectionSetting{}, errors.New("smart protection URL must use http or https")
+	if setting.BaseURL != "" {
+		parsed, err := url.Parse(setting.BaseURL)
+		if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return SmartProtectionSetting{}, errors.New("smart protection URL must use http or https")
+		}
 	}
-	if setting.Model == "" {
+	if setting.Enabled && setting.Model == "" {
 		return SmartProtectionSetting{}, errors.New("smart protection model is required")
 	}
 	if setting.TimeoutSeconds <= 0 || setting.TimeoutSeconds > SmartProtectionMaxTimeout {
@@ -124,13 +122,7 @@ func ApplySmartProtectionConfig(configMap map[string]string) error {
 
 func normalizeSmartProtectionSetting(setting SmartProtectionSetting) SmartProtectionSetting {
 	setting.BaseURL = strings.TrimRight(strings.TrimSpace(setting.BaseURL), "/")
-	if setting.BaseURL == "" {
-		setting.BaseURL = SmartProtectionDefaultURL
-	}
 	setting.Model = strings.TrimSpace(setting.Model)
-	if setting.Model == "" {
-		setting.Model = SmartProtectionDefaultModel
-	}
 	if setting.TimeoutSeconds <= 0 {
 		setting.TimeoutSeconds = 15
 	}

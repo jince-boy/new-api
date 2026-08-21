@@ -105,3 +105,10 @@ export async function getSmartProtectionEvent(id: number) {
   )
   return response.data.data
 }
+
+export async function clearSmartProtectionEvents() {
+  const response = await api.delete<ApiResponse<{ deleted: number }>>(
+    '/api/smart-protection/events'
+  )
+  return response.data.data
+}

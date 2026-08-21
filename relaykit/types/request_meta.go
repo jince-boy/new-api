@@ -18,17 +18,25 @@ const (
 )
 
 type TokenCountMeta struct {
-	TokenType     TokenType   `json:"token_type,omitempty"`     // Type of tokens used in the request
-	CombineText   string      `json:"combine_text,omitempty"`   // Combined text from all messages
-	ToolsCount    int         `json:"tools_count,omitempty"`    // Number of tools used
-	NameCount     int         `json:"name_count,omitempty"`     // Number of names in the request
-	MessagesCount int         `json:"messages_count,omitempty"` // Number of messages in the request
-	Files         []*FileMeta `json:"files,omitempty"`          // List of files, each with type and content
-	MaxTokens     int         `json:"max_tokens,omitempty"`     // Maximum tokens allowed in the request
+	TokenType     TokenType         `json:"token_type,omitempty"`     // Type of tokens used in the request
+	CombineText   string            `json:"combine_text,omitempty"`   // Combined text from all messages
+	ToolsCount    int               `json:"tools_count,omitempty"`    // Number of tools used
+	NameCount     int               `json:"name_count,omitempty"`     // Number of names in the request
+	MessagesCount int               `json:"messages_count,omitempty"` // Number of messages in the request
+	Files         []*FileMeta       `json:"files,omitempty"`          // List of files, each with type and content
+	MaxTokens     int               `json:"max_tokens,omitempty"`     // Maximum tokens allowed in the request
+	TextMessages  []TextMessageMeta `json:"text_messages,omitempty"`  // Text messages retained for context-aware safety checks
 
 	ImagePriceRatio float64            `json:"image_ratio,omitempty"`    // Ratio for image size, if applicable
 	BillingRatios   map[string]float64 `json:"billing_ratios,omitempty"` // Validated request multipliers used by pre-consume billing
 	//IsStreaming   bool        `json:"is_streaming,omitempty"`   // Indicates if the request is streaming
+}
+
+// TextMessageMeta preserves message boundaries without retaining non-text media.
+// Consumers can review the latest user input with a bounded amount of nearby context.
+type TextMessageMeta struct {
+	Role    string `json:"role,omitempty"`
+	Content string `json:"content,omitempty"`
 }
 
 type FileMeta struct {

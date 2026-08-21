@@ -30,6 +30,24 @@ func TestUpstreamFirstResponseDurationSeparatesStreamingAndNonStreaming(t *testi
 	assert.Equal(t, int64(900), streamDuration)
 }
 
+func TestRelayInfoQueueTimeIsTrackedSeparatelyFromUpstreamTTFT(t *testing.T) {
+	start := time.Unix(100, 0)
+	info := &RelayInfo{
+		StartTime:                start,
+		IsStream:                 true,
+		UpstreamStartTime:        start.Add(5 * time.Second),
+		UpstreamFirstContentTime: start.Add(6 * time.Second),
+	}
+	info.AddChannelRateLimitQueueTime(2 * time.Second)
+	info.AddChannelRateLimitQueueTime(3 * time.Second)
+
+	ttft, ok := info.UpstreamFirstResponseDuration()
+
+	require.True(t, ok)
+	assert.Equal(t, int64(time.Second/time.Millisecond), ttft)
+	assert.Equal(t, 5*time.Second, info.ChannelRateLimitQueueTime)
+}
+
 func TestGenBaseRelayInfoBlankTokenGroupUsesServiceGroup(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())

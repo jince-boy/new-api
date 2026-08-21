@@ -40,3 +40,19 @@ func TestNormalizeAndValidateSmartProtectionSettingRestoresMissingArrayDefaults(
 	assert.Equal(t, []string{"Jailbreak"}, setting.BlockedCategories)
 	assert.NotNil(t, setting.ChannelIDs)
 }
+
+func TestNormalizeAndValidateSmartProtectionSettingAllowsEmptyProviderWhileDisabled(t *testing.T) {
+	setting, err := NormalizeAndValidateSmartProtectionSetting(SmartProtectionSetting{})
+
+	require.NoError(t, err)
+	assert.Empty(t, setting.BaseURL)
+	assert.Empty(t, setting.Model)
+	assert.Empty(t, setting.APIKey)
+}
+
+func TestNormalizeAndValidateSmartProtectionSettingRequiresProviderWhenEnabled(t *testing.T) {
+	_, err := NormalizeAndValidateSmartProtectionSetting(SmartProtectionSetting{Enabled: true})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "URL is required")
+}

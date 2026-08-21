@@ -155,6 +155,8 @@ export interface LogOtherData {
       original: number
       clamped: number
     }
+    // Channel request-rate-limit queue time, in milliseconds. Admin-only.
+    channel_rate_limit_queue_ms?: number
     task_upstream?: {
       http_status?: number
       upstream_status?: string

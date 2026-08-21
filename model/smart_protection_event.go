@@ -97,6 +97,11 @@ func GetSmartProtectionEvent(id int) (*SmartProtectionEvent, error) {
 	return &event, nil
 }
 
+func DeleteAllSmartProtectionEvents() (int64, error) {
+	result := DB.Where("id > ?", 0).Delete(&SmartProtectionEvent{})
+	return result.RowsAffected, result.Error
+}
+
 func CleanupSmartProtectionEvents(retentionDays int) error {
 	if retentionDays <= 0 {
 		return nil

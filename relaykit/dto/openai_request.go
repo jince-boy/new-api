@@ -152,6 +152,7 @@ func (r *GeneralOpenAIRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	for _, message := range r.Messages {
 		tokenCountMeta.MessagesCount++
 		texts = append(texts, message.Role)
+		messageTexts := make([]string, 0)
 		if message.Content != nil {
 			if message.Name != nil {
 				tokenCountMeta.NameCount++
@@ -178,8 +179,12 @@ func (r *GeneralOpenAIRequest) GetTokenCountMeta() *types.TokenCountMeta {
 					fileMeta = append(fileMeta, meta)
 				} else if m.Type == ContentTypeText {
 					texts = append(texts, m.Text)
+					messageTexts = append(messageTexts, m.Text)
 				}
 			}
+		}
+		if content := strings.TrimSpace(strings.Join(messageTexts, "\n")); content != "" {
+			tokenCountMeta.TextMessages = append(tokenCountMeta.TextMessages, types.TextMessageMeta{Role: message.Role, Content: content})
 		}
 	}
 
@@ -859,14 +864,14 @@ type OpenAIResponsesRequest struct {
 	Include json.RawMessage `json:"include,omitempty"`
 	// 在后台运行推理，暂时还不支持依赖的接口
 	// Background         json.RawMessage `json:"background,omitempty"`
-	Conversation       json.RawMessage `json:"conversation,omitempty"`
-	ContextManagement  json.RawMessage `json:"context_management,omitempty"`
-	Instructions       json.RawMessage `json:"instructions,omitempty"`
-	MaxOutputTokens    *uint           `json:"max_output_tokens,omitempty"`
-	TopLogProbs        *int            `json:"top_logprobs,omitempty"`
-	Metadata           json.RawMessage `json:"metadata,omitempty"`
-	Moderation         json.RawMessage `json:"moderation,omitempty"`
-	ParallelToolCalls  json.RawMessage `json:"parallel_tool_calls,omitempty"`
+	Conversation      json.RawMessage `json:"conversation,omitempty"`
+	ContextManagement json.RawMessage `json:"context_management,omitempty"`
+	Instructions      json.RawMessage `json:"instructions,omitempty"`
+	MaxOutputTokens   *uint           `json:"max_output_tokens,omitempty"`
+	TopLogProbs       *int            `json:"top_logprobs,omitempty"`
+	Metadata          json.RawMessage `json:"metadata,omitempty"`
+	Moderation        json.RawMessage `json:"moderation,omitempty"`
+	ParallelToolCalls json.RawMessage `json:"parallel_tool_calls,omitempty"`
 	// FrequencyPenalty/PresencePenalty are not part of the official OpenAI
 	// Responses API; they are forwarded verbatim for OpenAI-compatible upstreams
 	// (e.g. vLLM) that accept them.
@@ -968,9 +973,10 @@ func (r *OpenAIResponsesRequest) GetTokenCountMeta() *types.TokenCountMeta {
 	}
 
 	return &types.TokenCountMeta{
-		CombineText: strings.Join(texts, "\n"),
-		Files:       fileMeta,
-		MaxTokens:   int(lo.FromPtrOr(r.MaxOutputTokens, uint(0))),
+		CombineText:  strings.Join(texts, "\n"),
+		TextMessages: []types.TextMessageMeta{{Role: "user", Content: strings.Join(texts, "\n")}},
+		Files:        fileMeta,
+		MaxTokens:    int(lo.FromPtrOr(r.MaxOutputTokens, uint(0))),
 	}
 }
 

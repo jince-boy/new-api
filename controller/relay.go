@@ -396,7 +396,9 @@ func waitForRateLimitedChannel(
 			types.ErrOptionWithSkipRetry(),
 		)
 	}
+	queueStart := time.Now()
 	reservation, err := service.WaitForChannelRequest(c.Request.Context(), candidate.channel)
+	info.AddChannelRateLimitQueueTime(time.Since(queueStart))
 	if err != nil {
 		return nil, nil, types.NewErrorWithStatusCode(
 			fmt.Errorf("wait for channel %d request rate limit: %w", candidate.channel.Id, err),
