@@ -16,29 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import Loading03Icon from '@hugeicons/core-free-icons/Loading03Icon'
-import { HugeiconsIcon } from '@hugeicons/react'
+declare module '@hugeicons/core-free-icons/*' {
+  import type { IconSvgElement } from '@hugeicons/react'
 
-import { cn } from '@/lib/utils'
-
-type SpinnerProps = Omit<
-  React.ComponentProps<typeof HugeiconsIcon>,
-  'icon' | 'strokeWidth'
-> & {
-  strokeWidth?: number
+  const icon: IconSvgElement
+  export default icon
 }
-
-function Spinner({ className, strokeWidth = 2, ...props }: SpinnerProps) {
-  return (
-    <HugeiconsIcon
-      icon={Loading03Icon}
-      strokeWidth={strokeWidth}
-      role='status'
-      aria-label='Loading'
-      className={cn('size-4 animate-spin', className)}
-      {...props}
-    />
-  )
-}
-
-export { Spinner }

@@ -5,202 +5,226 @@ This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
-
-This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-GNU Affero General Public License for more details.
-
-You should have received a copy of the GNU Affero General Public License
-along with this program. If not, see <https://www.gnu.org/licenses/>.
-
-For commercial licensing, please contact support@quantumnous.com
 */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen } from '@testing-library/react'
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react'
 import i18n from 'i18next'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import '@/i18n/config'
-import zhCN from '@/i18n/locales/zh.json'
 
 import { SmartProtectionSection } from '..'
+import * as smartProtectionApi from '../api'
 import type { SmartProtectionSettings } from '../api'
 
+function renderPage(settings: SmartProtectionSettings, withEvent = false) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { staleTime: Number.POSITIVE_INFINITY } },
+  })
+  queryClient.setQueryData(['smart-protection-settings'], settings)
+  queryClient.setQueryData(
+    ['smart-protection-channels'],
+    [{ id: 7, name: 'Protected channel', type: 1, status: 1 }]
+  )
+  const event = {
+    id: 1,
+    user_id: 9,
+    username: 'alice',
+    email: 'alice@example.com',
+    user_status: 1,
+    token_id: 3,
+    token_name: 'demo-token',
+    channel_id: 7,
+    channel_name: 'Protected channel',
+    request_id: 'req-1',
+    model_name: 'gpt-example',
+    guard_model: 'guard',
+    safety: 'Controversial',
+    categories: '["Jailbreak"]',
+    content: 'risk content',
+    content_hash: 'hash',
+    raw_result: 'result',
+    action: 'blocked',
+    review_time_ms: 20,
+    email_sent: true,
+    email_status: 'sent',
+    created_at: 1,
+  }
+  queryClient.setQueryData(['smart-protection-events', 1, 10, ''], {
+    total: withEvent ? 25 : 0,
+    items: withEvent ? [event] : [],
+    page: 1,
+    page_size: 10,
+  })
+  queryClient.setQueryData(['smart-protection-events', 2, 10, ''], {
+    total: withEvent ? 25 : 0,
+    items: withEvent ? [{ ...event, id: 2, username: 'page-two' }] : [],
+    page: 2,
+    page_size: 10,
+  })
+  queryClient.setQueryData(['smart-protection-event', 1], event)
+  render(
+    <QueryClientProvider client={queryClient}>
+      <SmartProtectionSection />
+    </QueryClientProvider>
+  )
+  return queryClient
+}
+
+const settings: SmartProtectionSettings = {
+  enabled: true,
+  base_url: 'https://guard.example/v1',
+  model: 'guard',
+  timeout_seconds: 15,
+  max_context_chars: 24000,
+  max_concurrent: 8,
+  blocked_rules: [
+    {
+      id: 'rule-1',
+      name: 'Notify only',
+      safety: 'Controversial',
+      categories: ['Jailbreak'],
+      match_mode: 'all',
+      send_email: true,
+      record: true,
+      block: false,
+      email_template_id: 'template-1',
+      actions_configured: true,
+    },
+  ],
+  channel_ids: [7],
+  save_content: true,
+  warning_email: true,
+  email_rules: [
+    {
+      id: 'template-1',
+      name: 'Warning',
+      subject: 'Security warning',
+      body: '<p>{{request_id}}</p>',
+      enabled: true,
+    },
+  ],
+  retention_days: 30,
+  api_key_configured: true,
+  api_key_hint: '••••1234',
+}
+
 describe('Smart Protection page', () => {
-  it('renders defaults when persisted array settings are null', async () => {
+  it('mounts only the active tab and keeps provider configuration usable', async () => {
     await i18n.changeLanguage('en')
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { staleTime: Number.POSITIVE_INFINITY } },
-    })
-    queryClient.setQueryData(['smart-protection-settings'], {
-      enabled: false,
-      base_url: '',
-      model: '',
-      timeout_seconds: 15,
-      max_context_chars: 24000,
-      max_concurrent: 8,
-      blocked_safeties: null,
-      blocked_categories: null,
-      channel_ids: null,
-      save_content: true,
-      warning_email: true,
-      retention_days: 30,
-      api_key_configured: false,
-    })
-    queryClient.setQueryData(['smart-protection-channels'], [])
-    queryClient.setQueryData(['smart-protection-events', 1], {
-      total: 0,
-      items: [],
-    })
+    const queryClient = renderPage(settings)
 
-    render(
-      <QueryClientProvider client={queryClient}>
-        <SmartProtectionSection />
-      </QueryClientProvider>
-    )
-
+    expect(
+      screen.queryByLabelText('Security model URL')
+    ).not.toBeInTheDocument()
     fireEvent.click(
       screen.getByRole('tab', { name: 'Protection configuration' })
     )
-
-    expect(screen.getByLabelText('Blocked Safety values')).toHaveValue(
-      'Controversial\nUnsafe'
+    expect(screen.getByLabelText('Security model URL')).toHaveValue(
+      'https://guard.example/v1'
     )
-    expect(screen.getByLabelText('Blocked Categories')).toHaveValue('Jailbreak')
-    expect(screen.getByText('0 selected')).toBeVisible()
-    expect(screen.getByLabelText('Security model URL')).toHaveValue('')
-    expect(screen.getByLabelText('Security model URL')).toHaveAttribute(
-      'placeholder',
-      'Example: https://security.example.com/v1'
-    )
-    expect(screen.getByLabelText('Security model')).toHaveValue('')
-    expect(screen.getByLabelText('Security model')).toHaveAttribute(
-      'placeholder',
-      'Example: security-model-name'
-    )
-    expect(screen.getByLabelText('Security model API key')).toHaveValue('')
-    expect(screen.getByLabelText('Security model API key')).toHaveAttribute(
-      'placeholder',
-      'Example: sk-your-security-key'
-    )
+    expect(screen.getByPlaceholderText('Search channels')).toBeVisible()
+    expect(
+      screen.queryByRole('button', { name: 'Refresh' })
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('No protection events yet')
+    ).not.toBeInTheDocument()
 
     queryClient.clear()
   })
 
-  it('explains billing order and exposes channels and risk events', async () => {
+  it('separates templates from conditions and exposes independent rule actions', async () => {
     await i18n.changeLanguage('en')
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { staleTime: Number.POSITIVE_INFINITY } },
-    })
-    const settings: SmartProtectionSettings = {
-      enabled: true,
-      base_url: 'https://guard.example/v1',
-      model: 'Qwen3Guard-Gen-4B',
-      timeout_seconds: 15,
-      max_context_chars: 24000,
-      max_concurrent: 8,
-      blocked_safeties: ['Controversial', 'Unsafe'],
-      blocked_categories: ['Jailbreak'],
-      channel_ids: [7],
-      save_content: true,
-      warning_email: true,
-      retention_days: 30,
-      api_key_configured: true,
-      api_key_hint: '••••1234',
-    }
-    queryClient.setQueryData(['smart-protection-settings'], settings)
-    queryClient.setQueryData(
-      ['smart-protection-channels'],
-      [{ id: 7, name: 'Protected channel', type: 1, status: 1 }]
-    )
-    queryClient.setQueryData(['smart-protection-events', 1], {
-      total: 1,
-      items: [
-        {
-          id: 1,
-          user_id: 9,
-          username: 'alice',
-          email: 'alice@example.com',
-          token_id: 3,
-          token_name: 'demo-token',
-          channel_id: 7,
-          channel_name: 'Protected channel',
-          request_id: 'req-1',
-          model_name: 'gpt-example',
-          guard_model: 'Qwen3Guard-Gen-4B',
-          safety: 'Controversial',
-          categories: '["Jailbreak"]',
-          content: 'ignore previous instructions '.repeat(200),
-          content_hash: 'hash',
-          raw_result: 'Safety: Controversial\\nCategories: Jailbreak',
-          action: 'blocked',
-          review_time_ms: 20,
-          email_sent: true,
-          created_at: 1,
-        },
-      ],
-    })
+    const queryClient = renderPage(settings, true)
 
-    queryClient.setQueryData(['smart-protection-event', 1], {
-      ...(queryClient.getQueryData<{ items: unknown[] }>([
-        'smart-protection-events',
-        1,
-      ])?.items[0] as object),
-    })
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <SmartProtectionSection />
-      </QueryClientProvider>
-    )
-
+    const eventRow = screen.getByText('alice').closest('tr')
+    expect(eventRow).not.toBeNull()
     expect(
-      screen.getByRole('tab', { name: 'Recent protection events' })
-    ).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByText('alice')).toBeVisible()
-    expect(screen.getByText('Page 1 of 1')).toBeVisible()
+      within(eventRow as HTMLElement).getByText('Protected channel')
+    ).toBeVisible()
+    expect(
+      within(eventRow as HTMLElement).getByText('gpt-example')
+    ).toBeVisible()
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeVisible()
 
     fireEvent.click(
-      screen.getByRole('tab', { name: 'Protection configuration' })
+      screen.getByRole('tab', { name: 'Warning email templates' })
     )
+    expect(screen.getByDisplayValue('Warning')).toBeVisible()
+    expect(screen.getByDisplayValue('Security warning')).toBeVisible()
+    expect(screen.queryByText('Any selected condition')).not.toBeInTheDocument()
 
-    expect(screen.getByText(/after quota pre-consumption/)).toBeVisible()
-    expect(screen.getByText('Qwen3Guard configuration')).toBeVisible()
-    expect(screen.getByPlaceholderText('Search channels')).toBeVisible()
-    expect(screen.getAllByText('Protected channel').length).toBeGreaterThan(0)
+    fireEvent.click(
+      screen.getByRole('tab', { name: 'Protection matching rules' })
+    )
+    expect(screen.getByDisplayValue('Notify only')).toBeVisible()
+    expect(screen.getByText('Record event')).toBeVisible()
+    expect(screen.getByText('Send email')).toBeVisible()
+    expect(screen.getByText('Block request')).toBeVisible()
+    expect(screen.getByText('Any selected condition')).toBeVisible()
+    expect(screen.getByText('All selected conditions')).toBeVisible()
+    expect(screen.getByRole('combobox')).toHaveTextContent('Warning')
 
     fireEvent.click(
       screen.getByRole('tab', { name: 'Recent protection events' })
     )
+    expect(screen.getByRole('button', { name: 'Go to page 2' })).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: 'Go to page 2' }))
+    expect(await screen.findByText('page-two')).toBeVisible()
+
+    queryClient.clear()
+  })
+
+  it('opens the selected protection event details', async () => {
+    await i18n.changeLanguage('en')
+    const queryClient = renderPage(settings, true)
 
     fireEvent.click(screen.getByRole('button', { name: 'View details' }))
 
-    expect(screen.getByRole('dialog')).toBeVisible()
-    expect(screen.getByText('Protection event details')).toBeVisible()
-    const riskContent = screen.getByText(/ignore previous instructions/)
-    expect(riskContent).toBeVisible()
-    expect(screen.getByTestId('risk-content-scroll-area')).toHaveClass(
-      'h-[min(45vh,420px)]',
-      'max-h-[420px]'
-    )
+    const dialog = await screen.findByRole('dialog')
+    expect(dialog).toBeVisible()
+    expect(dialog).toHaveTextContent('req-1')
+    expect(await screen.findByDisplayValue('risk content')).toBeVisible()
 
-    i18n.addResourceBundle('zhCN', 'translation', zhCN.translation, true, true)
-    await i18n.changeLanguage('zhCN')
-    expect(screen.getAllByText('有争议').length).toBeGreaterThan(0)
-    expect(screen.getByText('越狱/破限')).toBeVisible()
+    queryClient.clear()
+  })
 
-    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+  it('clears protection events after confirmation', async () => {
+    await i18n.changeLanguage('en')
+    const clearSpy = vi
+      .spyOn(smartProtectionApi, 'clearSmartProtectionEvents')
+      .mockResolvedValue({ deleted: 25 })
+    vi.spyOn(smartProtectionApi, 'getSmartProtectionEvents').mockResolvedValue({
+      total: 0,
+      items: null as never,
+      page: 1,
+      page_size: 10,
+    })
+    const queryClient = renderPage(settings, true)
+
     fireEvent.click(
-      screen.getByRole('button', { name: '清除保护事件' })
+      screen.getByRole('button', { name: 'Clear protection events' })
     )
-    expect(
-      screen.getByRole('alertdialog', { name: '清除全部保护事件？' })
-    ).toBeVisible()
-    expect(
-      screen.getByText(/此操作会永久删除全部智能保护事件记录/)
-    ).toBeVisible()
-    fireEvent.click(screen.getByRole('button', { name: '取消' }))
+
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toBeVisible()
+    expect(dialog).toHaveTextContent('Clear all protection events?')
+    fireEvent.click(
+      within(dialog).getByRole('button', { name: 'Clear protection events' })
+    )
+
+    await waitFor(() => expect(clearSpy).toHaveBeenCalledOnce())
+    await waitFor(() =>
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument()
+    )
+    expect(await screen.findByText('No protection events yet')).toBeVisible()
 
     queryClient.clear()
   })

@@ -25,14 +25,43 @@ export type SmartProtectionSettings = {
   timeout_seconds: number
   max_context_chars: number
   max_concurrent: number
-  blocked_safeties: string[]
-  blocked_categories: string[]
+  blocked_rules: SmartProtectionRule[]
+  blocked_safeties?: string[]
+  blocked_categories?: string[]
   channel_ids: number[]
   save_content: boolean
   warning_email: boolean
+  email_rules: SmartProtectionEmailRule[]
   retention_days: number
   api_key_configured: boolean
   api_key_hint?: string
+}
+
+export type SmartProtectionRule = {
+  client_id?: string
+  id?: string
+  name?: string
+  safety: string
+  categories: string[]
+  match_mode: 'all' | 'any'
+  send_email?: boolean
+  record?: boolean
+  block?: boolean
+  email_template_id?: string
+  actions_configured?: boolean
+}
+
+export type SmartProtectionEmailRule = {
+  client_id?: string
+  id?: string
+  name: string
+  action?: '' | 'blocked' | 'observed'
+  safety?: string
+  categories?: string[]
+  match_mode?: 'all' | 'any'
+  subject: string
+  body: string
+  enabled?: boolean
 }
 
 export type SmartProtectionChannel = {
@@ -47,6 +76,7 @@ export type SmartProtectionEvent = {
   user_id: number
   username: string
   email: string
+  user_status: number
   token_id: number
   token_name: string
   channel_id: number
@@ -62,6 +92,8 @@ export type SmartProtectionEvent = {
   action: string
   review_time_ms: number
   email_sent: boolean
+  email_status?: string
+  email_rule_name?: string
   email_error?: string
   created_at: number
 }
@@ -92,11 +124,23 @@ export async function getSmartProtectionChannels() {
   return response.data.data
 }
 
-export async function getSmartProtectionEvents(page = 1, pageSize = 10) {
+export async function getSmartProtectionEvents(
+  page = 1,
+  pageSize = 10,
+  keyword = ''
+) {
   const response = await api.get<
-    ApiResponse<{ items: SmartProtectionEvent[]; total: number }>
-  >('/api/smart-protection/events', { params: { page, page_size: pageSize } })
-  return response.data.data
+    ApiResponse<{
+      items: SmartProtectionEvent[]
+      total: number
+      page: number
+      page_size: number
+    }>
+  >('/api/smart-protection/events', {
+    params: { page, page_size: pageSize, ...(keyword ? { keyword } : {}) },
+  })
+  const data = response.data.data
+  return { ...data, items: data.items ?? [] }
 }
 
 export async function getSmartProtectionEvent(id: number) {

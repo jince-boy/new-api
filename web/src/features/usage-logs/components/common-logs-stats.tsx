@@ -52,9 +52,21 @@ export function CommonLogsStats() {
   const { isAdminView: isAdmin } = useLogsViewScope()
   const searchParams = route.useSearch()
   const { sensitiveVisible } = useUsageLogsContext()
+  const statsQueryKey = [
+    'usage-logs-stats',
+    isAdmin,
+    searchParams.type,
+    searchParams.startTime,
+    searchParams.endTime,
+    searchParams.channel,
+    searchParams.model,
+    searchParams.token,
+    searchParams.group,
+    searchParams.username,
+  ] as const
 
   const { data: stats, isLoading } = useQuery({
-    queryKey: ['usage-logs-stats', isAdmin, searchParams],
+    queryKey: statsQueryKey,
     queryFn: async () => {
       const params = buildApiParams({
         page: 1,

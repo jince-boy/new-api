@@ -7,7 +7,7 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 
-import { AddInvoiceIcon } from '@hugeicons/core-free-icons'
+import AddInvoiceIcon from '@hugeicons/core-free-icons/AddInvoiceIcon'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useState } from 'react'

@@ -70,8 +70,13 @@ export function TaskDetailsCell(props: { log: TaskLog; isAdmin: boolean }) {
   )
 }
 
-export function useTaskLogsColumns(isAdmin: boolean): ColumnDef<TaskLog>[] {
+export function useTaskLogsColumns(
+  isAdmin: boolean,
+  enabled = true
+): ColumnDef<TaskLog>[] {
   const { t } = useTranslation()
+  if (!enabled) return []
+
   const columns: ColumnDef<TaskLog>[] = [
     {
       accessorKey: 'submit_time',

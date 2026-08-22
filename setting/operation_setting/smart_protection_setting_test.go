@@ -32,13 +32,38 @@ func TestNormalizeAndValidateSmartProtectionSettingRestoresMissingArrayDefaults(
 		TimeoutSeconds:  15,
 		MaxContextChars: 24000,
 		MaxConcurrent:   8,
+		WarningEmail:    true,
 		RetentionDays:   30,
 	})
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"Controversial", "Unsafe"}, setting.BlockedSafeties)
 	assert.Equal(t, []string{"Jailbreak"}, setting.BlockedCategories)
+	assert.Equal(t, []SmartProtectionRule{
+		{ID: "rule-1", Safety: "Controversial", MatchMode: "all", Record: true, Block: true},
+		{ID: "rule-2", Safety: "Unsafe", MatchMode: "all", Record: true, Block: true},
+		{ID: "rule-3", Categories: []string{"Jailbreak"}, MatchMode: "all", Record: true, Block: true},
+	}, setting.BlockedRules)
+	require.Len(t, setting.EmailRules, 1)
+	assert.Equal(t, "blocked", setting.EmailRules[0].Action)
 	assert.NotNil(t, setting.ChannelIDs)
+}
+
+func TestNormalizeAndValidateSmartProtectionSettingKeepsEmailTemplates(t *testing.T) {
+	setting, err := NormalizeAndValidateSmartProtectionSetting(SmartProtectionSetting{
+		WarningEmail: true,
+		EmailRules: []SmartProtectionEmailRule{{
+			Name: " Illegal requests ", Action: " BLOCKED ", Safety: " Unsafe ",
+			Categories: []string{" Non-violent Illegal Acts "}, Subject: " Security warning ", Body: "<p>{{request_id}}</p>",
+		}},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, setting.EmailRules, 1)
+	assert.Equal(t, SmartProtectionEmailRule{
+		ID: "template-1", Name: "Illegal requests", Action: "blocked", Safety: "Unsafe",
+		Categories: []string{"Non-violent Illegal Acts"}, MatchMode: "any", Subject: "Security warning", Body: "<p>{{request_id}}</p>", Enabled: true,
+	}, setting.EmailRules[0])
 }
 
 func TestNormalizeAndValidateSmartProtectionSettingAllowsEmptyProviderWhileDisabled(t *testing.T) {
@@ -50,9 +75,33 @@ func TestNormalizeAndValidateSmartProtectionSettingAllowsEmptyProviderWhileDisab
 	assert.Empty(t, setting.APIKey)
 }
 
+func TestNormalizeAndValidateSmartProtectionSettingKeepsExplicitCombinedRules(t *testing.T) {
+	setting, err := NormalizeAndValidateSmartProtectionSetting(SmartProtectionSetting{
+		BlockedRules: []SmartProtectionRule{{Safety: " Controversial ", Categories: []string{" Jailbreak "}}},
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, []SmartProtectionRule{{ID: "rule-1", Safety: "Controversial", Categories: []string{"Jailbreak"}, MatchMode: "any", Record: true, Block: true}}, setting.BlockedRules)
+	assert.Empty(t, setting.BlockedSafeties)
+	assert.Empty(t, setting.BlockedCategories)
+}
+
 func TestNormalizeAndValidateSmartProtectionSettingRequiresProviderWhenEnabled(t *testing.T) {
 	_, err := NormalizeAndValidateSmartProtectionSetting(SmartProtectionSetting{Enabled: true})
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "URL is required")
+}
+
+func TestNormalizeAndValidateSmartProtectionSettingRejectsMissingEmailTemplateReference(t *testing.T) {
+	_, err := NormalizeAndValidateSmartProtectionSetting(SmartProtectionSetting{
+		BlockedRules: []SmartProtectionRule{{
+			ID: "rule-1", Safety: "Unsafe", MatchMode: "all", SendEmail: true,
+			EmailTemplateID: "missing", ActionsConfigured: true,
+		}},
+		EmailRules: []SmartProtectionEmailRule{},
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "email template is invalid")
 }

@@ -16,11 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  CropIcon,
-  ExternalLinkIcon,
-  ImageUploadIcon,
-} from '@hugeicons/core-free-icons'
+import CropIcon from '@hugeicons/core-free-icons/CropIcon'
+import ExternalLinkIcon from '@hugeicons/core-free-icons/ExternalLinkIcon'
+import ImageUploadIcon from '@hugeicons/core-free-icons/ImageUploadIcon'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQueryClient } from '@tanstack/react-query'
 import {

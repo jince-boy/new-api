@@ -7,11 +7,9 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 
-import {
-  Payment01Icon,
-  Upload01Icon,
-  ViewIcon,
-} from '@hugeicons/core-free-icons'
+import Payment01Icon from '@hugeicons/core-free-icons/Payment01Icon'
+import Upload01Icon from '@hugeicons/core-free-icons/Upload01Icon'
+import ViewIcon from '@hugeicons/core-free-icons/ViewIcon'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'

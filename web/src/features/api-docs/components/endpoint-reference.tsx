@@ -16,7 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { InformationCircleIcon, Shield01Icon } from '@hugeicons/core-free-icons'
+import InformationCircleIcon from '@hugeicons/core-free-icons/InformationCircleIcon'
+import Shield01Icon from '@hugeicons/core-free-icons/Shield01Icon'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useTranslation } from 'react-i18next'
 

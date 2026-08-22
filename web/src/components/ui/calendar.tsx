@@ -16,11 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  ArrowLeftIcon,
-  ArrowRightIcon,
-  ArrowDownIcon,
-} from '@hugeicons/core-free-icons'
+import ArrowDownIcon from '@hugeicons/core-free-icons/ArrowDown01Icon'
+import ArrowLeftIcon from '@hugeicons/core-free-icons/ArrowLeft01Icon'
+import ArrowRightIcon from '@hugeicons/core-free-icons/ArrowRight01Icon'
 import { HugeiconsIcon } from '@hugeicons/react'
 import * as React from 'react'
 import {

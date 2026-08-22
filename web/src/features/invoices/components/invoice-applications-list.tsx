@@ -7,11 +7,9 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
 
-import {
-  Delete02Icon,
-  Invoice01Icon,
-  RefreshIcon,
-} from '@hugeicons/core-free-icons'
+import Delete02Icon from '@hugeicons/core-free-icons/Delete02Icon'
+import Invoice01Icon from '@hugeicons/core-free-icons/Invoice01Icon'
+import RefreshIcon from '@hugeicons/core-free-icons/RefreshIcon'
 import { HugeiconsIcon } from '@hugeicons/react'
 import type {
   ColumnDef,

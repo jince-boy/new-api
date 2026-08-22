@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { UnfoldMoreIcon } from '@hugeicons/core-free-icons'
+import UnfoldMoreIcon from '@hugeicons/core-free-icons/UnfoldMoreIcon'
 import { HugeiconsIcon } from '@hugeicons/react'
 import * as React from 'react'
 

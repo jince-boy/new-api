@@ -156,15 +156,30 @@ export function hasToolSurcharge(other: LogOtherData | null): boolean {
 /**
  * Parse the 'other' field from JSON string to object
  */
+const parsedLogOtherCache = new Map<string, LogOtherData | null>()
+const MAX_PARSED_LOG_OTHER_CACHE_SIZE = 256
+
 export function parseLogOther(other: string): LogOtherData | null {
   if (!other) return null
+
+  const cached = parsedLogOtherCache.get(other)
+  if (cached !== undefined) return cached
+
+  let parsed: LogOtherData | null
   try {
-    return JSON.parse(other) as LogOtherData
+    parsed = JSON.parse(other) as LogOtherData
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error('Failed to parse log other field:', error)
-    return null
+    parsed = null
   }
+
+  if (parsedLogOtherCache.size >= MAX_PARSED_LOG_OTHER_CACHE_SIZE) {
+    const oldest = parsedLogOtherCache.keys().next().value
+    if (oldest !== undefined) parsedLogOtherCache.delete(oldest)
+  }
+  parsedLogOtherCache.set(other, parsed)
+  return parsed
 }
 
 export function getReasoningEffortVariant(

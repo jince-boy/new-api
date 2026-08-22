@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Invoice01Icon } from '@hugeicons/core-free-icons'
+import Invoice01Icon from '@hugeicons/core-free-icons/Invoice01Icon'
 import { HugeiconsIcon } from '@hugeicons/react'
 import {
   Activity,

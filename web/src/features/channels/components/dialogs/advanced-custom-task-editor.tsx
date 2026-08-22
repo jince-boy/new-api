@@ -16,12 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  ArrowRight01Icon,
-  Delete02Icon,
-  Exchange01Icon,
-  WorkflowSquare01Icon,
-} from '@hugeicons/core-free-icons'
+import ArrowRight01Icon from '@hugeicons/core-free-icons/ArrowRight01Icon'
+import Delete02Icon from '@hugeicons/core-free-icons/Delete02Icon'
+import Exchange01Icon from '@hugeicons/core-free-icons/Exchange01Icon'
+import WorkflowSquare01Icon from '@hugeicons/core-free-icons/WorkflowSquare01Icon'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { type ReactNode, useState } from 'react'
 import { useTranslation } from 'react-i18next'

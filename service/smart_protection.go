@@ -10,6 +10,7 @@ import (
 	"html"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,8 +30,10 @@ import (
 )
 
 type smartProtectionRequest struct {
-	Model    string                   `json:"model"`
-	Messages []smartProtectionMessage `json:"messages"`
+	Model     string                   `json:"model"`
+	Messages  []smartProtectionMessage `json:"messages"`
+	MaxTokens int                      `json:"max_tokens"`
+	Stream    bool                     `json:"stream"`
 }
 
 type smartProtectionMessage struct {
@@ -41,8 +44,17 @@ type smartProtectionMessage struct {
 type smartProtectionResponse struct {
 	Choices []struct {
 		Message struct {
-			Content string `json:"content"`
+			Content          string `json:"content"`
+			ReasoningContent string `json:"reasoning_content"`
 		} `json:"message"`
+	} `json:"choices"`
+}
+
+type smartProtectionStreamChunk struct {
+	Choices []struct {
+		Delta struct {
+			Content string `json:"content"`
+		} `json:"delta"`
 	} `json:"choices"`
 }
 
@@ -54,8 +66,18 @@ type smartProtectionDecision struct {
 	Latency    int64
 }
 
-var smartProtectionLabelPattern = regexp.MustCompile(`(?im)^\s*Safety\s*:\s*([^\r\n]+)`)
-var smartProtectionCategoryPattern = regexp.MustCompile(`(?im)^\s*Categories\s*:\s*([^\r\n]+)`)
+type smartProtectionActions struct {
+	Record          bool
+	Block           bool
+	EmailTemplateID string
+	MatchedRules    []string
+}
+
+// Qwen3Guard normally returns two lines, but compatible OpenAI endpoints may
+// wrap the labels in Markdown or place both labels on one line. Keep parsing
+// anchored to the label names while accepting those harmless variations.
+var smartProtectionLabelPattern = regexp.MustCompile("(?i)(?:[\\\"']?Safety[\\\"']?)\\s*:\\s*[\\\"'*_`\\[\\{\\s]*(Safe|Controversial|Unsafe)\\b")
+var smartProtectionCategoryPattern = regexp.MustCompile(`(?i)(?:["']?Categories["']?)\s*:\s*([^\r\n]+)`)
 
 const (
 	smartProtectionMaxSafetyRunes     = 32
@@ -102,8 +124,6 @@ var smartProtectionDecisionCache = struct {
 	lastCleanup time.Time
 }{entries: make(map[string]smartProtectionCachedDecision), inFlight: make(map[string]*smartProtectionReviewCall)}
 
-var smartProtectionCacheCleanupOnce sync.Once
-
 var smartProtectionRiskState = struct {
 	sync.Mutex
 	entries map[string]time.Time
@@ -127,15 +147,40 @@ func CheckSmartProtection(c *gin.Context, info *relaycommon.RelayInfo, channelId
 	started := time.Now()
 	riskKey := strconv.Itoa(info.UserId) + ":" + strconv.Itoa(info.TokenId) + ":" + info.OriginModelName
 	decisions, err := reviewSmartProtectionContext(c.Request.Context(), setting, meta, riskKey)
-	info.AddSmartProtectionReviewTime(time.Since(started))
+	reviewDuration := time.Since(started)
+	info.AddSmartProtectionReviewTime(reviewDuration)
+	if err != nil {
+		info.SmartProtectionReviewError = err.Error()
+	}
 	for _, decision := range decisions {
-		if !smartProtectionShouldBlock(setting, decision) {
-			continue
+		if !containsString(info.SmartProtectionSafeties, decision.Safety) {
+			info.SmartProtectionSafeties = append(info.SmartProtectionSafeties, decision.Safety)
 		}
-		if err := recordSmartProtectionEvent(c, info, channelId, channelName, setting, decision); err != nil {
-			logger.LogWarn(c, fmt.Sprintf("failed to record smart protection event: %v", err))
+		for _, category := range decision.Categories {
+			if !containsString(info.SmartProtectionCategories, category) {
+				info.SmartProtectionCategories = append(info.SmartProtectionCategories, category)
+			}
 		}
-		logger.LogWarn(c, fmt.Sprintf("smart protection blocked request: safety=%s categories=%s latency=%dms", decision.Safety, strings.Join(decision.Categories, ","), time.Since(started).Milliseconds()))
+	}
+	actions := smartProtectionEvaluateActions(setting, decisions)
+	info.SmartProtectionReviewStatus, info.SmartProtectionReviewReason = smartProtectionReviewOutcome(decisions, actions, err)
+	if len(decisions) > 0 {
+		info.SmartProtectionMatchedRules = append([]string{}, actions.MatchedRules...)
+		decision := aggregateSmartProtectionDecisions(decisions, reviewDuration.Milliseconds())
+		action := "observed"
+		if actions.Block {
+			action = "blocked"
+		}
+		if actions.Record {
+			if recordErr := recordSmartProtectionEvent(c, info, channelId, channelName, setting, decision, action, actions.EmailTemplateID); recordErr != nil {
+				logger.LogWarn(c, fmt.Sprintf("failed to record smart protection event: %v", recordErr))
+			}
+		} else if actions.EmailTemplateID != "" {
+			sendSmartProtectionWarningEmail(c, info, setting, decision, actions.EmailTemplateID)
+		}
+	}
+	if actions.Block {
+		logger.LogWarn(c, fmt.Sprintf("smart protection blocked request: safeties=%s categories=%s latency=%dms", strings.Join(info.SmartProtectionSafeties, ","), strings.Join(info.SmartProtectionCategories, ","), reviewDuration.Milliseconds()))
 		return types.NewErrorWithStatusCode(errors.New("request blocked by smart protection"), types.ErrorCodeSmartProtectionBlocked, http.StatusForbidden, types.ErrOptionWithSkipRetry())
 	}
 	if err != nil {
@@ -144,6 +189,42 @@ func CheckSmartProtection(c *gin.Context, info *relaycommon.RelayInfo, channelId
 		// preserve the normal relay path instead of blocking customer traffic.
 	}
 	return nil
+}
+
+func aggregateSmartProtectionDecisions(decisions []smartProtectionDecision, latency int64) smartProtectionDecision {
+	aggregated := smartProtectionDecision{Latency: latency}
+	highestRisk := -1
+	contents := make([]string, 0, len(decisions))
+	rawResults := make([]string, 0, len(decisions))
+	for _, decision := range decisions {
+		risk := 1
+		switch {
+		case strings.EqualFold(strings.TrimSpace(decision.Safety), "Unsafe"):
+			risk = 3
+		case strings.EqualFold(strings.TrimSpace(decision.Safety), "Controversial"):
+			risk = 2
+		case strings.EqualFold(strings.TrimSpace(decision.Safety), "Safe"):
+			risk = 0
+		}
+		if risk > highestRisk {
+			highestRisk = risk
+			aggregated.Safety = strings.TrimSpace(decision.Safety)
+		}
+		for _, category := range decision.Categories {
+			if !containsString(aggregated.Categories, category) {
+				aggregated.Categories = append(aggregated.Categories, strings.TrimSpace(category))
+			}
+		}
+		if content := strings.TrimSpace(decision.Content); content != "" {
+			contents = append(contents, content)
+		}
+		if raw := strings.TrimSpace(decision.Raw); raw != "" {
+			rawResults = append(rawResults, raw)
+		}
+	}
+	aggregated.Content = strings.Join(contents, "\n\n--- reviewed chunk ---\n\n")
+	aggregated.Raw = strings.Join(rawResults, "\n\n--- review result ---\n\n")
+	return aggregated
 }
 
 func reviewSmartProtectionContext(ctx context.Context, setting operation_setting.SmartProtectionSetting, meta *types.TokenCountMeta, riskKey string) ([]smartProtectionDecision, error) {
@@ -236,7 +317,6 @@ func reviewSmartProtectionChunks(ctx context.Context, cancel context.CancelFunc,
 }
 
 func reviewSmartProtectionChunkCached(ctx context.Context, setting operation_setting.SmartProtectionSetting, content string, concurrencyLimit int) (smartProtectionDecision, error) {
-	startSmartProtectionCacheCleanup()
 	// Include the credential fingerprint in the key without retaining the credential itself.
 	hash := sha256.Sum256([]byte(setting.BaseURL + "\x00" + setting.Model + "\x00" + setting.APIKey + "\x00" + content))
 	key := hex.EncodeToString(hash[:])
@@ -300,38 +380,22 @@ func reviewSmartProtectionChunkCached(ctx context.Context, setting operation_set
 	return call.decision, call.err
 }
 
-func startSmartProtectionCacheCleanup() {
-	smartProtectionCacheCleanupOnce.Do(func() {
-		go func() {
-			ticker := time.NewTicker(time.Minute)
-			defer ticker.Stop()
-			for now := range ticker.C {
-				smartProtectionDecisionCache.Lock()
-				pruneSmartProtectionDecisionCache(now)
-				smartProtectionDecisionCache.Unlock()
-				smartProtectionRiskState.Lock()
-				for key, expires := range smartProtectionRiskState.entries {
-					if !now.Before(expires) {
-						delete(smartProtectionRiskState.entries, key)
-					}
-				}
-				smartProtectionRiskState.Unlock()
-			}
-		}()
-	})
-}
-
 func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.SmartProtectionSetting, content string) (smartProtectionDecision, error) {
 	started := time.Now()
 	payload := smartProtectionRequest{
-		Model:    setting.Model,
-		Messages: []smartProtectionMessage{{Role: "system", Content: "You are a helpful and harmless assistant. You should think step-by-step."}, {Role: "user", Content: content}},
+		Model:     setting.Model,
+		Messages:  []smartProtectionMessage{{Role: "system", Content: "You are a helpful and harmless assistant. You should think step-by-step."}, {Role: "user", Content: content}},
+		MaxTokens: 128,
+		Stream:    false,
 	}
 	body, err := common.Marshal(payload)
 	if err != nil {
 		return smartProtectionDecision{}, err
 	}
-	endpoint := strings.TrimRight(setting.BaseURL, "/") + "/chat/completions"
+	endpoint, err := smartProtectionEndpoint(setting.BaseURL)
+	if err != nil {
+		return smartProtectionDecision{}, err
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return smartProtectionDecision{}, err
@@ -353,17 +417,17 @@ func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.S
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return smartProtectionDecision{}, fmt.Errorf("smart protection upstream returned status %d", response.StatusCode)
 	}
-	var parsed smartProtectionResponse
-	if err := common.Unmarshal(responseBody, &parsed); err != nil {
+	raw, err := smartProtectionResponseContent(responseBody)
+	if err != nil {
 		return smartProtectionDecision{}, err
 	}
-	if len(parsed.Choices) == 0 || strings.TrimSpace(parsed.Choices[0].Message.Content) == "" {
+	if strings.TrimSpace(raw) == "" {
 		return smartProtectionDecision{}, errors.New("smart protection upstream returned no classification")
 	}
-	raw := strings.TrimSpace(parsed.Choices[0].Message.Content)
+	raw = strings.TrimSpace(raw)
 	decision := smartProtectionDecision{Raw: raw, Content: content, Latency: time.Since(started).Milliseconds()}
 	if match := smartProtectionLabelPattern.FindStringSubmatch(raw); len(match) == 2 {
-		decision.Safety = strings.TrimSpace(match[1])
+		decision.Safety = canonicalSmartProtectionSafety(match[1])
 	}
 	if len([]rune(decision.Safety)) > smartProtectionMaxSafetyRunes {
 		return smartProtectionDecision{}, errors.New("smart protection upstream returned an invalid safety label")
@@ -372,7 +436,7 @@ func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.S
 		categoryValue := strings.TrimSpace(match[1])
 		categoryValue = strings.Trim(categoryValue, "[]")
 		for _, category := range strings.Split(categoryValue, ",") {
-			category = strings.Trim(strings.TrimSpace(category), "\"'")
+			category = strings.Trim(strings.TrimSpace(category), " \t\"'`*_[]{}()")
 			if category != "" && !strings.EqualFold(category, "None") {
 				if len([]rune(category)) > smartProtectionMaxCategoryRunes || len(decision.Categories) >= smartProtectionMaxCategoryCount {
 					return smartProtectionDecision{}, errors.New("smart protection upstream returned invalid categories")
@@ -385,6 +449,76 @@ func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.S
 		return smartProtectionDecision{}, errors.New("smart protection upstream returned an invalid safety label")
 	}
 	return decision, nil
+}
+
+func smartProtectionResponseContent(responseBody []byte) (string, error) {
+	var parsed smartProtectionResponse
+	if err := common.Unmarshal(responseBody, &parsed); err == nil && len(parsed.Choices) > 0 {
+		content := parsed.Choices[0].Message.Content
+		if strings.TrimSpace(content) == "" {
+			content = parsed.Choices[0].Message.ReasoningContent
+		}
+		if strings.TrimSpace(content) != "" {
+			return content, nil
+		}
+	}
+
+	// Some OpenAI-compatible gateways return SSE even when the request asks for
+	// non-streaming output. Reassemble delta.content fields before classifying.
+	var content strings.Builder
+	for _, line := range bytes.Split(responseBody, []byte{'\n'}) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 || bytes.Equal(line, []byte("data: [DONE]")) {
+			continue
+		}
+		line = bytes.TrimSpace(bytes.TrimPrefix(line, []byte("data:")))
+		if len(line) == 0 {
+			continue
+		}
+		var chunk smartProtectionStreamChunk
+		if err := common.Unmarshal(line, &chunk); err != nil {
+			continue
+		}
+		for _, choice := range chunk.Choices {
+			content.WriteString(choice.Delta.Content)
+		}
+	}
+	if content.Len() == 0 {
+		return "", errors.New("smart protection upstream returned invalid response")
+	}
+	return content.String(), nil
+}
+
+// smartProtectionEndpoint accepts either an OpenAI-compatible base URL (for
+// example https://guard.example/v1) or the complete /chat/completions URL.
+// Keep query parameters on the URL when normalizing the path.
+func smartProtectionEndpoint(baseURL string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		if err == nil {
+			err = errors.New("smart protection URL is invalid")
+		}
+		return "", err
+	}
+	path := strings.TrimRight(parsed.Path, "/")
+	if !strings.HasSuffix(strings.ToLower(path), "/chat/completions") {
+		path += "/chat/completions"
+	}
+	parsed.Path = path
+	return parsed.String(), nil
+}
+
+func canonicalSmartProtectionSafety(value string) string {
+	switch {
+	case strings.EqualFold(strings.TrimSpace(value), "safe"):
+		return "Safe"
+	case strings.EqualFold(strings.TrimSpace(value), "controversial"):
+		return "Controversial"
+	case strings.EqualFold(strings.TrimSpace(value), "unsafe"):
+		return "Unsafe"
+	default:
+		return strings.TrimSpace(value)
+	}
 }
 
 func splitSmartProtectionContext(content string, limit int) []string {
@@ -602,14 +736,23 @@ func releaseSmartProtectionSlot() {
 }
 
 func smartProtectionShouldBlock(setting operation_setting.SmartProtectionSetting, decision smartProtectionDecision) bool {
+	for _, rule := range setting.BlockedRules {
+		if (rule.Block || !rule.ActionsConfigured) && smartProtectionRuleMatches(rule, decision) {
+			return true
+		}
+	}
+	if len(setting.BlockedRules) > 0 {
+		return false
+	}
+	// Compatibility for callers/tests constructing the legacy fields directly.
 	for _, safety := range setting.BlockedSafeties {
-		if strings.EqualFold(strings.TrimSpace(safety), strings.TrimSpace(decision.Safety)) {
+		if smartProtectionLabelsEqual(safety, decision.Safety) {
 			return true
 		}
 	}
 	for _, blocked := range setting.BlockedCategories {
 		for _, category := range decision.Categories {
-			if strings.EqualFold(strings.TrimSpace(blocked), strings.TrimSpace(category)) {
+			if smartProtectionLabelsEqual(blocked, category) {
 				return true
 			}
 		}
@@ -617,7 +760,127 @@ func smartProtectionShouldBlock(setting operation_setting.SmartProtectionSetting
 	return false
 }
 
-func recordSmartProtectionEvent(c *gin.Context, info *relaycommon.RelayInfo, channelId int, channelName string, setting operation_setting.SmartProtectionSetting, decision smartProtectionDecision) error {
+func smartProtectionEvaluateActions(setting operation_setting.SmartProtectionSetting, decisions []smartProtectionDecision) smartProtectionActions {
+	actions := smartProtectionActions{}
+	for _, rule := range setting.BlockedRules {
+		matched := false
+		for _, decision := range decisions {
+			if smartProtectionRuleMatches(rule, decision) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			continue
+		}
+		ruleLabel := strings.TrimSpace(rule.Name)
+		if ruleLabel == "" {
+			ruleLabel = strings.TrimSpace(rule.ID)
+		}
+		if ruleLabel != "" && !containsString(actions.MatchedRules, ruleLabel) {
+			actions.MatchedRules = append(actions.MatchedRules, ruleLabel)
+		}
+		if !rule.ActionsConfigured {
+			actions.Record = true
+			actions.Block = true
+		}
+		actions.Record = actions.Record || rule.Record
+		actions.Block = actions.Block || rule.Block
+		if actions.EmailTemplateID == "" && setting.WarningEmail && rule.SendEmail {
+			actions.EmailTemplateID = strings.TrimSpace(rule.EmailTemplateID)
+		}
+	}
+	// Blocking without an audit record makes the protection event disappear
+	// after the request finishes. Every enforced block must remain queryable.
+	if actions.Block {
+		actions.Record = true
+	}
+	return actions
+}
+
+func smartProtectionDecisionsAreSafe(decisions []smartProtectionDecision) bool {
+	if len(decisions) == 0 {
+		return false
+	}
+	for _, decision := range decisions {
+		if !strings.EqualFold(strings.TrimSpace(decision.Safety), "Safe") || len(decision.Categories) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func smartProtectionReviewOutcome(decisions []smartProtectionDecision, actions smartProtectionActions, reviewErr error) (string, string) {
+	if len(decisions) == 0 {
+		if reviewErr != nil {
+			return "failed", "guard_unavailable"
+		}
+		return "", ""
+	}
+	if actions.Block {
+		return "blocked", "blocking_rule_matched"
+	}
+	if reviewErr != nil {
+		return "partial", "partial_failure"
+	}
+	if smartProtectionDecisionsAreSafe(decisions) {
+		return "safe", "safe_classification"
+	}
+	return "observed", "non_blocking_risk"
+}
+
+func smartProtectionRuleMatches(rule operation_setting.SmartProtectionRule, decision smartProtectionDecision) bool {
+	if rule.MatchMode == "all" {
+		return smartProtectionConditionMatches(rule.Safety, rule.Categories, decision)
+	}
+	if strings.TrimSpace(rule.Safety) != "" && smartProtectionLabelsEqual(rule.Safety, decision.Safety) {
+		return true
+	}
+	for _, requiredCategory := range rule.Categories {
+		for _, category := range decision.Categories {
+			if smartProtectionLabelsEqual(requiredCategory, category) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func smartProtectionConditionMatches(safety string, categories []string, decision smartProtectionDecision) bool {
+	if strings.TrimSpace(safety) == "" && len(categories) == 0 {
+		return false
+	}
+	if strings.TrimSpace(safety) != "" && !smartProtectionLabelsEqual(safety, decision.Safety) {
+		return false
+	}
+	if len(categories) == 0 {
+		return true
+	}
+	for _, requiredCategory := range categories {
+		matched := false
+		for _, category := range decision.Categories {
+			if smartProtectionLabelsEqual(requiredCategory, category) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+	return true
+}
+
+func smartProtectionLabelsEqual(left, right string) bool {
+	normalize := func(value string) string {
+		value = strings.Trim(strings.TrimSpace(value), "*_`[]{}()\"'.,;:")
+		value = strings.NewReplacer("–", "-", "—", "-", "‐", "-", "‑", "-").Replace(value)
+		return strings.ToLower(strings.Join(strings.Fields(value), " "))
+	}
+	return normalize(left) == normalize(right)
+}
+
+func recordSmartProtectionEvent(c *gin.Context, info *relaycommon.RelayInfo, channelId int, channelName string, setting operation_setting.SmartProtectionSetting, decision smartProtectionDecision, action string, emailTemplateID string) error {
 	user, err := model.GetUserIdentityForSmartProtection(info.UserId)
 	if err != nil {
 		return err
@@ -638,13 +901,21 @@ func recordSmartProtectionEvent(c *gin.Context, info *relaycommon.RelayInfo, cha
 		rawResult = string(rawRunes[:smartProtectionMaxRawResultRunes])
 	}
 	hash := sha256.Sum256([]byte(decision.Content))
-	sendWarningEmail := shouldSendSmartProtectionWarningEmail(setting, user.Email)
+	emailRule, emailRuleMatched := selectSmartProtectionEmailTemplate(setting, emailTemplateID)
+	emailStatus := "not_configured"
+	if emailTemplateID != "" && !emailRuleMatched {
+		emailStatus = "not_matched"
+	} else if emailRuleMatched && strings.TrimSpace(user.Email) == "" {
+		emailStatus = "skipped_no_email"
+	} else if emailRuleMatched {
+		emailStatus = "pending"
+	}
 	event := &model.SmartProtectionEvent{
 		UserId: user.Id, Username: user.Username, Email: user.Email,
 		TokenId: info.TokenId, TokenName: c.GetString("token_name"), ChannelId: channelId, ChannelName: channelName,
 		RequestId: c.GetString(common.RequestIdKey), ModelName: info.OriginModelName, GuardModel: setting.Model,
 		Safety: decision.Safety, Categories: string(categories), Content: content, ContentHash: hex.EncodeToString(hash[:]), RawResult: rawResult,
-		Action: "blocked", ReviewTimeMs: decision.Latency, CreatedAt: time.Now().Unix(),
+		Action: action, ReviewTimeMs: decision.Latency, EmailStatus: emailStatus, EmailRuleName: emailRule.Name, CreatedAt: time.Now().Unix(),
 	}
 	if err := model.CreateSmartProtectionEvent(event); err != nil {
 		return err
@@ -658,9 +929,9 @@ func recordSmartProtectionEvent(c *gin.Context, info *relaycommon.RelayInfo, cha
 			}
 		})
 	}
-	if sendWarningEmail {
+	if emailStatus == "pending" {
 		gopool.Go(func() {
-			subject, body := buildSmartProtectionWarningEmail(decision, event.RequestId)
+			subject, body := renderSmartProtectionEmail(emailRule, decision, event, user.Username)
 			emailErr := common.SendEmail(subject, user.Email, body)
 			emailError := errorString(emailErr)
 			if emailErrorRunes := []rune(emailError); len(emailErrorRunes) > 255 {
@@ -669,7 +940,11 @@ func recordSmartProtectionEvent(c *gin.Context, info *relaycommon.RelayInfo, cha
 			if emailErr != nil {
 				common.SysError(fmt.Sprintf("smart protection warning email failed for user %d: %v", user.Id, emailErr))
 			}
-			if updateErr := model.UpdateSmartProtectionEmailResult(event.Id, emailErr == nil, emailError); updateErr != nil {
+			status := "sent"
+			if emailErr != nil {
+				status = "failed"
+			}
+			if updateErr := model.UpdateSmartProtectionEmailResult(event.Id, emailErr == nil, status, emailError); updateErr != nil {
 				common.SysError(fmt.Sprintf("failed to save smart protection email result for event %d: %v", event.Id, updateErr))
 			}
 		})
@@ -677,19 +952,110 @@ func recordSmartProtectionEvent(c *gin.Context, info *relaycommon.RelayInfo, cha
 	return nil
 }
 
+func sendSmartProtectionWarningEmail(c *gin.Context, info *relaycommon.RelayInfo, setting operation_setting.SmartProtectionSetting, decision smartProtectionDecision, emailTemplateID string) {
+	rule, matched := selectSmartProtectionEmailTemplate(setting, emailTemplateID)
+	if !matched {
+		return
+	}
+	user, err := model.GetUserIdentityForSmartProtection(info.UserId)
+	if err != nil || strings.TrimSpace(user.Email) == "" {
+		return
+	}
+	event := &model.SmartProtectionEvent{RequestId: c.GetString(common.RequestIdKey), ModelName: info.OriginModelName, Action: "observed", CreatedAt: time.Now().Unix()}
+	gopool.Go(func() {
+		subject, body := renderSmartProtectionEmail(rule, decision, event, user.Username)
+		if emailErr := common.SendEmail(subject, user.Email, body); emailErr != nil {
+			common.SysError(fmt.Sprintf("smart protection warning email failed for user %d: %v", user.Id, emailErr))
+		}
+	})
+}
+
 func buildSmartProtectionWarningEmail(decision smartProtectionDecision, requestId string) (string, string) {
-	subject := "【安全警告】请求已被智能保护机制拦截"
-	body := fmt.Sprintf(
-		"<h2>安全警告</h2><p><strong>当前请求已被智能保护机制拦截。</strong></p><p>如后续管理员确认本次请求确实包含越狱、破限或其他绕过安全限制的操作，对应的账号将直接冻结。</p><p>请勿继续尝试绕过平台安全策略。</p><hr><p>Safety: %s</p><p>Categories: %s</p><p>Request ID: %s</p>",
-		html.EscapeString(decision.Safety),
-		html.EscapeString(strings.Join(decision.Categories, ", ")),
-		html.EscapeString(requestId),
-	)
-	return subject, body
+	event := &model.SmartProtectionEvent{RequestId: requestId, Action: "blocked"}
+	rule := operation_setting.SmartProtectionEmailRule{Subject: operation_setting.SmartProtectionDefaultEmailSubject, Body: operation_setting.SmartProtectionDefaultEmailBody}
+	return renderSmartProtectionEmail(rule, decision, event, "")
 }
 
 func shouldSendSmartProtectionWarningEmail(setting operation_setting.SmartProtectionSetting, email string) bool {
 	return setting.WarningEmail && strings.TrimSpace(email) != ""
+}
+
+func selectSmartProtectionEmailRule(setting operation_setting.SmartProtectionSetting, decision smartProtectionDecision, action string) (operation_setting.SmartProtectionEmailRule, bool) {
+	return selectSmartProtectionEmailRuleForDecisions(setting, []smartProtectionDecision{decision}, action)
+}
+
+func selectSmartProtectionEmailTemplate(setting operation_setting.SmartProtectionSetting, templateID string) (operation_setting.SmartProtectionEmailRule, bool) {
+	for index, rule := range setting.EmailRules {
+		if !rule.Enabled {
+			continue
+		}
+		if templateID != "" && strings.TrimSpace(rule.ID) == strings.TrimSpace(templateID) {
+			return rule, true
+		}
+		if templateID == "" && index == 0 {
+			return rule, true
+		}
+	}
+	return operation_setting.SmartProtectionEmailRule{}, false
+}
+
+func selectSmartProtectionEmailRuleForDecisions(setting operation_setting.SmartProtectionSetting, decisions []smartProtectionDecision, action string) (operation_setting.SmartProtectionEmailRule, bool) {
+	if !setting.WarningEmail {
+		return operation_setting.SmartProtectionEmailRule{}, false
+	}
+	for _, rule := range setting.EmailRules {
+		if rule.Action != "" && !strings.EqualFold(strings.TrimSpace(rule.Action), strings.TrimSpace(action)) {
+			continue
+		}
+		if strings.TrimSpace(rule.Safety) == "" && len(rule.Categories) == 0 && strings.TrimSpace(rule.Action) != "" {
+			return rule, true
+		}
+		for _, decision := range decisions {
+			if smartProtectionEmailRuleMatches(rule, decision) {
+				return rule, true
+			}
+		}
+	}
+	return operation_setting.SmartProtectionEmailRule{}, false
+}
+
+func smartProtectionEmailRuleMatches(rule operation_setting.SmartProtectionEmailRule, decision smartProtectionDecision) bool {
+	if rule.MatchMode == "all" {
+		return smartProtectionConditionMatches(rule.Safety, rule.Categories, decision)
+	}
+	if strings.TrimSpace(rule.Safety) != "" && smartProtectionLabelsEqual(rule.Safety, decision.Safety) {
+		return true
+	}
+	for _, requiredCategory := range rule.Categories {
+		for _, category := range decision.Categories {
+			if smartProtectionLabelsEqual(requiredCategory, category) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func renderSmartProtectionEmail(rule operation_setting.SmartProtectionEmailRule, decision smartProtectionDecision, event *model.SmartProtectionEvent, username string) (string, string) {
+	createdAt := time.Unix(event.CreatedAt, 0).Format(time.RFC3339)
+	values := map[string]string{
+		"username":   username,
+		"safety":     decision.Safety,
+		"categories": strings.Join(decision.Categories, ", "),
+		"request_id": event.RequestId,
+		"model":      event.ModelName,
+		"time":       createdAt,
+		"action":     event.Action,
+	}
+	subject := rule.Subject
+	body := rule.Body
+	for key, value := range values {
+		placeholder := "{{" + key + "}}"
+		subject = strings.ReplaceAll(subject, placeholder, value)
+		body = strings.ReplaceAll(body, placeholder, html.EscapeString(value))
+	}
+	subject = strings.NewReplacer("\r", " ", "\n", " ").Replace(subject)
+	return subject, body
 }
 
 func errorString(err error) string {
@@ -702,6 +1068,15 @@ func errorString(err error) string {
 func containsInt(values []int, target int) bool {
 	for _, value := range values {
 		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if strings.EqualFold(strings.TrimSpace(value), strings.TrimSpace(target)) {
 			return true
 		}
 	}

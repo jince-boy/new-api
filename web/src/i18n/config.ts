@@ -16,34 +16,52 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import i18n from 'i18next'
+import i18n, { type BackendModule, type ResourceKey } from 'i18next'
 import LanguageDetector from 'i18next-browser-languagedetector'
 import { initReactI18next } from 'react-i18next'
 
 import { convertDetectedLanguage } from './languages'
-import en from './locales/en.json'
-import fr from './locales/fr.json'
-import ja from './locales/ja.json'
-import ru from './locales/ru.json'
-import vi from './locales/vi.json'
-import zhTW from './locales/zh-TW.json'
-import zhCN from './locales/zh.json'
 
-export const resources = {
-  en,
-  zhCN,
-  fr,
-  ru,
-  ja,
-  vi,
-  zhTW,
-} as const
+type LocaleModule = { default: { translation: ResourceKey } }
+
+const localeLoaders: Record<string, () => Promise<LocaleModule>> = {
+  en: () => import('./locales/en.json'),
+  zhCN: () => import('./locales/zh.json'),
+  fr: () => import('./locales/fr.json'),
+  ru: () => import('./locales/ru.json'),
+  ja: () => import('./locales/ja.json'),
+  vi: () => import('./locales/vi.json'),
+  zhTW: () => import('./locales/zh-TW.json'),
+}
+
+export const localeBackend: BackendModule = {
+  type: 'backend',
+  init() {},
+  read(language, _namespace, callback) {
+    const loader = localeLoaders[language]
+    if (!loader) {
+      callback(new Error(`Unsupported locale: ${language}`), null)
+      return
+    }
+
+    loader()
+      // The i18next backend contract is callback-based.
+      // eslint-disable-next-line promise/no-callback-in-promise
+      .then((module) => callback(null, module.default.translation))
+      .catch((error: unknown) => {
+        const loadError =
+          error instanceof Error ? error : new Error(String(error))
+        // eslint-disable-next-line promise/no-callback-in-promise
+        callback(loadError, null)
+      })
+  },
+}
 
 i18n
+  .use(localeBackend)
   .use(LanguageDetector)
   .use(initReactI18next)
   .init({
-    resources,
     fallbackLng: 'en',
     supportedLngs: ['en', 'zhCN', 'fr', 'ru', 'ja', 'vi', 'zhTW'],
     load: 'currentOnly',

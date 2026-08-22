@@ -16,36 +16,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import assert from 'node:assert/strict'
-import { after, describe, test } from 'node:test'
-
 import type { ColumnDef } from '@tanstack/react-table'
-import { Window } from 'happy-dom'
+import type { ReactNode } from 'react'
+import { describe, expect, test, vi } from 'vitest'
 
 import type { UsageLog } from '../../../data/schema'
 
-const domWindow = new Window()
-for (const key of [
-  'window',
-  'document',
-  'navigator',
-  'HTMLElement',
-  'Node',
-  'Element',
-  'Event',
-  'CustomEvent',
-  'customElements',
-  'MutationObserver',
-  'requestAnimationFrame',
-  'cancelAnimationFrame',
-  'getComputedStyle',
-  'matchMedia',
-] as const) {
-  Object.defineProperty(globalThis, key, {
-    configurable: true,
-    value: domWindow[key],
-  })
-}
+vi.mock('@/lib/lobe-icon', () => ({
+  getLobeIcon: () => null,
+}))
 
 const { act } = await import('react')
 const { createRoot } = await import('react-dom/client')
@@ -66,38 +45,213 @@ function ColumnsProbe(props: { isAdmin: boolean }) {
 }
 
 describe('smart-protection review log column', () => {
-  after(() => {
-    domWindow.close()
-  })
-
-  test('is available only in the administrator table and reads review milliseconds', async () => {
+  test('shows only Safety and Categories review columns to administrators', async () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
 
     await act(async () => root.render(<ColumnsProbe isAdmin />))
-    const reviewColumn = renderedColumns.find(
-      (column) => column.id === 'smart_protection_review'
-    )
-    assert.ok(reviewColumn)
-    if (!('accessorFn' in reviewColumn)) {
-      assert.fail('review column must define an accessor function')
-    }
-    const accessorFn = reviewColumn.accessorFn
-    assert.equal(typeof accessorFn, 'function')
-
     const log = {
       other: JSON.stringify({
-        admin_info: { smart_protection_review_ms: 1750 },
+        admin_info: {
+          smart_protection_safeties: ['Controversial'],
+          smart_protection_categories: ['Jailbreak'],
+        },
       }),
     } as UsageLog
-    assert.equal(accessorFn(log, 0), 1750)
+    const safetyColumn = renderedColumns.find(
+      (column) => column.id === 'smart_protection_safeties'
+    )
+    const categoriesColumn = renderedColumns.find(
+      (column) => column.id === 'smart_protection_categories'
+    )
+    expect(safetyColumn).toBeDefined()
+    expect(categoriesColumn).toBeDefined()
+    expect(
+      renderedColumns.some(
+        (column) =>
+          column.id === 'smart_protection_review' ||
+          column.id === 'smart_protection_status' ||
+          column.id === 'smart_protection_reason'
+      )
+    ).toBe(false)
+    if (!safetyColumn || !('accessorFn' in safetyColumn)) {
+      throw new Error('safety column must define an accessor function')
+    }
+    if (!categoriesColumn || !('accessorFn' in categoriesColumn)) {
+      throw new Error('categories column must define an accessor function')
+    }
+    expect(safetyColumn.accessorFn(log, 0)).toEqual(['Controversial'])
+    expect(categoriesColumn.accessorFn(log, 0)).toEqual(['Jailbreak'])
 
     await act(async () => root.render(<ColumnsProbe isAdmin={false} />))
-    assert.equal(
-      renderedColumns.some((column) => column.id === 'smart_protection_review'),
-      false
+    expect(
+      renderedColumns.some((column) => column.id === 'smart_protection_review')
+    ).toBe(false)
+    expect(
+      renderedColumns.some(
+        (column) => column.id === 'smart_protection_safeties'
+      )
+    ).toBe(false)
+    expect(
+      renderedColumns.some(
+        (column) => column.id === 'smart_protection_categories'
+      )
+    ).toBe(false)
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('shows None when a completed safe review has no categories', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => root.render(<ColumnsProbe isAdmin />))
+    const categoriesColumn = renderedColumns.find(
+      (column) => column.id === 'smart_protection_categories'
     )
+    if (!categoriesColumn || typeof categoriesColumn.cell !== 'function') {
+      throw new Error('categories column must define a cell renderer')
+    }
+
+    const log = {
+      type: 2,
+      other: JSON.stringify({
+        admin_info: {
+          smart_protection_review_ms: 125,
+          smart_protection_safeties: ['Safe'],
+          smart_protection_categories: [],
+        },
+      }),
+    } as UsageLog
+    const content = categoriesColumn.cell({
+      row: {
+        original: log,
+        getValue: () => [],
+      },
+    } as never) as ReactNode
+
+    await act(async () => root.render(content))
+    expect(container.textContent).toContain('None')
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('shows Error instead of None when the review failed', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => root.render(<ColumnsProbe isAdmin />))
+    const safetyColumn = renderedColumns.find(
+      (column) => column.id === 'smart_protection_safeties'
+    )
+    const categoriesColumn = renderedColumns.find(
+      (column) => column.id === 'smart_protection_categories'
+    )
+    if (
+      !safetyColumn ||
+      typeof safetyColumn.cell !== 'function' ||
+      !categoriesColumn ||
+      typeof categoriesColumn.cell !== 'function'
+    ) {
+      throw new Error('review columns must define cell renderers')
+    }
+    const log = {
+      type: 2,
+      other: JSON.stringify({
+        admin_info: {
+          smart_protection_review_ms: 400,
+          smart_protection_review_status: 'failed',
+          smart_protection_review_reason: 'guard_unavailable',
+          smart_protection_safeties: [],
+          smart_protection_categories: [],
+          smart_protection_review_error:
+            'smart protection upstream returned status 401',
+        },
+      }),
+    } as UsageLog
+    const row = {
+      original: log,
+      getValue: () => [],
+    }
+    const safetyContent = safetyColumn.cell({ row } as never) as ReactNode
+    const categoriesContent = categoriesColumn.cell({
+      row,
+    } as never) as ReactNode
+
+    await act(async () =>
+      root.render(
+        <>
+          {safetyContent}
+          {categoriesContent}
+        </>
+      )
+    )
+    expect(container.textContent).toBe('ErrorError')
+    expect(container.textContent).not.toContain('None')
+
+    await act(async () => root.unmount())
+    container.remove()
+  })
+
+  test('keeps partial classifications visible in Safety and Categories', async () => {
+    const container = document.createElement('div')
+    document.body.append(container)
+    const root = createRoot(container)
+
+    await act(async () => root.render(<ColumnsProbe isAdmin />))
+    const safetyColumn = renderedColumns.find(
+      (column) => column.id === 'smart_protection_safeties'
+    )
+    const categoriesColumn = renderedColumns.find(
+      (column) => column.id === 'smart_protection_categories'
+    )
+    if (
+      !safetyColumn ||
+      typeof safetyColumn.cell !== 'function' ||
+      !categoriesColumn ||
+      typeof categoriesColumn.cell !== 'function'
+    ) {
+      throw new Error('review columns must define cell renderers')
+    }
+    const safetyCell = safetyColumn.cell
+    const categoriesCell = categoriesColumn.cell
+
+    const log = {
+      type: 2,
+      other: JSON.stringify({
+        admin_info: {
+          smart_protection_review_status: 'partial',
+          smart_protection_review_reason: 'partial_failure',
+          smart_protection_safeties: ['Controversial'],
+          smart_protection_categories: ['Jailbreak'],
+          smart_protection_review_error: 'one review chunk timed out',
+        },
+      }),
+    } as UsageLog
+    const row = {
+      original: log,
+      getValue: (columnID: string) =>
+        columnID === 'smart_protection_safeties'
+          ? ['Controversial']
+          : ['Jailbreak'],
+    }
+
+    await act(async () =>
+      root.render(
+        <>
+          {safetyCell({ row } as never) as ReactNode}
+          {categoriesCell({ row } as never) as ReactNode}
+        </>
+      )
+    )
+    expect(container.textContent).toContain('Controversial')
+    expect(container.textContent).toContain('Jailbreak')
+    expect(container.textContent).not.toContain('Error')
 
     await act(async () => root.unmount())
     container.remove()

@@ -107,11 +107,17 @@ type RelayInfo struct {
 	ChannelRateLimitQueueTime time.Duration
 	// SmartProtectionReviewTime is the wall time spent waiting for the safety
 	// model. It is excluded from customer-facing request duration and TTFT.
-	SmartProtectionReviewTime time.Duration
-	UpstreamStartTime         time.Time
-	UpstreamResponseTime      time.Time
-	UpstreamFirstContentTime  time.Time
-	isFirstResponse           bool
+	SmartProtectionReviewTime   time.Duration
+	SmartProtectionSafeties     []string
+	SmartProtectionCategories   []string
+	SmartProtectionReviewError  string
+	SmartProtectionReviewStatus string
+	SmartProtectionReviewReason string
+	SmartProtectionMatchedRules []string
+	UpstreamStartTime           time.Time
+	UpstreamResponseTime        time.Time
+	UpstreamFirstContentTime    time.Time
+	isFirstResponse             bool
 	//SendLastReasoningResponse bool
 	IsStream               bool
 	IsGeminiBatchEmbedding bool

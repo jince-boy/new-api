@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQueryClient, useIsFetching } from '@tanstack/react-query'
+import { useIsFetching, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, getRouteApi } from '@tanstack/react-router'
 import type { Table } from '@tanstack/react-table'
 import { Eye, EyeOff } from 'lucide-react'
@@ -187,18 +187,30 @@ export function CommonLogsFilterBar<TData>(
 
   const handleApply = useCallback(() => {
     const filterParams = buildSearchParams(filters, 'common')
+    const nextSearch = { ...filterParams, type: [logType] }
+    const refreshCurrentQuery =
+      (searchParams.page ?? 1) === 1 &&
+      buildSearchSourceKey(nextSearch) === searchState.sourceKey
     navigate({
       to: '/usage-logs/$section',
       params: { section: 'common' },
       search: {
-        ...filterParams,
-        type: [logType],
+        ...nextSearch,
         page: 1,
       },
     })
-    queryClient.invalidateQueries({ queryKey: ['logs'] })
-    queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
-  }, [filters, logType, navigate, queryClient])
+    if (refreshCurrentQuery) {
+      queryClient.invalidateQueries({ queryKey: ['logs'] })
+      queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
+    }
+  }, [
+    filters,
+    logType,
+    navigate,
+    queryClient,
+    searchParams.page,
+    searchState.sourceKey,
+  ])
 
   const handleReset = useCallback(() => {
     const { start, end } = getDefaultTimeRange()
@@ -208,6 +220,9 @@ export function CommonLogsFilterBar<TData>(
       startTime: start.getTime(),
       endTime: end.getTime(),
     }
+    const refreshCurrentQuery =
+      (searchParams.page ?? 1) === 1 &&
+      buildSearchSourceKey(resetSearch) === searchState.sourceKey
     setDraft({
       sourceKey: buildSearchSourceKey(resetSearch),
       filters: resetFilters,
@@ -222,9 +237,16 @@ export function CommonLogsFilterBar<TData>(
         ...resetSearch,
       },
     })
-    queryClient.invalidateQueries({ queryKey: ['logs'] })
-    queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
-  }, [navigate, queryClient])
+    if (refreshCurrentQuery) {
+      queryClient.invalidateQueries({ queryKey: ['logs'] })
+      queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
+    }
+  }, [
+    navigate,
+    queryClient,
+    searchParams.page,
+    searchState.sourceKey,
+  ])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

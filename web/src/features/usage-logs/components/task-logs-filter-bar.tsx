@@ -16,9 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useQueryClient, useIsFetching } from '@tanstack/react-query'
+import { useIsFetching, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, getRouteApi } from '@tanstack/react-router'
-import { type Table } from '@tanstack/react-table'
+import type { Table } from '@tanstack/react-table'
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -117,6 +117,12 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
 
   const handleApply = useCallback(() => {
     const filterParams = buildSearchParams(filters, props.logCategory)
+    const refreshCurrentQuery =
+      (searchParams.page ?? 1) === 1 &&
+      filterParams.startTime === searchParams.startTime &&
+      filterParams.endTime === searchParams.endTime &&
+      filterParams.channel === searchParams.channel &&
+      filterParams.filter === searchParams.filter
     navigate({
       to: '/usage-logs/$section',
       params: { section: props.logCategory },
@@ -125,13 +131,21 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
         page: 1,
       },
     })
-    queryClient.invalidateQueries({ queryKey: ['logs'] })
-  }, [filters, navigate, props.logCategory, queryClient])
+    if (refreshCurrentQuery) {
+      queryClient.invalidateQueries({ queryKey: ['logs'] })
+    }
+  }, [filters, navigate, props.logCategory, queryClient, searchParams])
 
   const handleReset = useCallback(() => {
     const { start, end } = getDefaultTimeRange()
     const resetFilters: TaskLogsFilters = { startTime: start, endTime: end }
     setFilters(resetFilters)
+    const refreshCurrentQuery =
+      (searchParams.page ?? 1) === 1 &&
+      start.getTime() === searchParams.startTime &&
+      end.getTime() === searchParams.endTime &&
+      searchParams.channel == null &&
+      searchParams.filter == null
 
     navigate({
       to: '/usage-logs/$section',
@@ -142,8 +156,10 @@ export function TaskLogsFilterBar<TData>(props: TaskLogsFilterBarProps<TData>) {
         endTime: end.getTime(),
       },
     })
-    queryClient.invalidateQueries({ queryKey: ['logs'] })
-  }, [navigate, props.logCategory, queryClient])
+    if (refreshCurrentQuery) {
+      queryClient.invalidateQueries({ queryKey: ['logs'] })
+    }
+  }, [navigate, props.logCategory, queryClient, searchParams])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

@@ -24,6 +24,7 @@ import { useTranslation } from 'react-i18next'
 import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge, type StatusBadgeProps } from '@/components/status-badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
+import { Badge } from '@/components/ui/badge'
 import {
   Popover,
   PopoverContent,
@@ -291,8 +292,13 @@ function buildTypeDetailSegments(
   return segments
 }
 
-export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
+export function useCommonLogsColumns(
+  isAdmin: boolean,
+  enabled = true
+): ColumnDef<UsageLog>[] {
   const { t } = useTranslation()
+  if (!enabled) return []
+
   const columns: ColumnDef<UsageLog>[] = [
     {
       accessorKey: 'created_at',
@@ -769,24 +775,82 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
     })
 
     columns.push({
-      id: 'smart_protection_review',
-      header: t('Security review'),
+      id: 'smart_protection_safeties',
+      header: t('Review Safety'),
       accessorFn: (log) =>
-        parseLogOther(log.other)?.admin_info?.smart_protection_review_ms ?? 0,
+        parseLogOther(log.other)?.admin_info?.smart_protection_safeties ?? [],
       cell: ({ row }) => {
         if (!isTimingLogType(row.original.type)) return null
-
-        const reviewMs = row.getValue('smart_protection_review') as number
-        if (reviewMs <= 0) {
+        const other = parseLogOther(row.original.other)
+        const reviewStatus = other?.admin_info?.smart_protection_review_status
+        const reviewError = other?.admin_info?.smart_protection_review_error
+        if ((!reviewStatus || reviewStatus === 'failed') && reviewError) {
+          return (
+            <Badge variant='destructive' title={reviewError}>
+              {t('Error')}
+            </Badge>
+          )
+        }
+        const safeties = row.getValue('smart_protection_safeties') as string[]
+        if (safeties.length === 0) {
           return <span className='text-muted-foreground/40'>—</span>
         }
         return (
-          <span className='font-mono text-xs tabular-nums'>
-            {formatUseTime(reviewMs / 1000)}
-          </span>
+          <div className='flex max-w-48 flex-wrap gap-1'>
+            {safeties.map((safety) => (
+              <Badge key={safety} variant='outline'>
+                {t(`Smart protection safety: ${safety}`)}
+              </Badge>
+            ))}
+          </div>
         )
       },
-      size: 110,
+      size: 125,
+    })
+
+    columns.push({
+      id: 'smart_protection_categories',
+      header: t('Review Categories'),
+      accessorFn: (log) =>
+        parseLogOther(log.other)?.admin_info?.smart_protection_categories ?? [],
+      cell: ({ row }) => {
+        if (!isTimingLogType(row.original.type)) return null
+        const other = parseLogOther(row.original.other)
+        const reviewStatus = other?.admin_info?.smart_protection_review_status
+        const reviewError = other?.admin_info?.smart_protection_review_error
+        const categories = row.getValue(
+          'smart_protection_categories'
+        ) as string[]
+        if (
+          ((!reviewStatus || reviewStatus === 'failed') && reviewError) ||
+          (reviewStatus === 'partial' && reviewError && categories.length === 0)
+        ) {
+          return (
+            <Badge variant='destructive' title={reviewError}>
+              {t('Error')}
+            </Badge>
+          )
+        }
+        if (categories.length === 0) {
+          if (
+            other?.admin_info?.smart_protection_safeties ||
+            other?.admin_info?.smart_protection_review_ms != null
+          ) {
+            return <Badge variant='secondary'>{t('None')}</Badge>
+          }
+          return <span className='text-muted-foreground/40'>—</span>
+        }
+        return (
+          <div className='flex max-w-64 flex-wrap gap-1'>
+            {categories.map((category) => (
+              <Badge key={category} variant='secondary'>
+                {t(`Smart protection category: ${category}`)}
+              </Badge>
+            ))}
+          </div>
+        )
+      },
+      size: 220,
     })
   }
 

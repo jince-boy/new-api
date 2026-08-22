@@ -307,6 +307,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			if smartProtectionErr := service.CheckSmartProtection(c, relayInfo, channel.Id, channel.Name, meta); smartProtectionErr != nil {
 				service.ReleaseChannelRequestReservation(reservation)
 				newAPIError = smartProtectionErr
+				processChannelError(c, relayInfo, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), smartProtectionErr)
 				break
 			}
 			smartProtectionReviewed = true
@@ -578,7 +579,8 @@ func processChannelError(c *gin.Context, relayInfo *relaycommon.RelayInfo, chann
 		})
 	}
 
-	if constant.ErrorLogEnabled && types.IsRecordErrorLog(err) {
+	isSmartProtectionBlock := err.GetErrorCode() == types.ErrorCodeSmartProtectionBlocked
+	if (constant.ErrorLogEnabled || isSmartProtectionBlock) && types.IsRecordErrorLog(err) {
 		// 保存错误日志到mysql中
 		userId := c.GetInt("id")
 		tokenName := c.GetString("token_name")

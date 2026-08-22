@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ImageUploadIcon } from '@hugeicons/core-free-icons'
+import ImageUploadIcon from '@hugeicons/core-free-icons/ImageUploadIcon'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQueryClient } from '@tanstack/react-query'
 import { type ChangeEvent, useMemo, useRef, useState } from 'react'

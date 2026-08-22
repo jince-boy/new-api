@@ -16,11 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  Calendar03Icon,
-  Cancel01Icon,
-  Clock01Icon,
-} from '@hugeicons/core-free-icons'
+import Calendar03Icon from '@hugeicons/core-free-icons/Calendar03Icon'
+import Cancel01Icon from '@hugeicons/core-free-icons/Cancel01Icon'
+import Clock01Icon from '@hugeicons/core-free-icons/Clock01Icon'
 import { HugeiconsIcon } from '@hugeicons/react'
 import * as React from 'react'
 import { enUS, fr, ja, ru, vi, zhCN, zhTW } from 'react-day-picker/locale'

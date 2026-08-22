@@ -8,7 +8,7 @@ License, or (at your option) any later version.
 */
 
 import { zodResolver } from '@hookform/resolvers/zod'
-import { AddInvoiceIcon } from '@hugeicons/core-free-icons'
+import AddInvoiceIcon from '@hugeicons/core-free-icons/AddInvoiceIcon'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { type ReactNode, useMemo } from 'react'
 import { useForm } from 'react-hook-form'

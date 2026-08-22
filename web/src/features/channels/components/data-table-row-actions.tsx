@@ -23,7 +23,6 @@ import {
   Boxes,
   Pencil,
   PlugZap,
-  Gauge,
   DollarSign,
   Download,
   Copy,
@@ -34,7 +33,7 @@ import {
   RefreshCw,
   Loader2,
 } from 'lucide-react'
-import { useContext, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
@@ -61,16 +60,13 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { MODEL_FETCHABLE_TYPES } from '../constants'
 import {
-  channelsQueryKeys,
   handleDeleteChannel,
-  handleTestChannel,
   handleToggleChannelStatus,
   isChannelEnabled,
   isMultiKeyChannel,
 } from '../lib'
 import { parseUpstreamUpdateMeta } from '../lib/upstream-update-utils'
 import type { Channel } from '../types'
-import { ChannelRowActionsLayoutContext } from './channel-row-actions-context'
 import { useChannels } from './channels-provider'
 
 interface DataTableRowActionsProps {
@@ -79,13 +75,11 @@ interface DataTableRowActionsProps {
 
 export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const { t } = useTranslation()
-  const layout = useContext(ChannelRowActionsLayoutContext)
   const channel = row.original
   const { setOpen, setCurrentRow, upstream } = useChannels()
   const queryClient = useQueryClient()
   const currentUser = useAuthStore((s) => s.auth.user)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
-  const [isTesting, setIsTesting] = useState(false)
   const [isTogglingStatus, setIsTogglingStatus] = useState(false)
 
   const isEnabled = isChannelEnabled(channel)
@@ -104,18 +98,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
   const handleTest = () => {
     setCurrentRow(channel)
     setOpen('test-channel')
-  }
-
-  const handleDirectTest = async (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation()
-    setIsTesting(true)
-    try {
-      await handleTestChannel(channel.id, { channelName: channel.name }, () => {
-        queryClient.invalidateQueries({ queryKey: channelsQueryKeys.lists() })
-      })
-    } finally {
-      setIsTesting(false)
-    }
   }
 
   const handleQueryBalance = () => {
@@ -164,26 +146,24 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
 
   return (
     <div className='-ml-1.5 flex items-center gap-1'>
-      {layout !== 'card' && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant='ghost'
-                size='icon-sm'
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleEdit()
-                }}
-                aria-label={t('Edit')}
-              />
-            }
-          >
-            <Pencil className='size-4' />
-          </TooltipTrigger>
-          <TooltipContent>{t('Edit')}</TooltipContent>
-        </Tooltip>
-      )}
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant='ghost'
+              size='icon-sm'
+              onClick={(e) => {
+                e.stopPropagation()
+                handleEdit()
+              }}
+              aria-label={t('Edit')}
+            />
+          }
+        >
+          <Pencil className='size-4' />
+        </TooltipTrigger>
+        <TooltipContent>{t('Edit')}</TooltipContent>
+      </Tooltip>
 
       <Tooltip>
         <TooltipTrigger
@@ -191,41 +171,18 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
             <Button
               variant='ghost'
               size='icon-sm'
-              onClick={handleDirectTest}
-              disabled={isTesting}
-              aria-label={t('Test Connection')}
+              onClick={(e) => {
+                e.stopPropagation()
+                handleTest()
+              }}
+              aria-label={t('Test Channel Connection')}
             />
           }
         >
-          {isTesting ? (
-            <Loader2 className='size-4 animate-spin' />
-          ) : (
-            <Gauge className='size-4' />
-          )}
+          <PlugZap className='size-4' />
         </TooltipTrigger>
-        <TooltipContent>{t('Test Connection')}</TooltipContent>
+        <TooltipContent>{t('Test Channel Connection')}</TooltipContent>
       </Tooltip>
-
-      {layout === 'card' && (
-        <Tooltip>
-          <TooltipTrigger
-            render={
-              <Button
-                variant='ghost'
-                size='icon-sm'
-                onClick={(e) => {
-                  e.stopPropagation()
-                  handleTest()
-                }}
-                aria-label={t('Test Channel Connection')}
-              />
-            }
-          >
-            <PlugZap className='size-4' />
-          </TooltipTrigger>
-          <TooltipContent>{t('Test Channel Connection')}</TooltipContent>
-        </Tooltip>
-      )}
 
       <Tooltip>
         <TooltipTrigger
@@ -264,15 +221,6 @@ export function DataTableRowActions({ row }: DataTableRowActionsProps) {
           <span className='sr-only'>{t('Open menu')}</span>
         </DropdownMenuTrigger>
         <DropdownMenuContent align='end' className='w-48'>
-          {layout === 'card' && (
-            <DropdownMenuItem onClick={handleEdit}>
-              {t('Edit')}
-              <DropdownMenuShortcut>
-                <Pencil size={16} />
-              </DropdownMenuShortcut>
-            </DropdownMenuItem>
-          )}
-
           {/* Test Connection */}
           <DropdownMenuItem onClick={handleTest}>
             {t('Test Connection')}

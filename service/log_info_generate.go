@@ -77,12 +77,25 @@ func AppendChannelRateLimitQueueAdminInfo(adminInfo map[string]interface{}, rela
 	adminInfo["channel_rate_limit_queue_ms"] = relayInfo.ChannelRateLimitQueueTime.Milliseconds()
 }
 
-// AppendSmartProtectionReviewAdminInfo exposes safety-model latency only to admins.
+// AppendSmartProtectionReviewAdminInfo exposes safety-model diagnostics only to admins.
 func AppendSmartProtectionReviewAdminInfo(adminInfo map[string]interface{}, relayInfo *relaycommon.RelayInfo) {
-	if adminInfo == nil || relayInfo == nil || relayInfo.SmartProtectionReviewTime <= 0 {
+	if adminInfo == nil || relayInfo == nil {
 		return
 	}
-	adminInfo["smart_protection_review_ms"] = relayInfo.SmartProtectionReviewTime.Milliseconds()
+	reviewed := relayInfo.SmartProtectionReviewTime > 0 || len(relayInfo.SmartProtectionSafeties) > 0 || len(relayInfo.SmartProtectionCategories) > 0 || len(relayInfo.SmartProtectionMatchedRules) > 0 || relayInfo.SmartProtectionReviewError != "" || relayInfo.SmartProtectionReviewStatus != "" || relayInfo.SmartProtectionReviewReason != ""
+	if relayInfo.SmartProtectionReviewTime > 0 {
+		adminInfo["smart_protection_review_ms"] = relayInfo.SmartProtectionReviewTime.Milliseconds()
+	}
+	if reviewed {
+		adminInfo["smart_protection_review_status"] = relayInfo.SmartProtectionReviewStatus
+		adminInfo["smart_protection_review_reason"] = relayInfo.SmartProtectionReviewReason
+		adminInfo["smart_protection_safeties"] = append([]string{}, relayInfo.SmartProtectionSafeties...)
+		adminInfo["smart_protection_categories"] = append([]string{}, relayInfo.SmartProtectionCategories...)
+		adminInfo["smart_protection_matched_rules"] = append([]string{}, relayInfo.SmartProtectionMatchedRules...)
+		if relayInfo.SmartProtectionReviewError != "" {
+			adminInfo["smart_protection_review_error"] = relayInfo.SmartProtectionReviewError
+		}
+	}
 }
 
 func attachChannelRateLimitQueueTime(other map[string]interface{}, relayInfo *relaycommon.RelayInfo) {
@@ -98,7 +111,10 @@ func attachChannelRateLimitQueueTime(other map[string]interface{}, relayInfo *re
 }
 
 func attachSmartProtectionReviewTime(other map[string]interface{}, relayInfo *relaycommon.RelayInfo) {
-	if other == nil || relayInfo == nil || relayInfo.SmartProtectionReviewTime <= 0 {
+	if other == nil || relayInfo == nil {
+		return
+	}
+	if relayInfo.SmartProtectionReviewTime <= 0 && len(relayInfo.SmartProtectionSafeties) == 0 && len(relayInfo.SmartProtectionCategories) == 0 && len(relayInfo.SmartProtectionMatchedRules) == 0 && relayInfo.SmartProtectionReviewError == "" && relayInfo.SmartProtectionReviewStatus == "" && relayInfo.SmartProtectionReviewReason == "" {
 		return
 	}
 	adminInfo, ok := other["admin_info"].(map[string]interface{})
