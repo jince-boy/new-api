@@ -4908,6 +4908,7 @@
     "Safety": "安全等級",
     "Safety and categories": "Safety 與 Categories",
     "Safety condition": "Safety 條件",
+    "Safety is the rule gate. Any or all matching only applies to the selected Categories; separate rules are evaluated independently.": "Safety 是規則的前置條件。「符合任意/全部」僅作用於所選 Categories；各規則獨立判斷。",
     "Safety Settings": "安全設定",
     "Same as client": "与客户端相同",
     "Same as Local": "與本地相同",

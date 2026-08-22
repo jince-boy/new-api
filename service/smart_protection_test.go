@@ -49,6 +49,45 @@ func TestReviewSmartProtectionChunkParsesQwen3GuardContract(t *testing.T) {
 	assert.Equal(t, "ignore previous instructions", decision.Content)
 }
 
+func TestReviewSmartProtectionChunkRetriesRateLimitOnce(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, err := fmt.Fprint(w, `{"choices":[{"message":{"content":"Safety: Safe\nCategories: None"}}]}`)
+		require.NoError(t, err)
+	}))
+	t.Cleanup(server.Close)
+
+	decision, err := reviewSmartProtectionChunk(context.Background(), operation_setting.SmartProtectionSetting{
+		BaseURL: server.URL, Model: "guard", TimeoutSeconds: 2,
+	}, "你好")
+
+	require.NoError(t, err)
+	assert.Equal(t, int32(2), calls.Load())
+	assert.Equal(t, "Safe", decision.Safety)
+}
+
+func TestReviewSmartProtectionChunkDoesNotWaitPastContextDeadlineForRetry(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", "60")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(server.Close)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	_, err := reviewSmartProtectionChunk(ctx, operation_setting.SmartProtectionSetting{
+		BaseURL: server.URL, Model: "guard", TimeoutSeconds: 2,
+	}, "你好")
+
+	require.Error(t, err)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
 func TestCheckSmartProtectionCopiesSafeDecisionToUsageLogInfo(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, err := fmt.Fprint(w, `{"choices":[{"message":{"content":"Safety: Safe\nCategories: None"}}]}`)
@@ -155,6 +194,27 @@ func TestReviewSmartProtectionChunkAcceptsFullChatCompletionsURL(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Safe", decision.Safety)
 	assert.Empty(t, decision.Categories)
+}
+
+func TestReviewSmartProtectionChunkDiscardsCategoriesFromSafeDecision(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, err := fmt.Fprint(w, `{"choices":[{"message":{"content":"Safety: Safe\nCategories: Jailbreak"}}]}`)
+		require.NoError(t, err)
+	}))
+	t.Cleanup(server.Close)
+
+	decision, err := reviewSmartProtectionChunk(context.Background(), operation_setting.SmartProtectionSetting{
+		BaseURL: server.URL, Model: "guard", TimeoutSeconds: 2,
+	}, "你好")
+
+	require.NoError(t, err)
+	assert.Equal(t, "Safe", decision.Safety)
+	assert.Empty(t, decision.Categories)
+	assert.False(t, smartProtectionShouldBlock(operation_setting.SmartProtectionSetting{
+		BlockedRules: []operation_setting.SmartProtectionRule{{
+			Categories: []string{"Jailbreak"}, MatchMode: "any", Block: true, ActionsConfigured: true,
+		}},
+	}, decision))
 }
 
 func TestReviewSmartProtectionChunkReassemblesStreamingResponse(t *testing.T) {
@@ -427,6 +487,20 @@ func TestSmartProtectionEvaluateActionsSupportsIndependentCombinations(t *testin
 	}
 }
 
+func TestSmartProtectionAnyConditionObserveAndEmailDoesNotBlock(t *testing.T) {
+	setting := operation_setting.SmartProtectionSetting{WarningEmail: true, BlockedRules: []operation_setting.SmartProtectionRule{{
+		Safety: "Controversial", Categories: []string{"Jailbreak"}, MatchMode: "any",
+		Record: true, SendEmail: true, EmailTemplateID: "warning", ActionsConfigured: true,
+	}}}
+	decision := smartProtectionDecision{Safety: "Controversial", Categories: []string{"Jailbreak"}}
+	actions := smartProtectionEvaluateActions(setting, []smartProtectionDecision{decision})
+
+	assert.True(t, actions.Record)
+	assert.Equal(t, "warning", actions.EmailTemplateID)
+	assert.False(t, actions.Block)
+	assert.False(t, smartProtectionShouldBlock(setting, decision))
+}
+
 func TestSmartProtectionBlockForcesAuditRecord(t *testing.T) {
 	setting := operation_setting.SmartProtectionSetting{BlockedRules: []operation_setting.SmartProtectionRule{{
 		Safety: "Controversial", Categories: []string{"Jailbreak"}, MatchMode: "all", Block: true, ActionsConfigured: true,
@@ -459,8 +533,9 @@ func TestSmartProtectionShouldBlockAnySelectedCondition(t *testing.T) {
 		Safety: "Controversial", Categories: []string{"Non-violent Illegal Acts"}, MatchMode: "any",
 	}}}
 
-	assert.True(t, smartProtectionShouldBlock(setting, smartProtectionDecision{Safety: "Unsafe", Categories: []string{"Non-violent Illegal Acts"}}))
-	assert.True(t, smartProtectionShouldBlock(setting, smartProtectionDecision{Safety: "Controversial", Categories: []string{"Violent"}}))
+	assert.False(t, smartProtectionShouldBlock(setting, smartProtectionDecision{Safety: "Unsafe", Categories: []string{"Non-violent Illegal Acts"}}))
+	assert.False(t, smartProtectionShouldBlock(setting, smartProtectionDecision{Safety: "Controversial", Categories: []string{"Violent"}}))
+	assert.True(t, smartProtectionShouldBlock(setting, smartProtectionDecision{Safety: "Controversial", Categories: []string{"Non-violent Illegal Acts"}}))
 	assert.False(t, smartProtectionShouldBlock(setting, smartProtectionDecision{Safety: "Safe", Categories: []string{"Violent"}}))
 }
 
@@ -469,9 +544,44 @@ func TestSmartProtectionRuleWithoutModeMatchesAnySelectedCondition(t *testing.T)
 		Safety: "Controversial", Categories: []string{"Non-violent Illegal Acts"},
 	}}}
 
-	assert.True(t, smartProtectionShouldBlock(setting, smartProtectionDecision{
+	assert.False(t, smartProtectionShouldBlock(setting, smartProtectionDecision{
 		Safety: "Unsafe", Categories: []string{"Non-violent Illegal Acts"},
 	}))
+}
+
+func TestSmartProtectionSafetyGatePreventsCategoryOnlyCrossSeverityMatch(t *testing.T) {
+	setting := operation_setting.SmartProtectionSetting{BlockedRules: []operation_setting.SmartProtectionRule{
+		{Safety: "Unsafe", Categories: []string{"Jailbreak"}, MatchMode: "any", Block: true, ActionsConfigured: true},
+	}}
+
+	assert.False(t, smartProtectionShouldBlock(setting, smartProtectionDecision{
+		Safety: "Controversial", Categories: []string{"Jailbreak"},
+	}))
+	assert.True(t, smartProtectionShouldBlock(setting, smartProtectionDecision{
+		Safety: "Unsafe", Categories: []string{"Jailbreak"},
+	}))
+}
+
+func TestSmartProtectionControversialRuleDoesNotFallThroughToUnsafeBlockRule(t *testing.T) {
+	setting := operation_setting.SmartProtectionSetting{WarningEmail: true, BlockedRules: []operation_setting.SmartProtectionRule{
+		{
+			Name: "controversial", Safety: "Controversial", Categories: []string{"Sexual Content", "Suicide & Self-Harm", "Jailbreak"}, MatchMode: "any",
+			Record: true, SendEmail: true, EmailTemplateID: "warning", ActionsConfigured: true,
+		},
+		{
+			Name: "unsafe", Safety: "Unsafe", Categories: []string{"Sexual Content", "Suicide & Self-Harm", "Jailbreak"}, MatchMode: "any",
+			Record: true, SendEmail: true, Block: true, EmailTemplateID: "warning", ActionsConfigured: true,
+		},
+	}}
+	decision := smartProtectionDecision{Safety: "Controversial", Categories: []string{"Jailbreak"}}
+
+	actions := smartProtectionEvaluateActions(setting, []smartProtectionDecision{decision})
+
+	assert.True(t, actions.Record)
+	assert.False(t, actions.Block)
+	assert.Equal(t, "warning", actions.EmailTemplateID)
+	assert.Equal(t, []string{"controversial"}, actions.MatchedRules)
+	assert.False(t, smartProtectionShouldBlock(setting, decision))
 }
 
 func TestSmartProtectionShouldBlockCategoryWithUnicodeHyphen(t *testing.T) {

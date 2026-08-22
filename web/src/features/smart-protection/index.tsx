@@ -338,9 +338,15 @@ export function SmartProtectionSection() {
       : [...rule.categories, category]
     updateRule(index, { categories })
   }
-  const submit = () =>
+  const submit = () => {
+    // Never send an omitted or masked API key back on a later save. Only a
+    // newly entered key belongs in the update payload.
+    const settingsWithoutApiKey = { ...settings } as SmartProtectionSettings & {
+      api_key?: string
+    }
+    delete settingsWithoutApiKey.api_key
     saveMutation.mutate({
-      ...settings,
+      ...settingsWithoutApiKey,
       blocked_rules: settings.blocked_rules.map(({ client_id, ...rule }) => ({
         ...rule,
         actions_configured: true,
@@ -349,8 +355,9 @@ export function SmartProtectionSection() {
         ...template,
         enabled: template.enabled !== false,
       })),
-      ...(apiKey ? { api_key: apiKey } : {}),
+      ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
     })
+  }
   const totalPages = Math.max(
     1,
     Math.ceil((eventsQuery.data?.total || 0) / eventPageSize)
@@ -606,6 +613,11 @@ function ConfigurationTab(
             <FieldLabel htmlFor='smart-protection-key'>
               {props.t('Security model API key')}
             </FieldLabel>
+            {props.settings.api_key_configured && (
+              <FieldDescription>
+                {props.t('Leave empty to keep existing key')}
+              </FieldDescription>
+            )}
             <Input
               id='smart-protection-key'
               type='password'
@@ -730,28 +742,37 @@ function ConfigurationTab(
                 [1, 2, 3].map((item) => (
                   <Skeleton key={item} className='h-12' />
                 ))}
-              {props.filteredChannels.map((channel) => (
-                <label
-                  key={channel.id}
-                  className='flex cursor-pointer items-center gap-2 rounded-lg border p-3'
-                >
-                  <Checkbox
-                    checked={props.selectedChannels.has(channel.id)}
-                    onCheckedChange={(checked) => {
-                      const next = new Set(props.selectedChannels)
-                      if (checked) next.add(channel.id)
-                      else next.delete(channel.id)
-                      props.update(
-                        'channel_ids',
-                        [...next].sort((a, b) => a - b)
-                      )
-                    }}
-                  />
-                  <span className='min-w-0 flex-1 truncate'>
-                    #{channel.id} {channel.name}
-                  </span>
-                </label>
-              ))}
+              {props.filteredChannels.map((channel) => {
+                const checked = props.selectedChannels.has(channel.id)
+                const toggleChannel = (nextChecked: boolean) => {
+                  const next = new Set(props.selectedChannels)
+                  if (nextChecked) next.add(channel.id)
+                  else next.delete(channel.id)
+                  props.update(
+                    'channel_ids',
+                    [...next].sort((a, b) => a - b)
+                  )
+                }
+                return (
+                  <div
+                    key={channel.id}
+                    className='flex cursor-pointer items-center gap-2 rounded-lg border p-3'
+                  >
+                    <Checkbox
+                      aria-label={`#${channel.id} ${channel.name}`}
+                      checked={checked}
+                      onCheckedChange={toggleChannel}
+                    />
+                    <button
+                      type='button'
+                      className='min-w-0 flex-1 cursor-pointer truncate text-left text-sm font-medium'
+                      onClick={() => toggleChannel(!checked)}
+                    >
+                      #{channel.id} {channel.name}
+                    </button>
+                  </div>
+                )
+              })}
             </div>
           </div>
         </Field>
@@ -907,7 +928,7 @@ function RulesTab(
         <CardTitle>{props.t('Protection matching rules')}</CardTitle>
         <CardDescription>
           {props.t(
-            'Each rule independently controls recording, warning email, and blocking. Conditions inside a rule use AND or OR; separate rules use OR.'
+            'Safety is the rule gate. Any or all matching only applies to the selected Categories; separate rules are evaluated independently.'
           )}
         </CardDescription>
       </CardHeader>

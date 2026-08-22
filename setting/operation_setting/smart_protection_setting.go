@@ -35,9 +35,9 @@ type SmartProtectionSetting struct {
 	RetentionDays     int                        `json:"retention_days"`
 }
 
-// SmartProtectionRule matches a single guard decision. MatchMode selects OR
-// ("any") or AND ("all") between Safety and Categories. Categories and
-// separate rules always use OR semantics.
+// SmartProtectionRule matches a single guard decision. When Safety is set it
+// is the severity gate; MatchMode selects OR ("any") or AND ("all") among
+// the selected Categories. Category-only rules support both modes as well.
 type SmartProtectionRule struct {
 	ID                string   `json:"id,omitempty"`
 	Name              string   `json:"name"`
@@ -261,7 +261,10 @@ func normalizeSmartProtectionSetting(setting SmartProtectionSetting) SmartProtec
 		}
 		setting.BlockedRules[index].Name = strings.TrimSpace(setting.BlockedRules[index].Name)
 		setting.BlockedRules[index].EmailTemplateID = strings.TrimSpace(setting.BlockedRules[index].EmailTemplateID)
-		if !setting.BlockedRules[index].ActionsConfigured {
+		if !setting.BlockedRules[index].ActionsConfigured &&
+			!setting.BlockedRules[index].Record &&
+			!setting.BlockedRules[index].SendEmail &&
+			!setting.BlockedRules[index].Block {
 			setting.BlockedRules[index].Record = true
 			setting.BlockedRules[index].Block = true
 		}

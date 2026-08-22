@@ -4908,6 +4908,7 @@
     "Safety": "Sécurité",
     "Safety and categories": "Safety et catégories",
     "Safety condition": "Condition de sécurité",
+    "Safety is the rule gate. Any or all matching only applies to the selected Categories; separate rules are evaluated independently.": "Safety est la condition préalable de la règle. La correspondance à une ou à toutes les Categories sélectionnées est ensuite appliquée ; chaque règle est évaluée indépendamment.",
     "Safety Settings": "Paramètres de sécurité",
     "Same as client": "Identique au client",
     "Same as Local": "Identique au local",

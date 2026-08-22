@@ -16,6 +16,10 @@ import (
 
 type smartProtectionSettingsResponse struct {
 	operation_setting.SmartProtectionSetting
+	// Override the embedded field so the credential is omitted entirely. An
+	// empty api_key in the GET response could otherwise be submitted by a
+	// client on the next save and clear the stored key.
+	APIKey           string `json:"api_key,omitempty"`
 	APIKeyConfigured bool   `json:"api_key_configured"`
 	APIKeyHint       string `json:"api_key_hint,omitempty"`
 }

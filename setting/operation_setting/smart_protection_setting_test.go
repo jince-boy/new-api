@@ -19,8 +19,10 @@ For commercial licensing, please contact support@quantumnous.com
 package operation_setting
 
 import (
+	"strconv"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -86,6 +88,25 @@ func TestNormalizeAndValidateSmartProtectionSettingKeepsExplicitCombinedRules(t 
 	assert.Empty(t, setting.BlockedCategories)
 }
 
+func TestNormalizeAndValidateSmartProtectionSettingDoesNotAddBlockToExplicitActions(t *testing.T) {
+	setting, err := NormalizeAndValidateSmartProtectionSetting(SmartProtectionSetting{
+		BlockedRules: []SmartProtectionRule{{
+			Safety: "Controversial", Categories: []string{"Jailbreak"}, MatchMode: "any",
+			Record: true, SendEmail: true, EmailTemplateID: "template-1",
+		}},
+		WarningEmail: true,
+		EmailRules: []SmartProtectionEmailRule{{
+			ID: "template-1", Name: "Warning", Subject: "Warning", Body: "Warning", Enabled: true,
+		}},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, setting.BlockedRules, 1)
+	assert.True(t, setting.BlockedRules[0].Record)
+	assert.True(t, setting.BlockedRules[0].SendEmail)
+	assert.False(t, setting.BlockedRules[0].Block)
+}
+
 func TestNormalizeAndValidateSmartProtectionSettingRequiresProviderWhenEnabled(t *testing.T) {
 	_, err := NormalizeAndValidateSmartProtectionSetting(SmartProtectionSetting{Enabled: true})
 
@@ -104,4 +125,32 @@ func TestNormalizeAndValidateSmartProtectionSettingRejectsMissingEmailTemplateRe
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "email template is invalid")
+}
+
+func TestApplySmartProtectionConfigKeepsAPIKeyWhenOtherSettingsAreSaved(t *testing.T) {
+	previous := GetSmartProtectionSetting()
+	previousRules, err := common.Marshal(previous.BlockedRules)
+	require.NoError(t, err)
+	previousChannels, err := common.Marshal(previous.ChannelIDs)
+	require.NoError(t, err)
+	previousEmailRules, err := common.Marshal(previous.EmailRules)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, ApplySmartProtectionConfig(map[string]string{
+			"enabled":           strconv.FormatBool(previous.Enabled),
+			"base_url":          previous.BaseURL,
+			"api_key":           previous.APIKey,
+			"model":             previous.Model,
+			"timeout_seconds":   strconv.Itoa(previous.TimeoutSeconds),
+			"max_context_chars": strconv.Itoa(previous.MaxContextChars),
+			"max_concurrent":    strconv.Itoa(previous.MaxConcurrent),
+			"blocked_rules":     string(previousRules),
+			"channel_ids":       string(previousChannels),
+			"email_rules":       string(previousEmailRules),
+		}))
+	})
+
+	require.NoError(t, ApplySmartProtectionConfig(map[string]string{"api_key": "secret-key"}))
+	require.NoError(t, ApplySmartProtectionConfig(map[string]string{"model": "updated-model"}))
+	assert.Equal(t, "secret-key", GetSmartProtectionSetting().APIKey)
 }

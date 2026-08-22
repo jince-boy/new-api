@@ -80,17 +80,19 @@ var smartProtectionLabelPattern = regexp.MustCompile("(?i)(?:[\\\"']?Safety[\\\"
 var smartProtectionCategoryPattern = regexp.MustCompile(`(?i)(?:["']?Categories["']?)\s*:\s*([^\r\n]+)`)
 
 const (
-	smartProtectionMaxSafetyRunes     = 32
-	smartProtectionMaxCategoryRunes   = 128
-	smartProtectionMaxCategoryCount   = 64
-	smartProtectionMaxRawResultRunes  = 4096
-	smartProtectionRecentMessages     = 5
-	smartProtectionMaxLatestChunks    = 4
-	smartProtectionDecisionCacheTTL   = 10 * time.Minute
-	smartProtectionDecisionCacheMax   = 2048
-	smartProtectionDecisionCacheBytes = 8 * 1024 * 1024
-	smartProtectionRiskStateTTL       = 30 * time.Minute
-	smartProtectionRiskStateMax       = 10000
+	smartProtectionMaxSafetyRunes      = 32
+	smartProtectionMaxCategoryRunes    = 128
+	smartProtectionMaxCategoryCount    = 64
+	smartProtectionMaxRawResultRunes   = 4096
+	smartProtectionRecentMessages      = 5
+	smartProtectionMaxLatestChunks     = 4
+	smartProtectionDecisionCacheTTL    = 10 * time.Minute
+	smartProtectionDecisionCacheMax    = 2048
+	smartProtectionDecisionCacheBytes  = 8 * 1024 * 1024
+	smartProtectionRiskStateTTL        = 30 * time.Minute
+	smartProtectionRiskStateMax        = 10000
+	smartProtectionUpstreamMaxAttempts = 2
+	smartProtectionMaxRetryDelay       = 500 * time.Millisecond
 )
 
 var smartProtectionContextReferencePattern = regexp.MustCompile(`(?i)(continue|above|previous|earlier|as discussed|same (?:instructions|steps)|继续|上面|上述|前面|刚才|之前|照旧|按.{0,12}(?:内容|步骤|要求)|基于.{0,12}(?:内容|对话))`)
@@ -236,8 +238,6 @@ func reviewSmartProtectionContext(ctx context.Context, setting operation_setting
 	if timeoutSeconds <= 0 || timeoutSeconds > operation_setting.SmartProtectionMaxTimeout {
 		timeoutSeconds = 15
 	}
-	reviewCtx, cancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
-	defer cancel()
 	concurrencyLimit := setting.MaxConcurrent
 	if concurrencyLimit <= 0 {
 		concurrencyLimit = 1
@@ -245,7 +245,10 @@ func reviewSmartProtectionContext(ctx context.Context, setting operation_setting
 	if concurrencyLimit > operation_setting.SmartProtectionMaxConcurrent {
 		concurrencyLimit = operation_setting.SmartProtectionMaxConcurrent
 	}
-	decisions, firstErr := reviewSmartProtectionChunks(reviewCtx, cancel, setting, primaryChunks, concurrencyLimit)
+	primaryCtx, primaryCancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+	decisions, firstErr := reviewSmartProtectionChunks(primaryCtx, primaryCancel, setting, primaryChunks, concurrencyLimit)
+	primaryTimedOut := primaryCtx.Err() != nil
+	primaryCancel()
 	blocked := false
 	suspicious := false
 	for _, decision := range decisions {
@@ -262,10 +265,12 @@ func reviewSmartProtectionContext(ctx context.Context, setting operation_setting
 	if firstErr != nil && len(decisions) == 0 {
 		return nil, firstErr
 	}
-	if blocked || expandedContext == "" || (!referencesHistory && !suspicious && !hasSmartProtectionRisk(riskKey)) {
+	if blocked || expandedContext == "" || primaryTimedOut || (!referencesHistory && !suspicious && !hasSmartProtectionRisk(riskKey)) {
 		return decisions, firstErr
 	}
-	expandedDecisions, expandedErr := reviewSmartProtectionChunks(reviewCtx, cancel, setting, []string{expandedContext}, concurrencyLimit)
+	expandedCtx, expandedCancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+	expandedDecisions, expandedErr := reviewSmartProtectionChunks(expandedCtx, expandedCancel, setting, []string{expandedContext}, concurrencyLimit)
+	expandedCancel()
 	decisions = append(decisions, expandedDecisions...)
 	if firstErr == nil {
 		firstErr = expandedErr
@@ -396,26 +401,35 @@ func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.S
 	if err != nil {
 		return smartProtectionDecision{}, err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
-	if err != nil {
-		return smartProtectionDecision{}, err
-	}
-	request.Header.Set("Content-Type", "application/json")
-	if setting.APIKey != "" {
-		request.Header.Set("Authorization", "Bearer "+setting.APIKey)
-	}
 	client := &http.Client{Timeout: time.Duration(setting.TimeoutSeconds) * time.Second}
-	response, err := client.Do(request)
-	if err != nil {
-		return smartProtectionDecision{}, err
-	}
-	defer response.Body.Close()
-	responseBody, err := io.ReadAll(io.LimitReader(response.Body, 256*1024))
-	if err != nil {
-		return smartProtectionDecision{}, err
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return smartProtectionDecision{}, fmt.Errorf("smart protection upstream returned status %d", response.StatusCode)
+	var responseBody []byte
+	for attempt := 1; attempt <= smartProtectionUpstreamMaxAttempts; attempt++ {
+		request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+		if err != nil {
+			return smartProtectionDecision{}, err
+		}
+		request.Header.Set("Content-Type", "application/json")
+		if setting.APIKey != "" {
+			request.Header.Set("Authorization", "Bearer "+setting.APIKey)
+		}
+		response, err := client.Do(request)
+		if err != nil {
+			return smartProtectionDecision{}, err
+		}
+		responseBody, err = io.ReadAll(io.LimitReader(response.Body, 256*1024))
+		response.Body.Close()
+		if err != nil {
+			return smartProtectionDecision{}, err
+		}
+		if response.StatusCode >= 200 && response.StatusCode < 300 {
+			break
+		}
+		if attempt == smartProtectionUpstreamMaxAttempts || !smartProtectionRetryableStatus(response.StatusCode) {
+			return smartProtectionDecision{}, fmt.Errorf("smart protection upstream returned status %d", response.StatusCode)
+		}
+		if err := waitForSmartProtectionRetry(ctx, response.Header.Get("Retry-After"), attempt); err != nil {
+			return smartProtectionDecision{}, err
+		}
 	}
 	raw, err := smartProtectionResponseContent(responseBody)
 	if err != nil {
@@ -448,7 +462,41 @@ func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.S
 	if decision.Safety == "" {
 		return smartProtectionDecision{}, errors.New("smart protection upstream returned an invalid safety label")
 	}
+	// Qwen3Guard's contract defines Safe as Categories: None. Some
+	// OpenAI-compatible gateways occasionally append a stale category from
+	// another generation; never let that contradiction trigger a category
+	// rule or appear as a false positive in the audit log.
+	if strings.EqualFold(decision.Safety, "Safe") {
+		decision.Categories = nil
+	}
 	return decision, nil
+}
+
+func smartProtectionRetryableStatus(status int) bool {
+	return status == http.StatusTooManyRequests || status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout
+}
+
+func waitForSmartProtectionRetry(ctx context.Context, retryAfter string, attempt int) error {
+	delay := time.Duration(attempt) * 250 * time.Millisecond
+	if seconds, err := strconv.Atoi(strings.TrimSpace(retryAfter)); err == nil && seconds >= 0 {
+		delay = time.Duration(seconds) * time.Second
+	} else if retryAt, err := http.ParseTime(strings.TrimSpace(retryAfter)); err == nil {
+		delay = time.Until(retryAt)
+	}
+	if delay < 0 {
+		delay = 0
+	}
+	if delay > smartProtectionMaxRetryDelay {
+		delay = smartProtectionMaxRetryDelay
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func smartProtectionResponseContent(responseBody []byte) (string, error) {
@@ -737,7 +785,7 @@ func releaseSmartProtectionSlot() {
 
 func smartProtectionShouldBlock(setting operation_setting.SmartProtectionSetting, decision smartProtectionDecision) bool {
 	for _, rule := range setting.BlockedRules {
-		if (rule.Block || !rule.ActionsConfigured) && smartProtectionRuleMatches(rule, decision) {
+		if (rule.Block || smartProtectionRuleUsesLegacyActions(rule)) && smartProtectionRuleMatches(rule, decision) {
 			return true
 		}
 	}
@@ -780,7 +828,7 @@ func smartProtectionEvaluateActions(setting operation_setting.SmartProtectionSet
 		if ruleLabel != "" && !containsString(actions.MatchedRules, ruleLabel) {
 			actions.MatchedRules = append(actions.MatchedRules, ruleLabel)
 		}
-		if !rule.ActionsConfigured {
+		if smartProtectionRuleUsesLegacyActions(rule) {
 			actions.Record = true
 			actions.Block = true
 		}
@@ -796,6 +844,10 @@ func smartProtectionEvaluateActions(setting operation_setting.SmartProtectionSet
 		actions.Record = true
 	}
 	return actions
+}
+
+func smartProtectionRuleUsesLegacyActions(rule operation_setting.SmartProtectionRule) bool {
+	return !rule.ActionsConfigured && !rule.Record && !rule.SendEmail && !rule.Block
 }
 
 func smartProtectionDecisionsAreSafe(decisions []smartProtectionDecision) bool {
@@ -830,11 +882,17 @@ func smartProtectionReviewOutcome(decisions []smartProtectionDecision, actions s
 }
 
 func smartProtectionRuleMatches(rule operation_setting.SmartProtectionRule, decision smartProtectionDecision) bool {
-	if rule.MatchMode == "all" {
-		return smartProtectionConditionMatches(rule.Safety, rule.Categories, decision)
+	// Safety is the severity gate whenever it is configured. MatchMode then
+	// controls the selected categories: "any" requires one category and "all"
+	// requires every category. Category-only rules still work without a gate.
+	if strings.TrimSpace(rule.Safety) != "" && !smartProtectionLabelsEqual(rule.Safety, decision.Safety) {
+		return false
 	}
-	if strings.TrimSpace(rule.Safety) != "" && smartProtectionLabelsEqual(rule.Safety, decision.Safety) {
-		return true
+	if len(rule.Categories) == 0 {
+		return strings.TrimSpace(rule.Safety) != ""
+	}
+	if rule.MatchMode == "all" {
+		return smartProtectionConditionMatches("", rule.Categories, decision)
 	}
 	for _, requiredCategory := range rule.Categories {
 		for _, category := range decision.Categories {

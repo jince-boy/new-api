@@ -4908,6 +4908,7 @@
     "Safety": "安全性",
     "Safety and categories": "Safety と Categories",
     "Safety condition": "Safety 条件",
+    "Safety is the rule gate. Any or all matching only applies to the selected Categories; separate rules are evaluated independently.": "Safety はルールの前提条件です。「いずれか」または「すべて」の一致は、選択した Categories にのみ適用されます。各ルールは個別に評価されます。",
     "Safety Settings": "安全設定",
     "Same as client": "クライアントと同じ",
     "Same as Local": "ローカルと同じ",

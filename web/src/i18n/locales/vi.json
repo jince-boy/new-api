@@ -4908,6 +4908,7 @@
     "Safety": "Mức an toàn",
     "Safety and categories": "Safety và Categories",
     "Safety condition": "Điều kiện Safety",
+    "Safety is the rule gate. Any or all matching only applies to the selected Categories; separate rules are evaluated independently.": "Safety là điều kiện tiên quyết của quy tắc. Chế độ khớp bất kỳ hoặc tất cả chỉ áp dụng cho các Categories đã chọn; mỗi quy tắc được đánh giá độc lập.",
     "Safety Settings": "Cài đặt an toàn",
     "Same as client": "Giống máy khách",
     "Same as Local": "Giống như địa phương",

@@ -4908,6 +4908,7 @@
     "Safety": "Безопасность",
     "Safety and categories": "Safety и категории",
     "Safety condition": "Условие Safety",
+    "Safety is the rule gate. Any or all matching only applies to the selected Categories; separate rules are evaluated independently.": "Safety — предварительное условие правила. Режим совпадения с любыми или всеми условиями применяется только к выбранным Categories; каждое правило проверяется независимо.",
     "Safety Settings": "Настройки безопасности",
     "Same as client": "Как у клиента",
     "Same as Local": "То же, что и локальный",

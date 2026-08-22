@@ -23,7 +23,10 @@ import { SmartProtectionSection } from '..'
 import * as smartProtectionApi from '../api'
 import type { SmartProtectionSettings } from '../api'
 
-function renderPage(settings: SmartProtectionSettings, withEvent = false) {
+function renderPage(
+  settings: SmartProtectionSettings & { api_key?: string },
+  withEvent = false
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { staleTime: Number.POSITIVE_INFINITY } },
   })
@@ -130,12 +133,54 @@ describe('Smart Protection page', () => {
       'https://guard.example/v1'
     )
     expect(screen.getByPlaceholderText('Search channels')).toBeVisible()
+    expect(screen.getByText('Leave empty to keep existing key')).toBeVisible()
     expect(
       screen.queryByRole('button', { name: 'Refresh' })
     ).not.toBeInTheDocument()
     expect(
       screen.queryByText('No protection events yet')
     ).not.toBeInTheDocument()
+
+    queryClient.clear()
+  })
+
+  it('toggles a protected channel by clicking its text without navigation', async () => {
+    await i18n.changeLanguage('en')
+    const queryClient = renderPage(settings)
+
+    fireEvent.click(
+      screen.getByRole('tab', { name: 'Protection configuration' })
+    )
+    const checkbox = screen.getByRole('checkbox', {
+      name: '#7 Protected channel',
+    })
+    expect(checkbox).toBeChecked()
+
+    fireEvent.click(screen.getByText('#7 Protected channel'))
+    expect(checkbox).not.toBeChecked()
+
+    fireEvent.click(screen.getByText('#7 Protected channel'))
+    expect(checkbox).toBeChecked()
+
+    queryClient.clear()
+  })
+
+  it('does not send the masked empty API key on a later save', async () => {
+    await i18n.changeLanguage('en')
+    const saveSpy = vi
+      .spyOn(smartProtectionApi, 'updateSmartProtectionSettings')
+      .mockResolvedValue(settings)
+    const queryClient = renderPage({ ...settings, api_key: '' })
+
+    fireEvent.click(
+      screen.getByRole('tab', { name: 'Protection configuration' })
+    )
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save smart protection settings' })
+    )
+
+    await waitFor(() => expect(saveSpy).toHaveBeenCalledOnce())
+    expect(saveSpy.mock.calls[0][0]).not.toHaveProperty('api_key', '')
 
     queryClient.clear()
   })
