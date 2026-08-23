@@ -68,6 +68,24 @@ func TestNormalizeAndValidateSmartProtectionSettingKeepsEmailTemplates(t *testin
 	}, setting.EmailRules[0])
 }
 
+func TestNormalizeAndValidateSmartProtectionSettingKeepsEmailCooldown(t *testing.T) {
+	setting, err := NormalizeAndValidateSmartProtectionSetting(SmartProtectionSetting{
+		EmailCooldownMinutes: 45,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, 45, setting.EmailCooldownMinutes)
+}
+
+func TestNormalizeAndValidateSmartProtectionSettingRejectsEmailCooldownAboveOneWeek(t *testing.T) {
+	_, err := NormalizeAndValidateSmartProtectionSetting(SmartProtectionSetting{
+		EmailCooldownMinutes: SmartProtectionMaxEmailCooldownMinutes + 1,
+	})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "email cooldown")
+}
+
 func TestNormalizeAndValidateSmartProtectionSettingAllowsEmptyProviderWhileDisabled(t *testing.T) {
 	setting, err := NormalizeAndValidateSmartProtectionSetting(SmartProtectionSetting{})
 
@@ -137,16 +155,17 @@ func TestApplySmartProtectionConfigKeepsAPIKeyWhenOtherSettingsAreSaved(t *testi
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, ApplySmartProtectionConfig(map[string]string{
-			"enabled":           strconv.FormatBool(previous.Enabled),
-			"base_url":          previous.BaseURL,
-			"api_key":           previous.APIKey,
-			"model":             previous.Model,
-			"timeout_seconds":   strconv.Itoa(previous.TimeoutSeconds),
-			"max_context_chars": strconv.Itoa(previous.MaxContextChars),
-			"max_concurrent":    strconv.Itoa(previous.MaxConcurrent),
-			"blocked_rules":     string(previousRules),
-			"channel_ids":       string(previousChannels),
-			"email_rules":       string(previousEmailRules),
+			"enabled":                strconv.FormatBool(previous.Enabled),
+			"base_url":               previous.BaseURL,
+			"api_key":                previous.APIKey,
+			"model":                  previous.Model,
+			"timeout_seconds":        strconv.Itoa(previous.TimeoutSeconds),
+			"max_context_chars":      strconv.Itoa(previous.MaxContextChars),
+			"max_concurrent":         strconv.Itoa(previous.MaxConcurrent),
+			"email_cooldown_minutes": strconv.Itoa(previous.EmailCooldownMinutes),
+			"blocked_rules":          string(previousRules),
+			"channel_ids":            string(previousChannels),
+			"email_rules":            string(previousEmailRules),
 		}))
 	})
 

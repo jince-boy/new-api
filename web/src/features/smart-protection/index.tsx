@@ -135,6 +135,7 @@ const DEFAULT_SETTINGS: SmartProtectionSettings = {
   channel_ids: [],
   save_content: true,
   warning_email: true,
+  email_cooldown_minutes: 30,
   email_rules: [
     {
       id: 'template-1',
@@ -242,8 +243,14 @@ export function SmartProtectionSection() {
   const [apiKey, setApiKey] = useState('')
   const [activeTab, setActiveTab] = useState('events')
   const [channelSearch, setChannelSearch] = useState('')
-  const [eventSearch, setEventSearch] = useState('')
-  const [eventKeyword, setEventKeyword] = useState('')
+  const [eventUsername, setEventUsername] = useState('')
+  const [eventSafety, setEventSafety] = useState('')
+  const [eventCategory, setEventCategory] = useState('')
+  const [eventFilters, setEventFilters] = useState({
+    username: '',
+    safety: '',
+    category: '',
+  })
   const [eventPage, setEventPage] = useState(1)
   const [eventPageSize, setEventPageSize] = useState(10)
   const [selectedEventId, setSelectedEventId] = useState<number | null>(null)
@@ -262,10 +269,19 @@ export function SmartProtectionSection() {
       'smart-protection-events',
       eventPage,
       eventPageSize,
-      eventKeyword,
+      eventFilters.username,
+      eventFilters.safety,
+      eventFilters.category,
     ],
     queryFn: () =>
-      getSmartProtectionEvents(eventPage, eventPageSize, eventKeyword),
+      getSmartProtectionEvents(
+        eventPage,
+        eventPageSize,
+        '',
+        eventFilters.username,
+        eventFilters.safety,
+        eventFilters.category
+      ),
     enabled: activeTab === 'events',
   })
   const detailQuery = useQuery({
@@ -446,11 +462,19 @@ export function SmartProtectionSection() {
               t={t}
               data={eventsQuery.data}
               loading={eventsQuery.isLoading}
-              eventSearch={eventSearch}
-              setEventSearch={setEventSearch}
+              eventUsername={eventUsername}
+              setEventUsername={setEventUsername}
+              eventSafety={eventSafety}
+              setEventSafety={setEventSafety}
+              eventCategory={eventCategory}
+              setEventCategory={setEventCategory}
               search={() => {
                 setEventPage(1)
-                setEventKeyword(eventSearch.trim())
+                setEventFilters({
+                  username: eventUsername.trim(),
+                  safety: eventSafety.trim(),
+                  category: eventCategory.trim(),
+                })
               }}
               eventPage={eventPage}
               setEventPage={setEventPage}
@@ -686,6 +710,29 @@ function ConfigurationTab(
               value={props.settings.retention_days}
               onChange={(event) =>
                 props.update('retention_days', Number(event.target.value))
+              }
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor='smart-protection-email-cooldown'>
+              {props.t('Warning email cooldown (minutes)')}
+            </FieldLabel>
+            <FieldDescription>
+              {props.t(
+                'Only one warning email is sent to the same user during this window.'
+              )}
+            </FieldDescription>
+            <Input
+              id='smart-protection-email-cooldown'
+              type='number'
+              min={1}
+              max={10080}
+              value={props.settings.email_cooldown_minutes}
+              onChange={(event) =>
+                props.update(
+                  'email_cooldown_minutes',
+                  Number(event.target.value)
+                )
               }
             />
           </Field>
@@ -1148,8 +1195,12 @@ function EventsTab(props: {
   t: CommonTabProps['t']
   data?: EventsData
   loading: boolean
-  eventSearch: string
-  setEventSearch: (value: string) => void
+  eventUsername: string
+  setEventUsername: (value: string) => void
+  eventSafety: string
+  setEventSafety: (value: string) => void
+  eventCategory: string
+  setEventCategory: (value: string) => void
   search: () => void
   eventPage: number
   setEventPage: (value: number | ((page: number) => number)) => void
@@ -1198,21 +1249,89 @@ function EventsTab(props: {
         </div>
       </CardHeader>
       <CardContent className='flex flex-col gap-4'>
-        <div className='flex gap-2'>
-          <InputGroup className='flex-1'>
+        <div className='grid items-center gap-2 md:grid-cols-2 lg:grid-cols-[minmax(12rem,1.2fr)_minmax(11rem,0.8fr)_minmax(13rem,1fr)_auto]'>
+          <InputGroup>
             <InputGroupInput
-              value={props.eventSearch}
-              onChange={(event) => props.setEventSearch(event.target.value)}
+              value={props.eventUsername}
+              onChange={(event) => props.setEventUsername(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') props.search()
               }}
-              placeholder={props.t('Search protection events')}
+              placeholder={props.t('Search by username')}
             />
             <InputGroupAddon>
               <HugeiconsIcon icon={Search01Icon} />
             </InputGroupAddon>
           </InputGroup>
-          <Button type='button' variant='outline' onClick={props.search}>
+          <Select
+            value={props.eventSafety || '__all__'}
+            onValueChange={(value) =>
+              props.setEventSafety(value === '__all__' ? '' : String(value))
+            }
+          >
+            <SelectTrigger className='h-9 w-full'>
+              <SelectValue>
+                {props.eventSafety
+                  ? props.t(`Smart protection safety: ${props.eventSafety}`, {
+                      defaultValue: props.eventSafety,
+                    })
+                  : props.t('Any safety level')}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value='__all__'>
+                  {props.t('Any safety level')}
+                </SelectItem>
+                {SAFETIES.map((safety) => (
+                  <SelectItem key={safety} value={safety}>
+                    {props.t(`Smart protection safety: ${safety}`, {
+                      defaultValue: safety,
+                    })}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Select
+            value={props.eventCategory || '__all__'}
+            onValueChange={(value) =>
+              props.setEventCategory(value === '__all__' ? '' : String(value))
+            }
+          >
+            <SelectTrigger className='h-9 w-full'>
+              <SelectValue>
+                {props.eventCategory
+                  ? props.t(
+                      `Smart protection category: ${props.eventCategory}`,
+                      {
+                        defaultValue: props.eventCategory,
+                      }
+                    )
+                  : props.t('Any category')}
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value='__all__'>
+                  {props.t('Any category')}
+                </SelectItem>
+                {CATEGORIES.map((category) => (
+                  <SelectItem key={category} value={category}>
+                    {props.t(`Smart protection category: ${category}`, {
+                      defaultValue: category,
+                    })}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+          <Button
+            type='button'
+            variant='default'
+            size='sm'
+            onClick={props.search}
+          >
             {props.t('Search')}
           </Button>
         </div>

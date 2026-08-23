@@ -25,21 +25,22 @@ type smartProtectionSettingsResponse struct {
 }
 
 type smartProtectionUpdateRequest struct {
-	Enabled           bool                                         `json:"enabled"`
-	BaseURL           string                                       `json:"base_url"`
-	APIKey            *string                                      `json:"api_key"`
-	Model             string                                       `json:"model"`
-	TimeoutSeconds    int                                          `json:"timeout_seconds"`
-	MaxContextChars   int                                          `json:"max_context_chars"`
-	MaxConcurrent     int                                          `json:"max_concurrent"`
-	BlockedSafeties   []string                                     `json:"blocked_safeties"`
-	BlockedCategories []string                                     `json:"blocked_categories"`
-	BlockedRules      []operation_setting.SmartProtectionRule      `json:"blocked_rules"`
-	ChannelIDs        []int                                        `json:"channel_ids"`
-	SaveContent       bool                                         `json:"save_content"`
-	WarningEmail      bool                                         `json:"warning_email"`
-	EmailRules        []operation_setting.SmartProtectionEmailRule `json:"email_rules"`
-	RetentionDays     int                                          `json:"retention_days"`
+	Enabled              bool                                         `json:"enabled"`
+	BaseURL              string                                       `json:"base_url"`
+	APIKey               *string                                      `json:"api_key"`
+	Model                string                                       `json:"model"`
+	TimeoutSeconds       int                                          `json:"timeout_seconds"`
+	MaxContextChars      int                                          `json:"max_context_chars"`
+	MaxConcurrent        int                                          `json:"max_concurrent"`
+	BlockedSafeties      []string                                     `json:"blocked_safeties"`
+	BlockedCategories    []string                                     `json:"blocked_categories"`
+	BlockedRules         []operation_setting.SmartProtectionRule      `json:"blocked_rules"`
+	ChannelIDs           []int                                        `json:"channel_ids"`
+	SaveContent          bool                                         `json:"save_content"`
+	WarningEmail         bool                                         `json:"warning_email"`
+	EmailCooldownMinutes int                                          `json:"email_cooldown_minutes"`
+	EmailRules           []operation_setting.SmartProtectionEmailRule `json:"email_rules"`
+	RetentionDays        int                                          `json:"retention_days"`
 }
 
 func GetSmartProtectionSettings(c *gin.Context) {
@@ -69,7 +70,8 @@ func UpdateSmartProtectionSettings(c *gin.Context) {
 		TimeoutSeconds: request.TimeoutSeconds, MaxContextChars: request.MaxContextChars, MaxConcurrent: request.MaxConcurrent,
 		BlockedSafeties: request.BlockedSafeties, BlockedCategories: request.BlockedCategories,
 		BlockedRules: request.BlockedRules,
-		ChannelIDs:   request.ChannelIDs, SaveContent: request.SaveContent, WarningEmail: request.WarningEmail, EmailRules: request.EmailRules, RetentionDays: request.RetentionDays,
+		ChannelIDs:   request.ChannelIDs, SaveContent: request.SaveContent, WarningEmail: request.WarningEmail,
+		EmailCooldownMinutes: request.EmailCooldownMinutes, EmailRules: request.EmailRules, RetentionDays: request.RetentionDays,
 	}
 	if request.BlockedRules != nil {
 		setting.BlockedSafeties = []string{}
@@ -106,21 +108,22 @@ func UpdateSmartProtectionSettings(c *gin.Context) {
 		return
 	}
 	values := map[string]string{
-		"smart_protection_setting.enabled":            strconv.FormatBool(normalized.Enabled),
-		"smart_protection_setting.base_url":           normalized.BaseURL,
-		"smart_protection_setting.api_key":            normalized.APIKey,
-		"smart_protection_setting.model":              normalized.Model,
-		"smart_protection_setting.timeout_seconds":    strconv.Itoa(normalized.TimeoutSeconds),
-		"smart_protection_setting.max_context_chars":  strconv.Itoa(normalized.MaxContextChars),
-		"smart_protection_setting.max_concurrent":     strconv.Itoa(normalized.MaxConcurrent),
-		"smart_protection_setting.blocked_safeties":   string(blockedSafeties),
-		"smart_protection_setting.blocked_categories": string(blockedCategories),
-		"smart_protection_setting.blocked_rules":      string(blockedRules),
-		"smart_protection_setting.email_rules":        string(emailRules),
-		"smart_protection_setting.channel_ids":        string(channelIDs),
-		"smart_protection_setting.save_content":       strconv.FormatBool(normalized.SaveContent),
-		"smart_protection_setting.warning_email":      strconv.FormatBool(normalized.WarningEmail),
-		"smart_protection_setting.retention_days":     strconv.Itoa(normalized.RetentionDays),
+		"smart_protection_setting.enabled":                strconv.FormatBool(normalized.Enabled),
+		"smart_protection_setting.base_url":               normalized.BaseURL,
+		"smart_protection_setting.api_key":                normalized.APIKey,
+		"smart_protection_setting.model":                  normalized.Model,
+		"smart_protection_setting.timeout_seconds":        strconv.Itoa(normalized.TimeoutSeconds),
+		"smart_protection_setting.max_context_chars":      strconv.Itoa(normalized.MaxContextChars),
+		"smart_protection_setting.max_concurrent":         strconv.Itoa(normalized.MaxConcurrent),
+		"smart_protection_setting.blocked_safeties":       string(blockedSafeties),
+		"smart_protection_setting.blocked_categories":     string(blockedCategories),
+		"smart_protection_setting.blocked_rules":          string(blockedRules),
+		"smart_protection_setting.email_rules":            string(emailRules),
+		"smart_protection_setting.channel_ids":            string(channelIDs),
+		"smart_protection_setting.save_content":           strconv.FormatBool(normalized.SaveContent),
+		"smart_protection_setting.warning_email":          strconv.FormatBool(normalized.WarningEmail),
+		"smart_protection_setting.email_cooldown_minutes": strconv.Itoa(normalized.EmailCooldownMinutes),
+		"smart_protection_setting.retention_days":         strconv.Itoa(normalized.RetentionDays),
 	}
 	if err := model.UpdateOptionsBulk(values); err != nil {
 		common.ApiError(c, err)
@@ -160,7 +163,7 @@ func ListSmartProtectionEvents(c *gin.Context) {
 	startTime, _ := strconv.ParseInt(c.Query("start_time"), 10, 64)
 	endTime, _ := strconv.ParseInt(c.Query("end_time"), 10, 64)
 	events, total, err := model.ListSmartProtectionEvents(model.SmartProtectionEventFilter{
-		UserId: userID, ChannelId: channelID, Safety: c.Query("safety"), Category: c.Query("category"),
+		UserId: userID, ChannelId: channelID, Username: c.Query("username"), Safety: c.Query("safety"), Category: c.Query("category"),
 		Keyword: c.Query("keyword"), StartTime: startTime, EndTime: endTime, Offset: (page - 1) * pageSize, Limit: pageSize,
 	})
 	if err != nil {

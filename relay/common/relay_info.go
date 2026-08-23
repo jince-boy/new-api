@@ -110,6 +110,7 @@ type RelayInfo struct {
 	SmartProtectionReviewTime   time.Duration
 	SmartProtectionSafeties     []string
 	SmartProtectionCategories   []string
+	SmartProtectionReviewRaw    string
 	SmartProtectionReviewError  string
 	SmartProtectionReviewStatus string
 	SmartProtectionReviewReason string

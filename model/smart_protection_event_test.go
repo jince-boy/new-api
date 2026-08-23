@@ -74,6 +74,29 @@ func TestListSmartProtectionEventsSearchesAndReturnsCurrentUserStatus(t *testing
 	assert.Equal(t, 2, events[0].UserStatus)
 }
 
+func TestListSmartProtectionEventsFiltersByUsernameSafetyAndCategory(t *testing.T) {
+	previousDB := DB
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&User{}, &SmartProtectionEvent{}))
+	DB = db
+	t.Cleanup(func() { DB = previousDB })
+	require.NoError(t, DB.Create(&[]SmartProtectionEvent{
+		{UserId: 1, Username: "alice", Safety: "Unsafe", Categories: `["Jailbreak"]`, CreatedAt: 3},
+		{UserId: 2, Username: "alice", Safety: "Safe", Categories: `[]`, CreatedAt: 2},
+		{UserId: 3, Username: "bob", Safety: "Unsafe", Categories: `["Jailbreak"]`, CreatedAt: 1},
+	}).Error)
+
+	events, total, err := ListSmartProtectionEvents(SmartProtectionEventFilter{
+		Username: "ALI", Safety: "unsafe", Category: "jailbreak", Limit: 10,
+	})
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), total)
+	require.Len(t, events, 1)
+	assert.Equal(t, "alice", events[0].Username)
+}
+
 func TestSmartProtectionEventPersistsAndDetailsRemainQueryable(t *testing.T) {
 	previousDB := DB
 	dsn := filepath.Join(t.TempDir(), "smart-protection.db")

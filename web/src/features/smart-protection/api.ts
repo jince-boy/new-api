@@ -31,6 +31,7 @@ export type SmartProtectionSettings = {
   channel_ids: number[]
   save_content: boolean
   warning_email: boolean
+  email_cooldown_minutes: number
   email_rules: SmartProtectionEmailRule[]
   retention_days: number
   api_key_configured: boolean
@@ -127,7 +128,10 @@ export async function getSmartProtectionChannels() {
 export async function getSmartProtectionEvents(
   page = 1,
   pageSize = 10,
-  keyword = ''
+  keyword = '',
+  username = '',
+  safety = '',
+  category = ''
 ) {
   const response = await api.get<
     ApiResponse<{
@@ -137,7 +141,14 @@ export async function getSmartProtectionEvents(
       page_size: number
     }>
   >('/api/smart-protection/events', {
-    params: { page, page_size: pageSize, ...(keyword ? { keyword } : {}) },
+    params: {
+      page,
+      page_size: pageSize,
+      ...(keyword ? { keyword } : {}),
+      ...(username ? { username } : {}),
+      ...(safety ? { safety } : {}),
+      ...(category ? { category } : {}),
+    },
   })
   const data = response.data.data
   return { ...data, items: data.items ?? [] }

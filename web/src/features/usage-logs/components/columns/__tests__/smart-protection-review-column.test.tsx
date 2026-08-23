@@ -170,7 +170,7 @@ describe('smart-protection review log column', () => {
           smart_protection_safeties: [],
           smart_protection_categories: [],
           smart_protection_review_error:
-            'smart protection upstream returned status 401',
+            'smart protection upstream returned status 401: {"error":{"message":"invalid guard credential"}}',
         },
       }),
     } as UsageLog
@@ -193,6 +193,13 @@ describe('smart-protection review log column', () => {
     )
     expect(container.textContent).toBe('ErrorError')
     expect(container.textContent).not.toContain('None')
+
+    const errorBadges = container.querySelectorAll('button')
+    expect(errorBadges).toHaveLength(1)
+    await act(async () => {
+      ;(errorBadges[0] as HTMLButtonElement).click()
+    })
+    expect(document.body.textContent).toContain('invalid guard credential')
 
     await act(async () => root.unmount())
     container.remove()
@@ -229,6 +236,8 @@ describe('smart-protection review log column', () => {
           smart_protection_review_reason: 'partial_failure',
           smart_protection_safeties: ['Controversial'],
           smart_protection_categories: ['Jailbreak'],
+          smart_protection_review_raw:
+            'Safety: Controversial\nCategories: [Jailbreak]',
           smart_protection_review_error: 'one review chunk timed out',
         },
       }),
@@ -251,7 +260,19 @@ describe('smart-protection review log column', () => {
     )
     expect(container.textContent).toContain('Controversial')
     expect(container.textContent).toContain('Jailbreak')
-    expect(container.textContent).not.toContain('Error')
+    expect(container.textContent).not.toContain('Smart protection category:')
+    expect(container.textContent).toContain('Error')
+
+    const safetyTrigger = container.querySelector(
+      '[aria-label="Show safety model response"]'
+    )
+    expect(safetyTrigger).toBeTruthy()
+    await act(async () => {
+      ;(safetyTrigger as HTMLButtonElement).click()
+    })
+    expect(document.body.textContent).toContain(
+      'Safety: Controversial\nCategories: [Jailbreak]'
+    )
 
     await act(async () => root.unmount())
     container.remove()

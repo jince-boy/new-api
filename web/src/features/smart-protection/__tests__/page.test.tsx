@@ -14,6 +14,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import i18n from 'i18next'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -59,13 +60,13 @@ function renderPage(
     email_status: 'sent',
     created_at: 1,
   }
-  queryClient.setQueryData(['smart-protection-events', 1, 10, ''], {
+  queryClient.setQueryData(['smart-protection-events', 1, 10, '', '', ''], {
     total: withEvent ? 25 : 0,
     items: withEvent ? [event] : [],
     page: 1,
     page_size: 10,
   })
-  queryClient.setQueryData(['smart-protection-events', 2, 10, ''], {
+  queryClient.setQueryData(['smart-protection-events', 2, 10, '', '', ''], {
     total: withEvent ? 25 : 0,
     items: withEvent ? [{ ...event, id: 2, username: 'page-two' }] : [],
     page: 2,
@@ -104,6 +105,7 @@ const settings: SmartProtectionSettings = {
   channel_ids: [7],
   save_content: true,
   warning_email: true,
+  email_cooldown_minutes: 30,
   email_rules: [
     {
       id: 'template-1',
@@ -133,6 +135,9 @@ describe('Smart Protection page', () => {
       'https://guard.example/v1'
     )
     expect(screen.getByPlaceholderText('Search channels')).toBeVisible()
+    expect(
+      screen.getByLabelText('Warning email cooldown (minutes)')
+    ).toHaveValue(30)
     expect(screen.getByText('Leave empty to keep existing key')).toBeVisible()
     expect(
       screen.queryByRole('button', { name: 'Refresh' })
@@ -237,6 +242,37 @@ describe('Smart Protection page', () => {
     expect(dialog).toBeVisible()
     expect(dialog).toHaveTextContent('req-1')
     expect(await screen.findByDisplayValue('risk content')).toBeVisible()
+
+    queryClient.clear()
+  })
+
+  it('filters protection events by username safety and category', async () => {
+    await i18n.changeLanguage('en')
+    const searchSpy = vi
+      .spyOn(smartProtectionApi, 'getSmartProtectionEvents')
+      .mockResolvedValue({ total: 0, items: [], page: 1, page_size: 10 })
+    const queryClient = renderPage(settings, true)
+    const user = userEvent.setup()
+
+    fireEvent.change(screen.getByPlaceholderText('Search by username'), {
+      target: { value: 'alice' },
+    })
+    await user.click(screen.getAllByText('Any safety level')[0])
+    await user.click(await screen.findByRole('option', { name: 'Unsafe' }))
+    await user.click(screen.getAllByText('Any category')[0])
+    await user.click(await screen.findByRole('option', { name: 'Jailbreak' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
+
+    await waitFor(() =>
+      expect(searchSpy).toHaveBeenCalledWith(
+        1,
+        10,
+        '',
+        'alice',
+        'Unsafe',
+        'Jailbreak'
+      )
+    )
 
     queryClient.clear()
   })

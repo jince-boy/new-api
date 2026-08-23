@@ -11,28 +11,30 @@ import (
 )
 
 const (
-	SmartProtectionMaxTimeout    = 60
-	SmartProtectionMinContext    = 1000
-	SmartProtectionMaxContext    = 24000
-	SmartProtectionMaxConcurrent = 32
+	SmartProtectionMaxTimeout              = 60
+	SmartProtectionMinContext              = 1000
+	SmartProtectionMaxContext              = 24000
+	SmartProtectionMaxConcurrent           = 32
+	SmartProtectionMaxEmailCooldownMinutes = 7 * 24 * 60
 )
 
 type SmartProtectionSetting struct {
-	Enabled           bool                       `json:"enabled"`
-	BaseURL           string                     `json:"base_url"`
-	APIKey            string                     `json:"api_key"`
-	Model             string                     `json:"model"`
-	TimeoutSeconds    int                        `json:"timeout_seconds"`
-	MaxContextChars   int                        `json:"max_context_chars"`
-	MaxConcurrent     int                        `json:"max_concurrent"`
-	BlockedSafeties   []string                   `json:"blocked_safeties"`
-	BlockedCategories []string                   `json:"blocked_categories"`
-	BlockedRules      []SmartProtectionRule      `json:"blocked_rules"`
-	ChannelIDs        []int                      `json:"channel_ids"`
-	SaveContent       bool                       `json:"save_content"`
-	WarningEmail      bool                       `json:"warning_email"`
-	EmailRules        []SmartProtectionEmailRule `json:"email_rules"`
-	RetentionDays     int                        `json:"retention_days"`
+	Enabled              bool                       `json:"enabled"`
+	BaseURL              string                     `json:"base_url"`
+	APIKey               string                     `json:"api_key"`
+	Model                string                     `json:"model"`
+	TimeoutSeconds       int                        `json:"timeout_seconds"`
+	MaxContextChars      int                        `json:"max_context_chars"`
+	MaxConcurrent        int                        `json:"max_concurrent"`
+	BlockedSafeties      []string                   `json:"blocked_safeties"`
+	BlockedCategories    []string                   `json:"blocked_categories"`
+	BlockedRules         []SmartProtectionRule      `json:"blocked_rules"`
+	ChannelIDs           []int                      `json:"channel_ids"`
+	SaveContent          bool                       `json:"save_content"`
+	WarningEmail         bool                       `json:"warning_email"`
+	EmailCooldownMinutes int                        `json:"email_cooldown_minutes"`
+	EmailRules           []SmartProtectionEmailRule `json:"email_rules"`
+	RetentionDays        int                        `json:"retention_days"`
 }
 
 // SmartProtectionRule matches a single guard decision. When Safety is set it
@@ -71,14 +73,15 @@ const (
 )
 
 var smartProtectionSetting = SmartProtectionSetting{
-	TimeoutSeconds:    15,
-	MaxContextChars:   24000,
-	MaxConcurrent:     8,
-	BlockedSafeties:   []string{"Controversial", "Unsafe"},
-	BlockedCategories: []string{"Jailbreak"},
-	SaveContent:       true,
-	WarningEmail:      true,
-	RetentionDays:     30,
+	TimeoutSeconds:       15,
+	MaxContextChars:      24000,
+	MaxConcurrent:        8,
+	BlockedSafeties:      []string{"Controversial", "Unsafe"},
+	BlockedCategories:    []string{"Jailbreak"},
+	SaveContent:          true,
+	WarningEmail:         true,
+	EmailCooldownMinutes: 30,
+	RetentionDays:        30,
 }
 
 var smartProtectionSettingMu sync.RWMutex
@@ -109,6 +112,9 @@ func GetSmartProtectionSetting() SmartProtectionSetting {
 	if setting.RetentionDays < 0 || setting.RetentionDays > 3650 {
 		setting.RetentionDays = 30
 	}
+	if setting.EmailCooldownMinutes <= 0 || setting.EmailCooldownMinutes > SmartProtectionMaxEmailCooldownMinutes {
+		setting.EmailCooldownMinutes = 30
+	}
 	return setting
 }
 
@@ -137,6 +143,9 @@ func NormalizeAndValidateSmartProtectionSetting(setting SmartProtectionSetting) 
 	}
 	if setting.RetentionDays < 0 || setting.RetentionDays > 3650 {
 		return SmartProtectionSetting{}, errors.New("smart protection retention is out of range")
+	}
+	if setting.EmailCooldownMinutes <= 0 || setting.EmailCooldownMinutes > SmartProtectionMaxEmailCooldownMinutes {
+		return SmartProtectionSetting{}, errors.New("smart protection email cooldown is out of range")
 	}
 	if len(setting.ChannelIDs) > 10000 {
 		return SmartProtectionSetting{}, errors.New("too many smart protection channels")
@@ -217,6 +226,9 @@ func normalizeSmartProtectionSetting(setting SmartProtectionSetting) SmartProtec
 	}
 	if setting.RetentionDays == 0 {
 		setting.RetentionDays = 30
+	}
+	if setting.EmailCooldownMinutes == 0 {
+		setting.EmailCooldownMinutes = 30
 	}
 	if setting.BlockedRules == nil {
 		if setting.BlockedSafeties == nil {

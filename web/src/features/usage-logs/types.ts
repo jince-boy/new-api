@@ -173,6 +173,7 @@ export interface LogOtherData {
       | 'guard_unavailable'
     smart_protection_safeties?: string[]
     smart_protection_categories?: string[]
+    smart_protection_review_raw?: string
     smart_protection_matched_rules?: string[]
     smart_protection_review_error?: string
     task_upstream?: {

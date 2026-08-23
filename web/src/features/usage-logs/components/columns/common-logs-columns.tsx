@@ -68,6 +68,8 @@ import type { LogOtherData } from '../../types'
 import { DetailsDialog } from '../dialogs/details-dialog'
 import { LogCostDisplay } from '../log-cost-display'
 import { ModelBadge } from '../model-badge'
+import { SmartProtectionReviewError } from '../smart-protection-review-error'
+import { SmartProtectionReviewRaw } from '../smart-protection-review-raw'
 import { TimingMetricsCell, StreamTpsCell } from '../timing-metrics-cell'
 import { useUsageLogsContext } from '../usage-logs-provider'
 import { createIpColumn } from './column-helpers'
@@ -782,26 +784,37 @@ export function useCommonLogsColumns(
       cell: ({ row }) => {
         if (!isTimingLogType(row.original.type)) return null
         const other = parseLogOther(row.original.other)
-        const reviewStatus = other?.admin_info?.smart_protection_review_status
         const reviewError = other?.admin_info?.smart_protection_review_error
-        if ((!reviewStatus || reviewStatus === 'failed') && reviewError) {
-          return (
-            <Badge variant='destructive' title={reviewError}>
-              {t('Error')}
-            </Badge>
-          )
-        }
+        const reviewRaw = other?.admin_info?.smart_protection_review_raw
         const safeties = row.getValue('smart_protection_safeties') as string[]
         if (safeties.length === 0) {
-          return <span className='text-muted-foreground/40'>—</span>
+          return reviewError ? (
+            <SmartProtectionReviewError error={reviewError} />
+          ) : (
+            <span className='text-muted-foreground/40'>—</span>
+          )
         }
-        return (
-          <div className='flex max-w-48 flex-wrap gap-1'>
+        const safetyBadges = (
+          <span className='flex max-w-48 flex-wrap gap-1'>
             {safeties.map((safety) => (
               <Badge key={safety} variant='outline'>
-                {t(`Smart protection safety: ${safety}`)}
+                {t(`Smart protection safety: ${safety}`, {
+                  defaultValue: safety,
+                })}
               </Badge>
             ))}
+          </span>
+        )
+        return (
+          <div className='flex flex-wrap items-center gap-1'>
+            {reviewRaw ? (
+              <SmartProtectionReviewRaw raw={reviewRaw}>
+                {safetyBadges}
+              </SmartProtectionReviewRaw>
+            ) : (
+              safetyBadges
+            )}
+            {reviewError && <SmartProtectionReviewError error={reviewError} />}
           </div>
         )
       },
@@ -816,22 +829,14 @@ export function useCommonLogsColumns(
       cell: ({ row }) => {
         if (!isTimingLogType(row.original.type)) return null
         const other = parseLogOther(row.original.other)
-        const reviewStatus = other?.admin_info?.smart_protection_review_status
         const reviewError = other?.admin_info?.smart_protection_review_error
         const categories = row.getValue(
           'smart_protection_categories'
         ) as string[]
-        if (
-          ((!reviewStatus || reviewStatus === 'failed') && reviewError) ||
-          (reviewStatus === 'partial' && reviewError && categories.length === 0)
-        ) {
-          return (
-            <Badge variant='destructive' title={reviewError}>
-              {t('Error')}
-            </Badge>
-          )
-        }
         if (categories.length === 0) {
+          if (reviewError) {
+            return <Badge variant='destructive'>{t('Error')}</Badge>
+          }
           if (
             other?.admin_info?.smart_protection_safeties ||
             other?.admin_info?.smart_protection_review_ms != null
@@ -844,9 +849,12 @@ export function useCommonLogsColumns(
           <div className='flex max-w-64 flex-wrap gap-1'>
             {categories.map((category) => (
               <Badge key={category} variant='secondary'>
-                {t(`Smart protection category: ${category}`)}
+                {t(`Smart protection category: ${category}`, {
+                  defaultValue: category,
+                })}
               </Badge>
             ))}
+            {reviewError && <Badge variant='destructive'>{t('Error')}</Badge>}
           </div>
         )
       },

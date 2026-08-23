@@ -36,6 +36,7 @@ type SmartProtectionEvent struct {
 type SmartProtectionEventFilter struct {
 	UserId    int
 	ChannelId int
+	Username  string
 	Safety    string
 	Category  string
 	Keyword   string
@@ -65,11 +66,14 @@ func ListSmartProtectionEvents(filter SmartProtectionEventFilter) ([]*SmartProte
 	if filter.ChannelId > 0 {
 		query = query.Where("events.channel_id = ?", filter.ChannelId)
 	}
+	if username := strings.TrimSpace(filter.Username); username != "" {
+		query = query.Where("LOWER(events.username) LIKE ?", "%"+strings.ToLower(username)+"%")
+	}
 	if safety := strings.TrimSpace(filter.Safety); safety != "" {
-		query = query.Where("events.safety = ?", safety)
+		query = query.Where("LOWER(events.safety) LIKE ?", "%"+strings.ToLower(safety)+"%")
 	}
 	if category := strings.TrimSpace(filter.Category); category != "" {
-		query = query.Where("events.categories LIKE ?", "%\""+category+"\"%")
+		query = query.Where("LOWER(events.categories) LIKE ?", "%"+strings.ToLower(category)+"%")
 	}
 	if keyword := strings.ToLower(strings.TrimSpace(filter.Keyword)); keyword != "" {
 		like := "%" + keyword + "%"

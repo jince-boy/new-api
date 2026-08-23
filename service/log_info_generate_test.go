@@ -23,6 +23,7 @@ func TestGenerateTextOtherInfoUsesUpstreamTTFTAndKeepsInternalTimingAdminOnly(t 
 		SmartProtectionReviewTime: 1500 * time.Millisecond,
 		SmartProtectionSafeties:   []string{"Controversial"},
 		SmartProtectionCategories: []string{"Jailbreak"},
+		SmartProtectionReviewRaw:  "Safety: Controversial\nCategories: [Jailbreak]",
 		IsStream:                  true,
 		UpstreamStartTime:         start.Add(5 * time.Second),
 		UpstreamFirstContentTime:  start.Add(6 * time.Second),
@@ -38,6 +39,7 @@ func TestGenerateTextOtherInfoUsesUpstreamTTFTAndKeepsInternalTimingAdminOnly(t 
 	assert.Equal(t, int64(1500), adminInfo["smart_protection_review_ms"])
 	assert.Equal(t, []string{"Controversial"}, adminInfo["smart_protection_safeties"])
 	assert.Equal(t, []string{"Jailbreak"}, adminInfo["smart_protection_categories"])
+	assert.Equal(t, "Safety: Controversial\nCategories: [Jailbreak]", adminInfo["smart_protection_review_raw"])
 	assert.NotContains(t, other, "smart_protection_review_ms")
 }
 
@@ -46,6 +48,7 @@ func TestAttachSmartProtectionReviewTimeKeepsCachedClassification(t *testing.T) 
 	info := &common.RelayInfo{
 		SmartProtectionSafeties:   []string{"Controversial"},
 		SmartProtectionCategories: []string{"Non-violent Illegal Acts"},
+		SmartProtectionReviewRaw:  "Safety: Controversial\nCategories: [Non-violent Illegal Acts]",
 	}
 
 	attachSmartProtectionReviewTime(other, info)
@@ -54,6 +57,7 @@ func TestAttachSmartProtectionReviewTimeKeepsCachedClassification(t *testing.T) 
 	require.True(t, ok)
 	assert.Equal(t, []string{"Controversial"}, adminInfo["smart_protection_safeties"])
 	assert.Equal(t, []string{"Non-violent Illegal Acts"}, adminInfo["smart_protection_categories"])
+	assert.Equal(t, "Safety: Controversial\nCategories: [Non-violent Illegal Acts]", adminInfo["smart_protection_review_raw"])
 }
 
 func TestAppendSmartProtectionReviewAdminInfoKeepsEmptySafeCategories(t *testing.T) {

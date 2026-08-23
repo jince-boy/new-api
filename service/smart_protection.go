@@ -69,6 +69,7 @@ type smartProtectionDecision struct {
 type smartProtectionActions struct {
 	Record          bool
 	Block           bool
+	SendEmail       bool
 	EmailTemplateID string
 	MatchedRules    []string
 }
@@ -92,10 +93,16 @@ const (
 	smartProtectionRiskStateTTL        = 30 * time.Minute
 	smartProtectionRiskStateMax        = 10000
 	smartProtectionUpstreamMaxAttempts = 2
-	smartProtectionMaxRetryDelay       = 500 * time.Millisecond
+	// Cortecs may return Retry-After on 429. A sub-second retry loop causes a
+	// free-tier quota window to be exhausted even faster, so honor that signal
+	// for a bounded but useful interval.
+	smartProtectionMaxRetryDelay     = 30 * time.Second
+	smartProtectionEmailRedisTimeout = 500 * time.Millisecond
 )
 
 var smartProtectionContextReferencePattern = regexp.MustCompile(`(?i)(continue|above|previous|earlier|as discussed|same (?:instructions|steps)|继续|上面|上述|前面|刚才|之前|照旧|按.{0,12}(?:内容|步骤|要求)|基于.{0,12}(?:内容|对话))`)
+
+var errSmartProtectionUpstreamTimeout = errors.New("smart protection upstream timed out after retries")
 
 var smartProtectionLimiter = struct {
 	sync.Mutex
@@ -104,6 +111,15 @@ var smartProtectionLimiter = struct {
 }{changed: make(chan struct{})}
 
 var smartProtectionLastCleanup atomic.Int64
+
+type smartProtectionEmailLimitEntry struct {
+	expires time.Time
+}
+
+var smartProtectionEmailLimit = struct {
+	sync.Mutex
+	entries map[string]smartProtectionEmailLimitEntry
+}{entries: make(map[string]smartProtectionEmailLimitEntry)}
 
 type smartProtectionReviewCall struct {
 	done     chan struct{}
@@ -152,6 +168,9 @@ func CheckSmartProtection(c *gin.Context, info *relaycommon.RelayInfo, channelId
 	reviewDuration := time.Since(started)
 	info.AddSmartProtectionReviewTime(reviewDuration)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = errSmartProtectionUpstreamTimeout
+		}
 		info.SmartProtectionReviewError = err.Error()
 	}
 	for _, decision := range decisions {
@@ -169,15 +188,19 @@ func CheckSmartProtection(c *gin.Context, info *relaycommon.RelayInfo, channelId
 	if len(decisions) > 0 {
 		info.SmartProtectionMatchedRules = append([]string{}, actions.MatchedRules...)
 		decision := aggregateSmartProtectionDecisions(decisions, reviewDuration.Milliseconds())
+		info.SmartProtectionReviewRaw = decision.Raw
+		if rawRunes := []rune(info.SmartProtectionReviewRaw); len(rawRunes) > smartProtectionMaxRawResultRunes {
+			info.SmartProtectionReviewRaw = string(rawRunes[:smartProtectionMaxRawResultRunes]) + "…"
+		}
 		action := "observed"
 		if actions.Block {
 			action = "blocked"
 		}
 		if actions.Record {
-			if recordErr := recordSmartProtectionEvent(c, info, channelId, channelName, setting, decision, action, actions.EmailTemplateID); recordErr != nil {
+			if recordErr := recordSmartProtectionEvent(c, info, channelId, channelName, setting, decision, action, actions); recordErr != nil {
 				logger.LogWarn(c, fmt.Sprintf("failed to record smart protection event: %v", recordErr))
 			}
-		} else if actions.EmailTemplateID != "" {
+		} else if actions.SendEmail && actions.EmailTemplateID != "" {
 			sendSmartProtectionWarningEmail(c, info, setting, decision, actions.EmailTemplateID)
 		}
 	}
@@ -238,6 +261,11 @@ func reviewSmartProtectionContext(ctx context.Context, setting operation_setting
 	if timeoutSeconds <= 0 || timeoutSeconds > operation_setting.SmartProtectionMaxTimeout {
 		timeoutSeconds = 15
 	}
+	// The relay request context may carry a much shorter upstream/client
+	// deadline. Smart protection is an independent preflight call, so use its
+	// own bounded timeout instead of letting the relay deadline abort Cortecs
+	// halfway through a classification.
+	reviewParent := context.WithoutCancel(ctx)
 	concurrencyLimit := setting.MaxConcurrent
 	if concurrencyLimit <= 0 {
 		concurrencyLimit = 1
@@ -245,7 +273,8 @@ func reviewSmartProtectionContext(ctx context.Context, setting operation_setting
 	if concurrencyLimit > operation_setting.SmartProtectionMaxConcurrent {
 		concurrencyLimit = operation_setting.SmartProtectionMaxConcurrent
 	}
-	primaryCtx, primaryCancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+	phaseTimeout := time.Duration(timeoutSeconds*smartProtectionUpstreamMaxAttempts)*time.Second + smartProtectionMaxRetryDelay
+	primaryCtx, primaryCancel := context.WithTimeout(reviewParent, phaseTimeout)
 	decisions, firstErr := reviewSmartProtectionChunks(primaryCtx, primaryCancel, setting, primaryChunks, concurrencyLimit)
 	primaryTimedOut := primaryCtx.Err() != nil
 	primaryCancel()
@@ -268,7 +297,7 @@ func reviewSmartProtectionContext(ctx context.Context, setting operation_setting
 	if blocked || expandedContext == "" || primaryTimedOut || (!referencesHistory && !suspicious && !hasSmartProtectionRisk(riskKey)) {
 		return decisions, firstErr
 	}
-	expandedCtx, expandedCancel := context.WithTimeout(ctx, time.Duration(timeoutSeconds)*time.Second)
+	expandedCtx, expandedCancel := context.WithTimeout(reviewParent, phaseTimeout)
 	expandedDecisions, expandedErr := reviewSmartProtectionChunks(expandedCtx, expandedCancel, setting, []string{expandedContext}, concurrencyLimit)
 	expandedCancel()
 	decisions = append(decisions, expandedDecisions...)
@@ -389,7 +418,7 @@ func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.S
 	started := time.Now()
 	payload := smartProtectionRequest{
 		Model:     setting.Model,
-		Messages:  []smartProtectionMessage{{Role: "system", Content: "You are a helpful and harmless assistant. You should think step-by-step."}, {Role: "user", Content: content}},
+		Messages:  []smartProtectionMessage{{Role: "user", Content: content}},
 		MaxTokens: 128,
 		Stream:    false,
 	}
@@ -401,11 +430,13 @@ func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.S
 	if err != nil {
 		return smartProtectionDecision{}, err
 	}
-	client := &http.Client{Timeout: time.Duration(setting.TimeoutSeconds) * time.Second}
+	client := &http.Client{}
 	var responseBody []byte
 	for attempt := 1; attempt <= smartProtectionUpstreamMaxAttempts; attempt++ {
-		request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+		attemptCtx, attemptCancel := context.WithTimeout(ctx, time.Duration(setting.TimeoutSeconds)*time.Second)
+		request, err := http.NewRequestWithContext(attemptCtx, http.MethodPost, endpoint, bytes.NewReader(body))
 		if err != nil {
+			attemptCancel()
 			return smartProtectionDecision{}, err
 		}
 		request.Header.Set("Content-Type", "application/json")
@@ -414,29 +445,61 @@ func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.S
 		}
 		response, err := client.Do(request)
 		if err != nil {
+			attemptCancel()
+			if ctx.Err() != nil {
+				return smartProtectionDecision{}, ctx.Err()
+			}
+			var requestError *url.Error
+			timedOut := errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &requestError) && requestError.Timeout())
+			if attempt < smartProtectionUpstreamMaxAttempts && timedOut {
+				if retryErr := waitForSmartProtectionRetry(ctx, "", attempt, 0); retryErr != nil {
+					return smartProtectionDecision{}, retryErr
+				}
+				continue
+			}
+			if timedOut {
+				return smartProtectionDecision{}, errSmartProtectionUpstreamTimeout
+			}
 			return smartProtectionDecision{}, err
 		}
 		responseBody, err = io.ReadAll(io.LimitReader(response.Body, 256*1024))
 		response.Body.Close()
+		attemptCancel()
 		if err != nil {
+			if ctx.Err() != nil {
+				return smartProtectionDecision{}, ctx.Err()
+			}
+			if attempt < smartProtectionUpstreamMaxAttempts && errors.Is(err, context.DeadlineExceeded) {
+				if retryErr := waitForSmartProtectionRetry(ctx, "", attempt, 0); retryErr != nil {
+					return smartProtectionDecision{}, retryErr
+				}
+				continue
+			}
+			if errors.Is(err, context.DeadlineExceeded) {
+				return smartProtectionDecision{}, errSmartProtectionUpstreamTimeout
+			}
 			return smartProtectionDecision{}, err
 		}
 		if response.StatusCode >= 200 && response.StatusCode < 300 {
 			break
 		}
 		if attempt == smartProtectionUpstreamMaxAttempts || !smartProtectionRetryableStatus(response.StatusCode) {
-			return smartProtectionDecision{}, fmt.Errorf("smart protection upstream returned status %d", response.StatusCode)
+			bodyText := smartProtectionUpstreamBody(responseBody)
+			if bodyText == "" {
+				return smartProtectionDecision{}, fmt.Errorf("smart protection upstream returned status %d", response.StatusCode)
+			}
+			return smartProtectionDecision{}, fmt.Errorf("smart protection upstream returned status %d: %s", response.StatusCode, bodyText)
 		}
-		if err := waitForSmartProtectionRetry(ctx, response.Header.Get("Retry-After"), attempt); err != nil {
+		if err := waitForSmartProtectionRetry(ctx, response.Header.Get("Retry-After"), attempt, response.StatusCode); err != nil {
 			return smartProtectionDecision{}, err
 		}
 	}
 	raw, err := smartProtectionResponseContent(responseBody)
 	if err != nil {
-		return smartProtectionDecision{}, err
+		return smartProtectionDecision{}, smartProtectionErrorWithBody(err, responseBody)
 	}
 	if strings.TrimSpace(raw) == "" {
-		return smartProtectionDecision{}, errors.New("smart protection upstream returned no classification")
+		return smartProtectionDecision{}, smartProtectionErrorWithBody(errors.New("smart protection upstream returned no classification"), responseBody)
 	}
 	raw = strings.TrimSpace(raw)
 	decision := smartProtectionDecision{Raw: raw, Content: content, Latency: time.Since(started).Milliseconds()}
@@ -444,7 +507,7 @@ func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.S
 		decision.Safety = canonicalSmartProtectionSafety(match[1])
 	}
 	if len([]rune(decision.Safety)) > smartProtectionMaxSafetyRunes {
-		return smartProtectionDecision{}, errors.New("smart protection upstream returned an invalid safety label")
+		return smartProtectionDecision{}, smartProtectionErrorWithBody(errors.New("smart protection upstream returned an invalid safety label"), responseBody)
 	}
 	if match := smartProtectionCategoryPattern.FindStringSubmatch(raw); len(match) == 2 {
 		categoryValue := strings.TrimSpace(match[1])
@@ -453,14 +516,14 @@ func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.S
 			category = strings.Trim(strings.TrimSpace(category), " \t\"'`*_[]{}()")
 			if category != "" && !strings.EqualFold(category, "None") {
 				if len([]rune(category)) > smartProtectionMaxCategoryRunes || len(decision.Categories) >= smartProtectionMaxCategoryCount {
-					return smartProtectionDecision{}, errors.New("smart protection upstream returned invalid categories")
+					return smartProtectionDecision{}, smartProtectionErrorWithBody(errors.New("smart protection upstream returned invalid categories"), responseBody)
 				}
 				decision.Categories = append(decision.Categories, category)
 			}
 		}
 	}
 	if decision.Safety == "" {
-		return smartProtectionDecision{}, errors.New("smart protection upstream returned an invalid safety label")
+		return smartProtectionDecision{}, smartProtectionErrorWithBody(errors.New("smart protection upstream returned an invalid safety label"), responseBody)
 	}
 	// Qwen3Guard's contract defines Safe as Categories: None. Some
 	// OpenAI-compatible gateways occasionally append a stale category from
@@ -472,12 +535,32 @@ func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.S
 	return decision, nil
 }
 
+const smartProtectionMaxErrorBodyRunes = 4096
+
+func smartProtectionUpstreamBody(body []byte) string {
+	text := strings.TrimSpace(string(body))
+	if len([]rune(text)) > smartProtectionMaxErrorBodyRunes {
+		text = string([]rune(text)[:smartProtectionMaxErrorBodyRunes]) + "…"
+	}
+	return text
+}
+
+func smartProtectionErrorWithBody(err error, body []byte) error {
+	if bodyText := smartProtectionUpstreamBody(body); bodyText != "" {
+		return fmt.Errorf("%w: upstream response: %s", err, bodyText)
+	}
+	return err
+}
+
 func smartProtectionRetryableStatus(status int) bool {
 	return status == http.StatusTooManyRequests || status == http.StatusBadGateway || status == http.StatusServiceUnavailable || status == http.StatusGatewayTimeout
 }
 
-func waitForSmartProtectionRetry(ctx context.Context, retryAfter string, attempt int) error {
+func waitForSmartProtectionRetry(ctx context.Context, retryAfter string, attempt int, status int) error {
 	delay := time.Duration(attempt) * 250 * time.Millisecond
+	if status == http.StatusTooManyRequests && strings.TrimSpace(retryAfter) == "" {
+		delay = time.Second
+	}
 	if seconds, err := strconv.Atoi(strings.TrimSpace(retryAfter)); err == nil && seconds >= 0 {
 		delay = time.Duration(seconds) * time.Second
 	} else if retryAt, err := http.ParseTime(strings.TrimSpace(retryAfter)); err == nil {
@@ -631,46 +714,26 @@ func buildSmartProtectionReviewPlan(meta *types.TokenCountMeta, limit int) ([]st
 		return chunks, "", false
 	}
 	latest := strings.TrimSpace(messages[latestIndex].Content)
-	primaryChunks := make([]string, 0, smartProtectionMaxLatestChunks)
+	primaryChunks := splitSmartProtectionContext(latest, limit)
+	if len(primaryChunks) > smartProtectionMaxLatestChunks {
+		primaryChunks = primaryChunks[len(primaryChunks)-smartProtectionMaxLatestChunks:]
+	}
 	start := max(0, latestIndex-smartProtectionRecentMessages+1)
-	var contextBuilder strings.Builder
-	for index := start; index <= latestIndex; index++ {
-		content := strings.TrimSpace(messages[index].Content)
-		if content == "" {
-			continue
+	expanded := ""
+	if start < latestIndex {
+		var expandedBuilder strings.Builder
+		for index := start; index < latestIndex; index++ {
+			content := strings.TrimSpace(messages[index].Content)
+			if content == "" {
+				continue
+			}
+			expandedBuilder.WriteString(strings.ToUpper(strings.TrimSpace(messages[index].Role)))
+			expandedBuilder.WriteString(":\n")
+			expandedBuilder.WriteString(content)
+			expandedBuilder.WriteString("\n\n")
 		}
-		contextBuilder.WriteString(strings.ToUpper(strings.TrimSpace(messages[index].Role)))
-		contextBuilder.WriteString(":\n")
-		contextBuilder.WriteString(content)
-		contextBuilder.WriteString("\n\n")
+		expanded = trimSmartProtectionContextTail(expandedBuilder.String(), limit)
 	}
-	recentContext := trimSmartProtectionContextTail(contextBuilder.String(), limit)
-	if len([]rune(latest)) <= limit {
-		primaryChunks = append(primaryChunks, recentContext)
-	} else {
-		primaryChunks = splitSmartProtectionContext(latest, limit)
-		if len(primaryChunks) > smartProtectionMaxLatestChunks {
-			primaryChunks = primaryChunks[len(primaryChunks)-smartProtectionMaxLatestChunks:]
-		}
-	}
-	expandedStart := 0
-	expandedEnd := start
-	if len([]rune(latest)) > limit {
-		expandedStart = start
-		expandedEnd = latestIndex
-	}
-	var expandedBuilder strings.Builder
-	for index := expandedStart; index < expandedEnd; index++ {
-		content := strings.TrimSpace(messages[index].Content)
-		if content == "" {
-			continue
-		}
-		expandedBuilder.WriteString(strings.ToUpper(strings.TrimSpace(messages[index].Role)))
-		expandedBuilder.WriteString(":\n")
-		expandedBuilder.WriteString(content)
-		expandedBuilder.WriteString("\n\n")
-	}
-	expanded := trimSmartProtectionContextTail(expandedBuilder.String(), limit)
 	return primaryChunks, expanded, smartProtectionContextReferencePattern.MatchString(latest)
 }
 
@@ -834,8 +897,11 @@ func smartProtectionEvaluateActions(setting operation_setting.SmartProtectionSet
 		}
 		actions.Record = actions.Record || rule.Record
 		actions.Block = actions.Block || rule.Block
-		if actions.EmailTemplateID == "" && setting.WarningEmail && rule.SendEmail {
-			actions.EmailTemplateID = strings.TrimSpace(rule.EmailTemplateID)
+		if setting.WarningEmail && rule.SendEmail {
+			actions.SendEmail = true
+			if actions.EmailTemplateID == "" {
+				actions.EmailTemplateID = strings.TrimSpace(rule.EmailTemplateID)
+			}
 		}
 	}
 	// Blocking without an audit record makes the protection event disappear
@@ -938,7 +1004,7 @@ func smartProtectionLabelsEqual(left, right string) bool {
 	return normalize(left) == normalize(right)
 }
 
-func recordSmartProtectionEvent(c *gin.Context, info *relaycommon.RelayInfo, channelId int, channelName string, setting operation_setting.SmartProtectionSetting, decision smartProtectionDecision, action string, emailTemplateID string) error {
+func recordSmartProtectionEvent(c *gin.Context, info *relaycommon.RelayInfo, channelId int, channelName string, setting operation_setting.SmartProtectionSetting, decision smartProtectionDecision, action string, actions smartProtectionActions) error {
 	user, err := model.GetUserIdentityForSmartProtection(info.UserId)
 	if err != nil {
 		return err
@@ -959,6 +1025,10 @@ func recordSmartProtectionEvent(c *gin.Context, info *relaycommon.RelayInfo, cha
 		rawResult = string(rawRunes[:smartProtectionMaxRawResultRunes])
 	}
 	hash := sha256.Sum256([]byte(decision.Content))
+	emailTemplateID := ""
+	if actions.SendEmail {
+		emailTemplateID = actions.EmailTemplateID
+	}
 	emailRule, emailRuleMatched := selectSmartProtectionEmailTemplate(setting, emailTemplateID)
 	emailStatus := "not_configured"
 	if emailTemplateID != "" && !emailRuleMatched {
@@ -977,6 +1047,12 @@ func recordSmartProtectionEvent(c *gin.Context, info *relaycommon.RelayInfo, cha
 	}
 	if err := model.CreateSmartProtectionEvent(event); err != nil {
 		return err
+	}
+	if emailStatus == "pending" && !reserveSmartProtectionEmail(user.Id, user.Email, setting.EmailCooldownMinutes) {
+		emailStatus = "rate_limited"
+		if updateErr := model.UpdateSmartProtectionEmailResult(event.Id, false, emailStatus, ""); updateErr != nil {
+			common.SysError(fmt.Sprintf("failed to save smart protection email cooldown result for event %d: %v", event.Id, updateErr))
+		}
 	}
 	now := time.Now().Unix()
 	lastCleanup := smartProtectionLastCleanup.Load()
@@ -1019,6 +1095,9 @@ func sendSmartProtectionWarningEmail(c *gin.Context, info *relaycommon.RelayInfo
 	if err != nil || strings.TrimSpace(user.Email) == "" {
 		return
 	}
+	if !reserveSmartProtectionEmail(user.Id, user.Email, setting.EmailCooldownMinutes) {
+		return
+	}
 	event := &model.SmartProtectionEvent{RequestId: c.GetString(common.RequestIdKey), ModelName: info.OriginModelName, Action: "observed", CreatedAt: time.Now().Unix()}
 	gopool.Go(func() {
 		subject, body := renderSmartProtectionEmail(rule, decision, event, user.Username)
@@ -1026,6 +1105,39 @@ func sendSmartProtectionWarningEmail(c *gin.Context, info *relaycommon.RelayInfo
 			common.SysError(fmt.Sprintf("smart protection warning email failed for user %d: %v", user.Id, emailErr))
 		}
 	})
+}
+
+func reserveSmartProtectionEmail(userID int, email string, cooldownMinutes int) bool {
+	if cooldownMinutes <= 0 {
+		return true
+	}
+	identity := fmt.Sprintf("%d:%s", userID, strings.ToLower(strings.TrimSpace(email)))
+	digest := sha256.Sum256([]byte(identity))
+	key := "smart_protection:email_cooldown:" + hex.EncodeToString(digest[:])
+	duration := time.Duration(cooldownMinutes) * time.Minute
+	if common.RedisEnabled && common.RDB != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), smartProtectionEmailRedisTimeout)
+		reserved, err := common.RDB.SetNX(ctx, key, "1", duration).Result()
+		cancel()
+		if err == nil {
+			return reserved
+		}
+		common.SysError(fmt.Sprintf("smart protection email cooldown Redis check failed: %v", err))
+	}
+	now := time.Now()
+	smartProtectionEmailLimit.Lock()
+	for entryKey, entry := range smartProtectionEmailLimit.entries {
+		if !now.Before(entry.expires) {
+			delete(smartProtectionEmailLimit.entries, entryKey)
+		}
+	}
+	if entry, ok := smartProtectionEmailLimit.entries[key]; ok && now.Before(entry.expires) {
+		smartProtectionEmailLimit.Unlock()
+		return false
+	}
+	smartProtectionEmailLimit.entries[key] = smartProtectionEmailLimitEntry{expires: now.Add(duration)}
+	smartProtectionEmailLimit.Unlock()
+	return true
 }
 
 func buildSmartProtectionWarningEmail(decision smartProtectionDecision, requestId string) (string, string) {
@@ -1043,14 +1155,15 @@ func selectSmartProtectionEmailRule(setting operation_setting.SmartProtectionSet
 }
 
 func selectSmartProtectionEmailTemplate(setting operation_setting.SmartProtectionSetting, templateID string) (operation_setting.SmartProtectionEmailRule, bool) {
-	for index, rule := range setting.EmailRules {
+	templateID = strings.TrimSpace(templateID)
+	if templateID == "" {
+		return operation_setting.SmartProtectionEmailRule{}, false
+	}
+	for _, rule := range setting.EmailRules {
 		if !rule.Enabled {
 			continue
 		}
-		if templateID != "" && strings.TrimSpace(rule.ID) == strings.TrimSpace(templateID) {
-			return rule, true
-		}
-		if templateID == "" && index == 0 {
+		if strings.TrimSpace(rule.ID) == templateID {
 			return rule, true
 		}
 	}

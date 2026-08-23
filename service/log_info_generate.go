@@ -82,7 +82,7 @@ func AppendSmartProtectionReviewAdminInfo(adminInfo map[string]interface{}, rela
 	if adminInfo == nil || relayInfo == nil {
 		return
 	}
-	reviewed := relayInfo.SmartProtectionReviewTime > 0 || len(relayInfo.SmartProtectionSafeties) > 0 || len(relayInfo.SmartProtectionCategories) > 0 || len(relayInfo.SmartProtectionMatchedRules) > 0 || relayInfo.SmartProtectionReviewError != "" || relayInfo.SmartProtectionReviewStatus != "" || relayInfo.SmartProtectionReviewReason != ""
+	reviewed := relayInfo.SmartProtectionReviewTime > 0 || len(relayInfo.SmartProtectionSafeties) > 0 || len(relayInfo.SmartProtectionCategories) > 0 || len(relayInfo.SmartProtectionMatchedRules) > 0 || relayInfo.SmartProtectionReviewRaw != "" || relayInfo.SmartProtectionReviewError != "" || relayInfo.SmartProtectionReviewStatus != "" || relayInfo.SmartProtectionReviewReason != ""
 	if relayInfo.SmartProtectionReviewTime > 0 {
 		adminInfo["smart_protection_review_ms"] = relayInfo.SmartProtectionReviewTime.Milliseconds()
 	}
@@ -91,6 +91,9 @@ func AppendSmartProtectionReviewAdminInfo(adminInfo map[string]interface{}, rela
 		adminInfo["smart_protection_review_reason"] = relayInfo.SmartProtectionReviewReason
 		adminInfo["smart_protection_safeties"] = append([]string{}, relayInfo.SmartProtectionSafeties...)
 		adminInfo["smart_protection_categories"] = append([]string{}, relayInfo.SmartProtectionCategories...)
+		if relayInfo.SmartProtectionReviewRaw != "" {
+			adminInfo["smart_protection_review_raw"] = relayInfo.SmartProtectionReviewRaw
+		}
 		adminInfo["smart_protection_matched_rules"] = append([]string{}, relayInfo.SmartProtectionMatchedRules...)
 		if relayInfo.SmartProtectionReviewError != "" {
 			adminInfo["smart_protection_review_error"] = relayInfo.SmartProtectionReviewError
@@ -114,7 +117,7 @@ func attachSmartProtectionReviewTime(other map[string]interface{}, relayInfo *re
 	if other == nil || relayInfo == nil {
 		return
 	}
-	if relayInfo.SmartProtectionReviewTime <= 0 && len(relayInfo.SmartProtectionSafeties) == 0 && len(relayInfo.SmartProtectionCategories) == 0 && len(relayInfo.SmartProtectionMatchedRules) == 0 && relayInfo.SmartProtectionReviewError == "" && relayInfo.SmartProtectionReviewStatus == "" && relayInfo.SmartProtectionReviewReason == "" {
+	if relayInfo.SmartProtectionReviewTime <= 0 && len(relayInfo.SmartProtectionSafeties) == 0 && len(relayInfo.SmartProtectionCategories) == 0 && len(relayInfo.SmartProtectionMatchedRules) == 0 && relayInfo.SmartProtectionReviewRaw == "" && relayInfo.SmartProtectionReviewError == "" && relayInfo.SmartProtectionReviewStatus == "" && relayInfo.SmartProtectionReviewReason == "" {
 		return
 	}
 	adminInfo, ok := other["admin_info"].(map[string]interface{})
