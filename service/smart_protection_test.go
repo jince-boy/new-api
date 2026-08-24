@@ -513,10 +513,10 @@ func TestSmartProtectionShouldBlockSafetyAndCategoryRule(t *testing.T) {
 	assert.False(t, smartProtectionShouldBlock(setting, smartProtectionDecision{Safety: "Unsafe", Categories: []string{"Jailbreak"}}))
 }
 
-func TestSmartProtectionEvaluateActionsCombinesMatchedRules(t *testing.T) {
+func TestSmartProtectionEvaluateActionsStopsAtFirstMatchedRulePerDecision(t *testing.T) {
 	setting := operation_setting.SmartProtectionSetting{WarningEmail: true, BlockedRules: []operation_setting.SmartProtectionRule{
-		{Safety: "Controversial", MatchMode: "all", Record: true, ActionsConfigured: true},
-		{Categories: []string{"Jailbreak"}, MatchMode: "all", SendEmail: true, EmailTemplateID: "warning", ActionsConfigured: true},
+		{Name: "first", Safety: "Controversial", MatchMode: "all", Record: true, ActionsConfigured: true},
+		{Name: "second", Categories: []string{"Jailbreak"}, MatchMode: "all", SendEmail: true, EmailTemplateID: "warning", ActionsConfigured: true},
 		{Safety: "Unsafe", MatchMode: "all", Block: true, ActionsConfigured: true},
 	}}
 
@@ -524,8 +524,29 @@ func TestSmartProtectionEvaluateActionsCombinesMatchedRules(t *testing.T) {
 
 	assert.True(t, actions.Record)
 	assert.False(t, actions.Block)
+	assert.False(t, actions.SendEmail)
+	assert.Empty(t, actions.EmailTemplateID)
+	assert.Equal(t, []string{"first"}, actions.MatchedRules)
+}
+
+func TestSmartProtectionEvaluateActionsAppliesEachDecisionIndependently(t *testing.T) {
+	setting := operation_setting.SmartProtectionSetting{WarningEmail: true, BlockedRules: []operation_setting.SmartProtectionRule{
+		{Name: "safe", Safety: "Safe", MatchMode: "all", Record: true, ActionsConfigured: true},
+		{Name: "controversial", Safety: "Controversial", Categories: []string{"Jailbreak"}, MatchMode: "any", Record: true, SendEmail: true, EmailTemplateID: "warning", ActionsConfigured: true},
+		{Name: "unsafe", Safety: "Unsafe", MatchMode: "all", Record: true, SendEmail: true, Block: true, EmailTemplateID: "warning", ActionsConfigured: true},
+	}}
+
+	actions := smartProtectionEvaluateActions(setting, []smartProtectionDecision{
+		{Safety: "Safe"},
+		{Safety: "Controversial", Categories: []string{"Jailbreak"}},
+		{Safety: "Unsafe", Categories: []string{"Jailbreak"}},
+	})
+
+	assert.True(t, actions.Record)
 	assert.True(t, actions.SendEmail)
+	assert.True(t, actions.Block)
 	assert.Equal(t, "warning", actions.EmailTemplateID)
+	assert.Equal(t, []string{"safe", "controversial", "unsafe"}, actions.MatchedRules)
 }
 
 func TestSmartProtectionEvaluateActionsSupportsIndependentCombinations(t *testing.T) {

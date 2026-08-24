@@ -183,25 +183,37 @@ func CheckSmartProtection(c *gin.Context, info *relaycommon.RelayInfo, channelId
 			}
 		}
 	}
-	actions := smartProtectionEvaluateActions(setting, decisions)
+	// Each guard call is evaluated independently. Rule matching is first-match:
+	// once a rule matches one decision, later rules must not add actions to it.
+	actions := smartProtectionActions{}
+	matchedRules := make([]string, 0, len(decisions))
+	for _, decision := range decisions {
+		decisionActions := smartProtectionEvaluateDecisionActions(setting, decision)
+		mergeSmartProtectionActions(&actions, decisionActions)
+		for _, rule := range decisionActions.MatchedRules {
+			if !containsString(matchedRules, rule) {
+				matchedRules = append(matchedRules, rule)
+			}
+		}
+		if decisionActions.Record || decisionActions.Block {
+			action := "observed"
+			if decisionActions.Block {
+				action = "blocked"
+			}
+			if recordErr := recordSmartProtectionEvent(c, info, channelId, channelName, setting, decision, action, decisionActions); recordErr != nil {
+				logger.LogWarn(c, fmt.Sprintf("failed to record smart protection event: %v", recordErr))
+			}
+		} else if decisionActions.SendEmail && decisionActions.EmailTemplateID != "" {
+			sendSmartProtectionWarningEmail(c, info, setting, decision, decisionActions.EmailTemplateID)
+		}
+	}
 	info.SmartProtectionReviewStatus, info.SmartProtectionReviewReason = smartProtectionReviewOutcome(decisions, actions, err)
 	if len(decisions) > 0 {
-		info.SmartProtectionMatchedRules = append([]string{}, actions.MatchedRules...)
+		info.SmartProtectionMatchedRules = append([]string{}, matchedRules...)
 		decision := aggregateSmartProtectionDecisions(decisions, reviewDuration.Milliseconds())
 		info.SmartProtectionReviewRaw = decision.Raw
 		if rawRunes := []rune(info.SmartProtectionReviewRaw); len(rawRunes) > smartProtectionMaxRawResultRunes {
 			info.SmartProtectionReviewRaw = string(rawRunes[:smartProtectionMaxRawResultRunes]) + "…"
-		}
-		action := "observed"
-		if actions.Block {
-			action = "blocked"
-		}
-		if actions.Record {
-			if recordErr := recordSmartProtectionEvent(c, info, channelId, channelName, setting, decision, action, actions); recordErr != nil {
-				logger.LogWarn(c, fmt.Sprintf("failed to record smart protection event: %v", recordErr))
-			}
-		} else if actions.SendEmail && actions.EmailTemplateID != "" {
-			sendSmartProtectionWarningEmail(c, info, setting, decision, actions.EmailTemplateID)
 		}
 	}
 	if actions.Block {
@@ -275,15 +287,11 @@ func reviewSmartProtectionContext(ctx context.Context, setting operation_setting
 	}
 	phaseTimeout := time.Duration(timeoutSeconds*smartProtectionUpstreamMaxAttempts)*time.Second + smartProtectionMaxRetryDelay
 	primaryCtx, primaryCancel := context.WithTimeout(reviewParent, phaseTimeout)
-	decisions, firstErr := reviewSmartProtectionChunks(primaryCtx, primaryCancel, setting, primaryChunks, concurrencyLimit)
+	decisions, firstErr := reviewSmartProtectionChunks(primaryCtx, setting, primaryChunks, concurrencyLimit)
 	primaryTimedOut := primaryCtx.Err() != nil
 	primaryCancel()
-	blocked := false
 	suspicious := false
 	for _, decision := range decisions {
-		if smartProtectionShouldBlock(setting, decision) {
-			blocked = true
-		}
 		if !strings.EqualFold(strings.TrimSpace(decision.Safety), "Safe") || len(decision.Categories) > 0 {
 			suspicious = true
 		}
@@ -294,11 +302,11 @@ func reviewSmartProtectionContext(ctx context.Context, setting operation_setting
 	if firstErr != nil && len(decisions) == 0 {
 		return nil, firstErr
 	}
-	if blocked || expandedContext == "" || primaryTimedOut || (!referencesHistory && !suspicious && !hasSmartProtectionRisk(riskKey)) {
+	if expandedContext == "" || primaryTimedOut || (!referencesHistory && !suspicious && !hasSmartProtectionRisk(riskKey)) {
 		return decisions, firstErr
 	}
 	expandedCtx, expandedCancel := context.WithTimeout(reviewParent, phaseTimeout)
-	expandedDecisions, expandedErr := reviewSmartProtectionChunks(expandedCtx, expandedCancel, setting, []string{expandedContext}, concurrencyLimit)
+	expandedDecisions, expandedErr := reviewSmartProtectionChunks(expandedCtx, setting, []string{expandedContext}, concurrencyLimit)
 	expandedCancel()
 	decisions = append(decisions, expandedDecisions...)
 	if firstErr == nil {
@@ -307,13 +315,21 @@ func reviewSmartProtectionContext(ctx context.Context, setting operation_setting
 	return decisions, firstErr
 }
 
-func reviewSmartProtectionChunks(ctx context.Context, cancel context.CancelFunc, setting operation_setting.SmartProtectionSetting, chunks []string, concurrencyLimit int) ([]smartProtectionDecision, error) {
+func reviewSmartProtectionChunks(ctx context.Context, setting operation_setting.SmartProtectionSetting, chunks []string, concurrencyLimit int) ([]smartProtectionDecision, error) {
+	type reviewJob struct {
+		index   int
+		content string
+	}
+	type reviewResult struct {
+		index    int
+		decision smartProtectionDecision
+	}
 	workerCount := min(concurrencyLimit, len(chunks))
-	jobs := make(chan string, len(chunks))
-	results := make(chan smartProtectionDecision, len(chunks))
+	jobs := make(chan reviewJob, len(chunks))
+	results := make(chan reviewResult, len(chunks))
 	errorsCh := make(chan error, len(chunks))
-	for _, chunk := range chunks {
-		jobs <- chunk
+	for index, chunk := range chunks {
+		jobs <- reviewJob{index: index, content: chunk}
 	}
 	close(jobs)
 	var wg sync.WaitGroup
@@ -321,25 +337,29 @@ func reviewSmartProtectionChunks(ctx context.Context, cancel context.CancelFunc,
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for chunk := range jobs {
-				decision, err := reviewSmartProtectionChunkCached(ctx, setting, chunk, concurrencyLimit)
+			for job := range jobs {
+				decision, err := reviewSmartProtectionChunkCached(ctx, setting, job.content, concurrencyLimit)
 				if err != nil {
 					errorsCh <- err
 					continue
 				}
-				results <- decision
-				if smartProtectionShouldBlock(setting, decision) {
-					cancel()
-				}
+				results <- reviewResult{index: job.index, decision: decision}
 			}
 		}()
 	}
 	wg.Wait()
 	close(results)
 	close(errorsCh)
+	ordered := make([]*smartProtectionDecision, len(chunks))
+	for result := range results {
+		decision := result.decision
+		ordered[result.index] = &decision
+	}
 	decisions := make([]smartProtectionDecision, 0, len(chunks))
-	for decision := range results {
-		decisions = append(decisions, decision)
+	for _, decision := range ordered {
+		if decision != nil {
+			decisions = append(decisions, *decision)
+		}
 	}
 	var firstErr error
 	for err := range errorsCh {
@@ -847,67 +867,79 @@ func releaseSmartProtectionSlot() {
 }
 
 func smartProtectionShouldBlock(setting operation_setting.SmartProtectionSetting, decision smartProtectionDecision) bool {
-	for _, rule := range setting.BlockedRules {
-		if (rule.Block || smartProtectionRuleUsesLegacyActions(rule)) && smartProtectionRuleMatches(rule, decision) {
-			return true
-		}
-	}
-	if len(setting.BlockedRules) > 0 {
-		return false
-	}
-	// Compatibility for callers/tests constructing the legacy fields directly.
-	for _, safety := range setting.BlockedSafeties {
-		if smartProtectionLabelsEqual(safety, decision.Safety) {
-			return true
-		}
-	}
-	for _, blocked := range setting.BlockedCategories {
-		for _, category := range decision.Categories {
-			if smartProtectionLabelsEqual(blocked, category) {
-				return true
-			}
-		}
-	}
-	return false
+	return smartProtectionEvaluateDecisionActions(setting, decision).Block
 }
 
-func smartProtectionEvaluateActions(setting operation_setting.SmartProtectionSetting, decisions []smartProtectionDecision) smartProtectionActions {
-	actions := smartProtectionActions{}
+// smartProtectionEvaluateDecisionActions applies only the first matching rule
+// to one guard decision. This keeps rule actions deterministic and prevents a
+// later, broader rule from changing the response selected by an earlier rule.
+func smartProtectionEvaluateDecisionActions(setting operation_setting.SmartProtectionSetting, decision smartProtectionDecision) smartProtectionActions {
 	for _, rule := range setting.BlockedRules {
-		matched := false
-		for _, decision := range decisions {
-			if smartProtectionRuleMatches(rule, decision) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
+		if !smartProtectionRuleMatches(rule, decision) {
 			continue
 		}
+		actions := smartProtectionActions{}
 		ruleLabel := strings.TrimSpace(rule.Name)
 		if ruleLabel == "" {
 			ruleLabel = strings.TrimSpace(rule.ID)
 		}
-		if ruleLabel != "" && !containsString(actions.MatchedRules, ruleLabel) {
-			actions.MatchedRules = append(actions.MatchedRules, ruleLabel)
+		if ruleLabel != "" {
+			actions.MatchedRules = []string{ruleLabel}
 		}
 		if smartProtectionRuleUsesLegacyActions(rule) {
 			actions.Record = true
 			actions.Block = true
+		} else {
+			actions.Record = rule.Record
+			actions.Block = rule.Block
 		}
-		actions.Record = actions.Record || rule.Record
-		actions.Block = actions.Block || rule.Block
 		if setting.WarningEmail && rule.SendEmail {
 			actions.SendEmail = true
-			if actions.EmailTemplateID == "" {
-				actions.EmailTemplateID = strings.TrimSpace(rule.EmailTemplateID)
+			actions.EmailTemplateID = strings.TrimSpace(rule.EmailTemplateID)
+		}
+		if actions.Block {
+			actions.Record = true
+		}
+		return actions
+	}
+
+	// Compatibility for settings/tests that still populate only the legacy
+	// safety/category lists and have no materialized rule list.
+	if len(setting.BlockedRules) == 0 {
+		for _, safety := range setting.BlockedSafeties {
+			if smartProtectionLabelsEqual(safety, decision.Safety) {
+				return smartProtectionActions{Record: true, Block: true}
+			}
+		}
+		for _, blocked := range setting.BlockedCategories {
+			for _, category := range decision.Categories {
+				if smartProtectionLabelsEqual(blocked, category) {
+					return smartProtectionActions{Record: true, Block: true}
+				}
 			}
 		}
 	}
-	// Blocking without an audit record makes the protection event disappear
-	// after the request finishes. Every enforced block must remain queryable.
-	if actions.Block {
-		actions.Record = true
+	return smartProtectionActions{}
+}
+
+func mergeSmartProtectionActions(target *smartProtectionActions, source smartProtectionActions) {
+	target.Record = target.Record || source.Record
+	target.Block = target.Block || source.Block
+	target.SendEmail = target.SendEmail || source.SendEmail
+	if target.EmailTemplateID == "" {
+		target.EmailTemplateID = source.EmailTemplateID
+	}
+	for _, rule := range source.MatchedRules {
+		if !containsString(target.MatchedRules, rule) {
+			target.MatchedRules = append(target.MatchedRules, rule)
+		}
+	}
+}
+
+func smartProtectionEvaluateActions(setting operation_setting.SmartProtectionSetting, decisions []smartProtectionDecision) smartProtectionActions {
+	actions := smartProtectionActions{}
+	for _, decision := range decisions {
+		mergeSmartProtectionActions(&actions, smartProtectionEvaluateDecisionActions(setting, decision))
 	}
 	return actions
 }
