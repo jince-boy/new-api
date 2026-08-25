@@ -131,6 +131,8 @@ export type SiteSettings = {
   Notice: string
   SystemName: string
   Logo: string
+  LogoLight: string
+  LogoDark: string
   GroupChatQRCodeImageURL: string
   GroupChatQRCodeExpiresAt: string
   Footer: string

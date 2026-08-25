@@ -41,7 +41,7 @@ export function OverviewSectionLayout(props: OverviewSectionLayoutProps) {
       {props.informationPanels != null && (
         <div
           data-testid='overview-information-row'
-          className='grid auto-cols-[minmax(16rem,1fr)] grid-flow-col gap-4 overflow-x-auto pb-1'
+          className='grid grid-flow-col gap-4 overflow-x-auto md:grid-flow-row md:grid-cols-2 2xl:grid-cols-3 [&>*]:col-start-1 md:[&>*]:col-start-auto'
         >
           {props.informationPanels}
         </div>

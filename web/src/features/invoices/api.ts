@@ -42,12 +42,28 @@ export async function getInvoicePaymentMethods(): Promise<
   return response.data
 }
 
-export async function getInvoiceApplications(
+export async function getOwnInvoiceApplications(
   page: number,
   pageSize: number,
   filters?: { status?: string; keyword?: string }
 ): Promise<InvoiceApiResponse<InvoiceApplicationPage>> {
   const response = await api.get('/api/invoice/self', {
+    params: {
+      p: page,
+      page_size: pageSize,
+      status: filters?.status || undefined,
+      keyword: filters?.keyword || undefined,
+    },
+  })
+  return response.data
+}
+
+export async function getAdminInvoiceApplications(
+  page: number,
+  pageSize: number,
+  filters?: { status?: string; keyword?: string }
+): Promise<InvoiceApiResponse<InvoiceApplicationPage>> {
+  const response = await api.get('/api/invoice/admin/applications', {
     params: {
       p: page,
       page_size: pageSize,
@@ -113,7 +129,17 @@ export async function uploadInvoiceFile(
   return response.data
 }
 
-export async function getInvoiceFile(applicationId: number): Promise<Blob> {
+export async function getOwnInvoiceFile(applicationId: number): Promise<Blob> {
+  const response = await api.get(
+    `/api/invoice/applications/${applicationId}/file`,
+    { responseType: 'blob' }
+  )
+  return response.data
+}
+
+export async function getAdminInvoiceFile(
+  applicationId: number
+): Promise<Blob> {
   const response = await api.get(
     `/api/invoice/admin/applications/${applicationId}/file`,
     {
@@ -123,11 +149,20 @@ export async function getInvoiceFile(applicationId: number): Promise<Blob> {
   return response.data
 }
 
-export async function sendInvoiceEmail(
+export async function sendOwnInvoiceEmail(
   applicationId: number
 ): Promise<InvoiceApiResponse<InvoiceApplication>> {
   const response = await api.post(
     `/api/invoice/applications/${applicationId}/send`
+  )
+  return response.data
+}
+
+export async function sendAdminInvoiceEmail(
+  applicationId: number
+): Promise<InvoiceApiResponse<InvoiceApplication>> {
+  const response = await api.post(
+    `/api/invoice/admin/applications/${applicationId}/send`
   )
   return response.data
 }

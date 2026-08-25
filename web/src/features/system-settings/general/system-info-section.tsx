@@ -49,7 +49,8 @@ import { LogoUploadField } from './logo-upload-field'
 const _systemInfoSchema = z.object({
   SystemName: z.string().min(1),
   ServerAddress: z.string().optional(),
-  Logo: z.string().optional(),
+  LogoLight: z.string().optional(),
+  LogoDark: z.string().optional(),
   Footer: z.string().optional(),
   About: z.string().optional(),
   HomePageContent: z.string().optional(),
@@ -77,7 +78,8 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
   const normalizedDefaults: SystemInfoFormValues = {
     SystemName: normalizeValue(defaultValues.SystemName),
     ServerAddress: normalizeValue(defaultValues.ServerAddress),
-    Logo: normalizeValue(defaultValues.Logo),
+    LogoLight: normalizeValue(defaultValues.LogoLight),
+    LogoDark: normalizeValue(defaultValues.LogoDark),
     Footer: normalizeValue(defaultValues.Footer),
     About: normalizeValue(defaultValues.About),
     HomePageContent: normalizeValue(defaultValues.HomePageContent),
@@ -92,7 +94,8 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
       error: () => t('System name is required'),
     }),
     ServerAddress: z.string().optional(),
-    Logo: z.string().optional(),
+    LogoLight: z.string().optional(),
+    LogoDark: z.string().optional(),
     Footer: z.string().optional(),
     About: z.string().optional(),
     HomePageContent: z.string().optional(),
@@ -109,27 +112,26 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
     markFieldSaved,
     isDirty,
     isSubmitting,
-  } =
-    useSettingsForm<SystemInfoFormValues>({
-      resolver: zodResolver(systemInfoSchemaWithI18n) as Resolver<
-        SystemInfoFormValues,
-        unknown,
-        SystemInfoFormValues
-      >,
-      defaultValues: normalizedDefaults,
-      onSubmit: async (_data, changedFields) => {
-        for (const [key, value] of Object.entries(changedFields)) {
-          let v = normalizeValue(value)
-          if (key === 'ServerAddress') {
-            v = v.replace(/\/+$/, '')
-          }
-          await updateOption.mutateAsync({
-            key,
-            value: v,
-          })
+  } = useSettingsForm<SystemInfoFormValues>({
+    resolver: zodResolver(systemInfoSchemaWithI18n) as Resolver<
+      SystemInfoFormValues,
+      unknown,
+      SystemInfoFormValues
+    >,
+    defaultValues: normalizedDefaults,
+    onSubmit: async (_data, changedFields) => {
+      for (const [key, value] of Object.entries(changedFields)) {
+        let v = normalizeValue(value)
+        if (key === 'ServerAddress') {
+          v = v.replace(/\/+$/, '')
         }
-      },
-    })
+        await updateOption.mutateAsync({
+          key,
+          value: v,
+        })
+      }
+    },
+  })
 
   return (
     <>
@@ -184,19 +186,46 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
 
               <FormField
                 control={form.control}
-                name='Logo'
+                name='LogoLight'
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>{t('Logo')}</FormLabel>
+                    <FormLabel>{t('Light theme logo')}</FormLabel>
                     <LogoUploadField
+                      variant='light'
                       value={field.value || ''}
                       disabled={isSubmitting || updateOption.isPending}
                       onSaved={(value) => {
-                        markFieldSaved('Logo', value)
+                        markFieldSaved('LogoLight', value)
                       }}
                     />
                     <FormDescription>
-                      {t('Upload PNG, JPEG, WebP, or GIF up to 5 MB.')}
+                      {t(
+                        'Used in light mode. If no dark logo is uploaded, this logo is used there too. Upload PNG, JPEG, WebP, or GIF up to 5 MB.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name='LogoDark'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Dark theme logo')}</FormLabel>
+                    <LogoUploadField
+                      variant='dark'
+                      value={field.value || ''}
+                      disabled={isSubmitting || updateOption.isPending}
+                      onSaved={(value) => {
+                        markFieldSaved('LogoDark', value)
+                      }}
+                    />
+                    <FormDescription>
+                      {t(
+                        'Used in dark mode. If no light logo is uploaded, this logo is used there too. Upload PNG, JPEG, WebP, or GIF up to 5 MB.'
+                      )}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

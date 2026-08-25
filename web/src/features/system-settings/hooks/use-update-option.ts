@@ -32,6 +32,8 @@ const STATUS_RELATED_KEYS = new Set([
   'Notice',
   'LogConsumeEnabled',
   'Logo',
+  'LogoLight',
+  'LogoDark',
   'QuotaPerUnit',
   'USDExchangeRate',
   'DisplayInCurrencyEnabled',
@@ -167,6 +169,15 @@ export function useUpdateOption(options: UseUpdateOptionOptions = {}) {
     },
     onSuccess: (data, variables) => {
       if (data.success) {
+        if (variables.key === 'SidebarModulesAdmin') {
+          queryClient.setQueryData<Record<string, unknown>>(
+            ['status'],
+            (current) =>
+              current
+                ? { ...current, SidebarModulesAdmin: variables.value }
+                : current
+          )
+        }
         queueSuccessfulUpdate(variables)
       } else {
         toast.error(data.message || i18next.t('Failed to update setting'))

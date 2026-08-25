@@ -85,11 +85,12 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
   },
   console: {
     enabled: true,
-    detail: true,
+    overview: true,
+    dashboard: true,
     token: true,
     log: true,
-    midjourney: true,
     task: true,
+    setupGuide: true,
   },
   personal: {
     enabled: true,
@@ -100,11 +101,15 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
   admin: {
     enabled: true,
     channel: true,
+    channelScheduling: true,
+    smartProtection: true,
     models: true,
     redemption: true,
     user: true,
     setting: true,
     subscription: true,
+    invoiceManagement: true,
+    systemInfo: true,
   },
 }
 
@@ -287,6 +292,23 @@ export function parseSidebarModulesAdmin(
         }
       )
 
+      const rawSection = raw as Record<string, unknown>
+      // custom: sidebar modules — migrate legacy combined keys without
+      // exposing them as duplicate controls in the current settings UI.
+      if (sectionKey === 'console') {
+        if (!('overview' in rawSection) && 'detail' in rawSection) {
+          sectionConfig.overview = toBoolean(rawSection.detail, true)
+        }
+        if (!('dashboard' in rawSection) && 'detail' in rawSection) {
+          sectionConfig.dashboard = toBoolean(rawSection.detail, true)
+        }
+        if (!('task' in rawSection) && 'midjourney' in rawSection) {
+          sectionConfig.task = toBoolean(rawSection.midjourney, true)
+        }
+        delete sectionConfig.detail
+        delete sectionConfig.midjourney
+      }
+
       result[sectionKey] = sectionConfig
     })
 
@@ -307,6 +329,49 @@ export function parseSidebarModulesAdmin(
     return result
   } catch {
     return defaults
+  }
+}
+
+/** Parse the optional user overlay without adding default entries. */
+export function parseSidebarModulesUser(
+  value: string | null | undefined
+): SidebarModulesAdminConfig | null {
+  if (!value || value.trim() === '') return null
+
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>
+    if (!parsed || typeof parsed !== 'object') return null
+
+    const result: SidebarModulesAdminConfig = {}
+    Object.entries(parsed).forEach(([sectionKey, raw]) => {
+      if (!raw || typeof raw !== 'object') return
+      const rawSection = raw as Record<string, unknown>
+      const sectionConfig: SidebarSectionConfig = {
+        enabled: toBoolean(rawSection.enabled, true),
+      }
+      Object.entries(rawSection).forEach(([moduleKey, moduleValue]) => {
+        if (moduleKey !== 'enabled') {
+          sectionConfig[moduleKey] = toBoolean(moduleValue, true)
+        }
+      })
+      if (sectionKey === 'console') {
+        if (!('overview' in rawSection) && 'detail' in rawSection) {
+          sectionConfig.overview = toBoolean(rawSection.detail, true)
+        }
+        if (!('dashboard' in rawSection) && 'detail' in rawSection) {
+          sectionConfig.dashboard = toBoolean(rawSection.detail, true)
+        }
+        if (!('task' in rawSection) && 'midjourney' in rawSection) {
+          sectionConfig.task = toBoolean(rawSection.midjourney, true)
+        }
+        delete sectionConfig.detail
+        delete sectionConfig.midjourney
+      }
+      result[sectionKey] = sectionConfig
+    })
+    return result
+  } catch {
+    return null
   }
 }
 

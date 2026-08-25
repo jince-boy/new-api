@@ -30,10 +30,12 @@ import { toast } from 'sonner'
 
 import { getStatus } from '@/lib/api'
 import { installBuildMetadata } from '@/lib/build-metadata'
+import { getCookie } from '@/lib/cookies'
 import { applyFaviconToDom } from '@/lib/dom-utils'
 import '@/lib/dayjs'
 import { initializeFrontendCache } from '@/lib/frontend-cache'
 import { handleServerError } from '@/lib/handle-server-error'
+import { resolveSystemLogo } from '@/lib/system-logo'
 
 import { DirectionProvider } from './context/direction-provider'
 import { FontProvider } from './context/font-provider'
@@ -117,6 +119,13 @@ if (!rootElement) {
 ;(function initSystemBranding() {
   try {
     if (typeof window === 'undefined' || typeof document === 'undefined') return
+    const resolvedTheme = (() => {
+      const storedTheme = getCookie('vite-ui-theme')
+      if (storedTheme === 'light' || storedTheme === 'dark') return storedTheme
+      return window.matchMedia('(prefers-color-scheme: dark)').matches
+        ? 'dark'
+        : 'light'
+    })()
     const apply = (name: string) => {
       document.title = name
       const metaTitle = document.querySelector(
@@ -124,13 +133,29 @@ if (!rootElement) {
       ) as HTMLMetaElement | null
       if (metaTitle) metaTitle.setAttribute('content', name)
     }
+    const applyLogo = (status: {
+      logo?: string
+      logo_light?: string
+      logo_dark?: string
+    }) => {
+      applyFaviconToDom(
+        resolveSystemLogo(
+          {
+            logo: status.logo || '',
+            logoLight: status.logo_light || '',
+            logoDark: status.logo_dark || '',
+          },
+          resolvedTheme
+        )
+      )
+    }
     // Cache-first
     try {
       const saved = localStorage.getItem('status')
       if (saved) {
         const s = JSON.parse(saved)
         if (s?.system_name) apply(s.system_name)
-        if (s?.logo) applyFaviconToDom(s.logo)
+        applyLogo(s)
       }
     } catch {
       /* empty */
@@ -146,7 +171,7 @@ if (!rootElement) {
             /* empty */
           }
         }
-        if (s?.logo) applyFaviconToDom(s.logo as string)
+        applyLogo(s)
       })
       .catch(() => {
         /* empty */

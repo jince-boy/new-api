@@ -50,6 +50,31 @@ function InvoiceSidebarIcon(
   return createElement(HugeiconsIcon, { ...props, icon: Invoice01Icon })
 }
 
+// custom: sidebar modules — keep configurable top-level destinations in one
+// registry so navigation entries cannot silently drift apart.
+export const SIDEBAR_ROUTE_URLS = {
+  playground: '/playground',
+  overview: '/dashboard/overview',
+  dashboard: '/dashboard/models',
+  keys: '/keys',
+  usageCommon: '/usage-logs/common',
+  usageTask: '/usage-logs/task',
+  usageDrawing: '/usage-logs/drawing',
+  wallet: '/wallet',
+  invoices: '/invoices',
+  profile: '/profile',
+  channels: '/channels',
+  channelScheduling: '/channel-scheduling',
+  smartProtection: '/smart-protection',
+  models: '/models/metadata',
+  users: '/users',
+  redemptionCodes: '/redemption-codes',
+  subscriptions: '/subscriptions',
+  invoiceManagement: '/invoice-management',
+  systemInfo: '/system-info',
+  systemSettings: '/system-settings/site',
+} as const
+
 /**
  * Root navigation groups for the application sidebar.
  *
@@ -67,7 +92,7 @@ export function useSidebarData(): SidebarData {
         items: [
           {
             title: t('Playground'),
-            url: '/playground',
+            url: SIDEBAR_ROUTE_URLS.playground,
             icon: FlaskConical,
           },
           {
@@ -83,29 +108,32 @@ export function useSidebarData(): SidebarData {
         items: [
           {
             title: t('Overview'),
-            url: '/dashboard/overview',
+            url: SIDEBAR_ROUTE_URLS.overview,
             icon: Activity,
           },
           {
             title: t('Dashboard'),
-            url: '/dashboard/models',
+            url: SIDEBAR_ROUTE_URLS.dashboard,
             icon: LayoutDashboard,
           },
           {
             title: t('API Keys'),
-            url: '/keys',
+            url: SIDEBAR_ROUTE_URLS.keys,
             icon: Key,
           },
           {
             title: t('Usage Logs'),
-            url: '/usage-logs/common',
+            url: SIDEBAR_ROUTE_URLS.usageCommon,
             icon: FileText,
           },
           {
             title: t('Task Logs'),
-            url: '/usage-logs/task',
-            activeUrls: ['/usage-logs/drawing'],
-            configUrls: ['/usage-logs/drawing', '/usage-logs/task'],
+            url: SIDEBAR_ROUTE_URLS.usageTask,
+            activeUrls: [SIDEBAR_ROUTE_URLS.usageDrawing],
+            configUrls: [
+              SIDEBAR_ROUTE_URLS.usageDrawing,
+              SIDEBAR_ROUTE_URLS.usageTask,
+            ],
             icon: ListTodo,
           },
         ],
@@ -116,17 +144,17 @@ export function useSidebarData(): SidebarData {
         items: [
           {
             title: t('Wallet'),
-            url: '/wallet',
+            url: SIDEBAR_ROUTE_URLS.wallet,
             icon: Wallet,
           },
           {
             title: t('Invoice applications'),
-            url: '/invoices',
+            url: SIDEBAR_ROUTE_URLS.invoices,
             icon: InvoiceSidebarIcon,
           },
           {
             title: t('Profile'),
-            url: '/profile',
+            url: SIDEBAR_ROUTE_URLS.profile,
             icon: User,
           },
         ],
@@ -137,48 +165,53 @@ export function useSidebarData(): SidebarData {
         items: [
           {
             title: t('Channels'),
-            url: '/channels',
+            url: SIDEBAR_ROUTE_URLS.channels,
             icon: Radio,
           },
           {
             title: t('Intelligent Scheduling'),
-            url: '/channel-scheduling',
+            url: SIDEBAR_ROUTE_URLS.channelScheduling,
             icon: GitBranch,
           },
           {
             title: t('Smart Protection'),
-            url: '/smart-protection',
+            url: SIDEBAR_ROUTE_URLS.smartProtection,
             icon: ShieldCheck,
           },
           {
             title: t('Models'),
-            url: '/models/metadata',
+            url: SIDEBAR_ROUTE_URLS.models,
             icon: Box,
           },
           {
             title: t('Users'),
-            url: '/users',
+            url: SIDEBAR_ROUTE_URLS.users,
             icon: Users,
           },
           {
             title: t('Redemption Codes'),
-            url: '/redemption-codes',
+            url: SIDEBAR_ROUTE_URLS.redemptionCodes,
             icon: Ticket,
           },
           {
             title: t('Subscriptions'),
-            url: '/subscriptions',
+            url: SIDEBAR_ROUTE_URLS.subscriptions,
             icon: CreditCard,
           },
           {
+            title: t('Invoice Management'),
+            url: SIDEBAR_ROUTE_URLS.invoiceManagement,
+            icon: InvoiceSidebarIcon,
+          },
+          {
             title: t('System Info'),
-            url: '/system-info',
+            url: SIDEBAR_ROUTE_URLS.systemInfo,
             icon: ServerCog,
             requiredRole: ROLE.SUPER_ADMIN,
           },
           {
             title: t('System Settings'),
-            url: '/system-settings/site',
+            url: SIDEBAR_ROUTE_URLS.systemSettings,
             activeUrls: ['/system-settings'],
             icon: Settings,
           },

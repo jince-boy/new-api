@@ -29,6 +29,8 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/notice", controller.GetNotice)
 		apiRouter.GET("/group-chat-qrcode", middleware.DownloadRateLimit(), controller.GetGroupChatQRCode)
 		apiRouter.GET("/logo", middleware.DownloadRateLimit(), controller.GetLogo)
+		// custom: brand
+		apiRouter.GET("/logo/:variant", middleware.DownloadRateLimit(), controller.GetThemeLogo)
 		apiRouter.GET("/user-agreement", controller.GetUserAgreement)
 		apiRouter.GET("/privacy-policy", controller.GetPrivacyPolicy)
 		apiRouter.GET("/about", controller.GetAbout)
@@ -202,15 +204,19 @@ func SetApiRouter(router *gin.Engine) {
 			invoiceRoute.GET("/self", controller.ListInvoiceApplications)
 			invoiceRoute.POST("/applications", middleware.CriticalRateLimit(), controller.CreateInvoiceApplication)
 			invoiceRoute.GET("/applications/:id", controller.GetInvoiceApplication)
+			invoiceRoute.GET("/applications/:id/file", middleware.DownloadRateLimit(), controller.GetOwnInvoiceFile)
 			invoiceRoute.POST("/applications/:id/pay", middleware.CriticalRateLimit(), controller.RequestInvoiceSupplementPayment)
 			invoiceRoute.POST("/applications/:id/send", middleware.CriticalRateLimit(), controller.SendInvoiceEmail)
 		}
 		invoiceAdminRoute := apiRouter.Group("/invoice/admin")
 		invoiceAdminRoute.Use(middleware.AdminAuth())
 		{
+			invoiceAdminRoute.GET("/applications", controller.AdminListInvoiceApplications)
+			invoiceAdminRoute.GET("/applications/:id", controller.AdminGetInvoiceApplication)
 			invoiceAdminRoute.POST("/applications/:id/review", middleware.CriticalRateLimit(), controller.AdminReviewInvoiceApplication)
 			invoiceAdminRoute.POST("/applications/:id/file", middleware.UploadRateLimit(), controller.AdminUploadInvoiceFile)
 			invoiceAdminRoute.GET("/applications/:id/file", controller.GetInvoiceFile)
+			invoiceAdminRoute.POST("/applications/:id/send", middleware.CriticalRateLimit(), controller.AdminSendInvoiceEmail)
 			invoiceAdminRoute.DELETE("/applications/:id", middleware.CriticalRateLimit(), controller.AdminDeleteInvoiceApplication)
 		}
 		apiRouter.POST("/invoice/epay/notify", anonymousRequestBodyLimit, controller.InvoiceEpayNotify)
@@ -225,6 +231,9 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.PUT("/group", controller.UpdateGroupOptions)
 			optionRoute.POST("/logo", middleware.UploadRateLimit(), controller.UploadLogo)
 			optionRoute.DELETE("/logo", controller.DeleteLogo)
+			// custom: brand
+			optionRoute.POST("/logo/:variant", middleware.UploadRateLimit(), controller.UploadThemeLogo)
+			optionRoute.DELETE("/logo/:variant", controller.DeleteThemeLogo)
 			optionRoute.POST("/group-chat-qrcode", middleware.UploadRateLimit(), controller.UploadGroupChatQRCode)
 			optionRoute.POST("/payment_compliance", controller.ConfirmPaymentCompliance)
 			optionRoute.GET("/channel_affinity_cache", controller.GetChannelAffinityCacheStats)

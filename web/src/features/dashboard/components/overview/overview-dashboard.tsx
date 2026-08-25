@@ -41,6 +41,7 @@ import { Button } from '@/components/ui/button'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { getApiKeys } from '@/features/keys/api'
 import type { ApiKey } from '@/features/keys/types'
+import { useIsSidebarModuleEnabled } from '@/hooks/use-sidebar-config'
 import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -84,18 +85,28 @@ interface QuickAction {
 
 function getSavedSetupGuideExpanded(): boolean | null {
   if (typeof window === 'undefined') return null
-  const saved = window.localStorage.getItem(SETUP_GUIDE_VISIBILITY_STORAGE_KEY)
-  if (saved === 'expanded') return true
-  if (saved === 'collapsed') return false
+  try {
+    const saved = window.localStorage.getItem(
+      SETUP_GUIDE_VISIBILITY_STORAGE_KEY
+    )
+    if (saved === 'expanded') return true
+    if (saved === 'collapsed') return false
+  } catch {
+    return null
+  }
   return null
 }
 
 function saveSetupGuideExpanded(expanded: boolean): void {
   if (typeof window === 'undefined') return
-  window.localStorage.setItem(
-    SETUP_GUIDE_VISIBILITY_STORAGE_KEY,
-    expanded ? 'expanded' : 'collapsed'
-  )
+  try {
+    window.localStorage.setItem(
+      SETUP_GUIDE_VISIBILITY_STORAGE_KEY,
+      expanded ? 'expanded' : 'collapsed'
+    )
+  } catch {
+    /* The display preference is optional when storage is unavailable. */
+  }
 }
 
 function getPreferredKey(keys: ApiKey[]): ApiKey | null {
@@ -176,6 +187,7 @@ function QuickActionItem(props: { action: QuickAction }) {
 export function OverviewDashboard() {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
+  const showSetupGuide = useIsSidebarModuleEnabled('console', 'setupGuide')
   const {
     apiInfo: showApiInfoPanel,
     announcements: showAnnouncementsPanel,
@@ -197,6 +209,7 @@ export function OverviewDashboard() {
       const result = await getApiKeys({ p: 1, size: 10 })
       return result.success ? (result.data?.items ?? []) : []
     },
+    enabled: showSetupGuide,
     staleTime: 60 * 1000,
   })
 
@@ -303,64 +316,71 @@ export function OverviewDashboard() {
       }
       setup={
         <section className='border-border/60 bg-card/95 overflow-hidden rounded-2xl border shadow-sm'>
-          <div className='border-border/50 bg-muted/15 flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-5'>
-            <div className='flex min-w-0 items-center gap-3'>
-              <IconBadge tone={setupComplete ? 'success' : 'info'} size='sm'>
-                {setupComplete ? <Check /> : <ListChecks />}
-              </IconBadge>
-              <div className='min-w-0'>
-                <div className='flex flex-wrap items-center gap-2'>
-                  <h3 className='text-sm font-semibold'>
-                    {setupComplete
-                      ? t('Setup guide complete')
-                      : t('Get started')}
-                  </h3>
-                  <Badge variant='secondary'>
-                    {t('Setup progress: {{completed}}/{{total}}', {
-                      completed: completedStepCount,
-                      total: startSteps.length,
-                    })}
-                  </Badge>
+          {showSetupGuide ? (
+            <>
+              <div className='border-border/50 bg-muted/15 flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3 sm:px-5'>
+                <div className='flex min-w-0 items-center gap-3'>
+                  <IconBadge
+                    tone={setupComplete ? 'success' : 'info'}
+                    size='sm'
+                  >
+                    {setupComplete ? <Check /> : <ListChecks />}
+                  </IconBadge>
+                  <div className='min-w-0'>
+                    <div className='flex flex-wrap items-center gap-2'>
+                      <h3 className='text-sm font-semibold'>
+                        {setupComplete
+                          ? t('Setup guide complete')
+                          : t('Get started')}
+                      </h3>
+                      <Badge variant='secondary'>
+                        {t('Setup progress: {{completed}}/{{total}}', {
+                          completed: completedStepCount,
+                          total: startSteps.length,
+                        })}
+                      </Badge>
+                    </div>
+                    <p className='text-muted-foreground mt-0.5 text-xs'>
+                      {t(
+                        'A focused home for keys, balance, routing, and service health.'
+                      )}
+                    </p>
+                  </div>
                 </div>
-                <p className='text-muted-foreground mt-0.5 text-xs'>
-                  {t(
-                    'A focused home for keys, balance, routing, and service health.'
-                  )}
-                </p>
+                <div className='flex items-center gap-2'>
+                  {!setupComplete ? (
+                    <Button size='sm' render={<Link to='/keys' />}>
+                      <KeyRound data-icon='inline-start' />
+                      {t('Create API Key')}
+                    </Button>
+                  ) : null}
+                  <Button
+                    variant='ghost'
+                    size='sm'
+                    onClick={handleSetupGuideToggle}
+                    aria-expanded={setupGuideExpanded}
+                  >
+                    {setupGuideExpanded ? (
+                      <ChevronUp data-icon='inline-start' />
+                    ) : (
+                      <ChevronDown data-icon='inline-start' />
+                    )}
+                    {setupGuideExpanded
+                      ? t('Hide setup guide')
+                      : t('Show setup guide')}
+                  </Button>
+                </div>
               </div>
-            </div>
-            <div className='flex items-center gap-2'>
-              {!setupComplete && (
-                <Button size='sm' render={<Link to='/keys' />}>
-                  <KeyRound data-icon='inline-start' />
-                  {t('Create API Key')}
-                </Button>
-              )}
-              <Button
-                variant='ghost'
-                size='sm'
-                onClick={handleSetupGuideToggle}
-                aria-expanded={setupGuideExpanded}
-              >
-                {setupGuideExpanded ? (
-                  <ChevronUp data-icon='inline-start' />
-                ) : (
-                  <ChevronDown data-icon='inline-start' />
-                )}
-                {setupGuideExpanded
-                  ? t('Hide setup guide')
-                  : t('Show setup guide')}
-              </Button>
-            </div>
-          </div>
 
-          {setupGuideExpanded && (
-            <ol className='border-border/50 grid divide-y border-b md:grid-cols-3 md:divide-x md:divide-y-0'>
-              {startSteps.map((step, index) => (
-                <StartStepItem key={step.title} step={step} index={index} />
-              ))}
-            </ol>
-          )}
+              {setupGuideExpanded ? (
+                <ol className='border-border/50 grid divide-y border-b md:grid-cols-3 md:divide-x md:divide-y-0'>
+                  {startSteps.map((step, index) => (
+                    <StartStepItem key={step.title} step={step} index={index} />
+                  ))}
+                </ol>
+              ) : null}
+            </>
+          ) : null}
 
           <div className='p-3.5 sm:p-4'>
             <div className='mb-2.5 flex items-center justify-between gap-3'>

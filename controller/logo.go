@@ -15,9 +15,18 @@ import (
 )
 
 const (
-	logoOptionKey = "Logo"
-	logoPublicURL = "/api/logo"
-	logoMaxBytes  = int64(5 << 20)
+	logoOptionKey      = "Logo"
+	logoLightOptionKey = "LogoLight"
+	logoDarkOptionKey  = "LogoDark"
+	logoPublicURL      = "/api/logo"
+	logoMaxBytes       = int64(5 << 20)
+)
+
+type logoVariant string
+
+const (
+	logoVariantLight logoVariant = "light"
+	logoVariantDark  logoVariant = "dark"
 )
 
 var logoContentTypes = map[string]string{
@@ -31,10 +40,25 @@ func logoDir() string {
 	return filepath.Join("upload", "logo")
 }
 
-func currentLogoFile() (string, string, bool) {
+func parseLogoVariant(value string) (logoVariant, bool) {
+	variant := logoVariant(value)
+	return variant, variant == logoVariantLight || variant == logoVariantDark
+}
+
+func logoConfig(variant *logoVariant) (string, string, string) {
+	if variant == nil {
+		return logoOptionKey, logoPublicURL, "current"
+	}
+	if *variant == logoVariantLight {
+		return logoLightOptionKey, logoPublicURL + "/light", string(logoVariantLight)
+	}
+	return logoDarkOptionKey, logoPublicURL + "/dark", string(logoVariantDark)
+}
+
+func currentLogoFile(fileName string) (string, string, bool) {
 	dir := logoDir()
 	for contentType, ext := range logoContentTypes {
-		filePath := filepath.Join(dir, "current"+ext)
+		filePath := filepath.Join(dir, fileName+ext)
 		if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
 			return filePath, contentType, true
 		}
@@ -43,6 +67,19 @@ func currentLogoFile() (string, string, bool) {
 }
 
 func UploadLogo(c *gin.Context) {
+	uploadLogo(c, nil)
+}
+
+func UploadThemeLogo(c *gin.Context) {
+	variant, ok := parseLogoVariant(c.Param("variant"))
+	if !ok {
+		common.ApiErrorMsg(c, "logo variant must be light or dark")
+		return
+	}
+	uploadLogo(c, &variant)
+}
+
+func uploadLogo(c *gin.Context, variant *logoVariant) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, logoMaxBytes+(1<<20))
 
 	file, _, err := c.Request.FormFile("file")
@@ -83,8 +120,9 @@ func UploadLogo(c *gin.Context) {
 		return
 	}
 
-	targetPath := filepath.Join(dir, "current"+ext)
-	tempPath := filepath.Join(dir, "current.tmp")
+	optionKey, publicURL, fileName := logoConfig(variant)
+	targetPath := filepath.Join(dir, fileName+ext)
+	tempPath := filepath.Join(dir, fileName+".tmp")
 	if err = os.WriteFile(tempPath, data, 0644); err != nil {
 		common.ApiError(c, fmt.Errorf("failed to save logo image: %w", err))
 		return
@@ -100,31 +138,45 @@ func UploadLogo(c *gin.Context) {
 		return
 	}
 	for _, oldExt := range logoContentTypes {
-		oldPath := filepath.Join(dir, "current"+oldExt)
+		oldPath := filepath.Join(dir, fileName+oldExt)
 		if oldPath != targetPath {
 			_ = os.Remove(oldPath)
 		}
 	}
 
-	nextLogoURL := fmt.Sprintf("%s?v=%d", logoPublicURL, time.Now().UnixMilli())
-	if err = model.UpdateOption(logoOptionKey, nextLogoURL); err != nil {
+	nextLogoURL := fmt.Sprintf("%s?v=%d", publicURL, time.Now().UnixMilli())
+	if err = model.UpdateOption(optionKey, nextLogoURL); err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	recordManageAudit(c, "option.logo.upload", map[string]interface{}{
-		"key": logoOptionKey,
+		"key": optionKey,
 	})
 	common.ApiSuccess(c, gin.H{"url": nextLogoURL})
 }
 
 func DeleteLogo(c *gin.Context) {
-	if err := model.UpdateOption(logoOptionKey, ""); err != nil {
+	deleteLogo(c, nil)
+}
+
+func DeleteThemeLogo(c *gin.Context) {
+	variant, ok := parseLogoVariant(c.Param("variant"))
+	if !ok {
+		common.ApiErrorMsg(c, "logo variant must be light or dark")
+		return
+	}
+	deleteLogo(c, &variant)
+}
+
+func deleteLogo(c *gin.Context, variant *logoVariant) {
+	optionKey, _, fileName := logoConfig(variant)
+	if err := model.UpdateOption(optionKey, ""); err != nil {
 		common.ApiError(c, err)
 		return
 	}
 
 	for _, ext := range logoContentTypes {
-		filePath := filepath.Join(logoDir(), "current"+ext)
+		filePath := filepath.Join(logoDir(), fileName+ext)
 		if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
 			common.ApiError(c, fmt.Errorf("failed to remove logo image: %w", err))
 			return
@@ -132,16 +184,30 @@ func DeleteLogo(c *gin.Context) {
 	}
 
 	recordManageAudit(c, "option.logo.delete", map[string]interface{}{
-		"key": logoOptionKey,
+		"key": optionKey,
 	})
 	common.ApiSuccess(c, nil)
 }
 
 func GetLogo(c *gin.Context) {
+	getLogo(c, nil)
+}
+
+func GetThemeLogo(c *gin.Context) {
+	variant, ok := parseLogoVariant(c.Param("variant"))
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "logo variant must be light or dark"})
+		return
+	}
+	getLogo(c, &variant)
+}
+
+func getLogo(c *gin.Context, variant *logoVariant) {
+	optionKey, publicURL, fileName := logoConfig(variant)
 	common.OptionMapRWMutex.RLock()
-	configuredURL := common.OptionMap[logoOptionKey]
+	configuredURL := common.OptionMap[optionKey]
 	common.OptionMapRWMutex.RUnlock()
-	if configuredURL != logoPublicURL && !strings.HasPrefix(configuredURL, logoPublicURL+"?") {
+	if configuredURL != publicURL && !strings.HasPrefix(configuredURL, publicURL+"?") {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"message": "uploaded logo is not configured",
@@ -149,7 +215,7 @@ func GetLogo(c *gin.Context) {
 		return
 	}
 
-	filePath, contentType, ok := currentLogoFile()
+	filePath, contentType, ok := currentLogoFile(fileName)
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,

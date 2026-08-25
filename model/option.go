@@ -76,6 +76,9 @@ func InitOptionMap() {
 	common.OptionMap["Footer"] = common.Footer
 	common.OptionMap["SystemName"] = common.SystemName
 	common.OptionMap["Logo"] = common.Logo
+	// custom: brand — theme-specific logos fall back to the legacy Logo option.
+	common.OptionMap["LogoLight"] = ""
+	common.OptionMap["LogoDark"] = ""
 	common.OptionMap["GroupChatQRCodeImageURL"] = common.GroupChatQRCodeImageURL
 	common.OptionMap["GroupChatQRCodeExpiresAt"] = common.GroupChatQRCodeExpiresAt
 	common.OptionMap["GroupChatQRCodeReminderSentFor"] = common.GroupChatQRCodeReminderSentFor

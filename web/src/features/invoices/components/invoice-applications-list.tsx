@@ -175,9 +175,14 @@ export function InvoiceApplicationsList(props: InvoiceApplicationsListProps) {
         header: t('Actions'),
         cell: ({ row }) => {
           const emailAction = getInvoiceEmailAction(row.original, isAdmin)
+          const canDelete = canDeleteInvoiceApplication(row.original, isAdmin)
           return (
-            <div className='flex justify-end gap-2'>
+            <div
+              data-testid='invoice-row-actions'
+              className='grid w-60 grid-cols-2 gap-2'
+            >
               <Button
+                className='w-full'
                 size='sm'
                 variant='outline'
                 onClick={() => onView(row.original)}
@@ -186,6 +191,7 @@ export function InvoiceApplicationsList(props: InvoiceApplicationsListProps) {
               </Button>
               {emailAction ? (
                 <Button
+                  className='w-full'
                   size='sm'
                   disabled={sendingId === row.original.id}
                   onClick={() => onSend(row.original)}
@@ -195,8 +201,9 @@ export function InvoiceApplicationsList(props: InvoiceApplicationsListProps) {
                     : t('Resend invoice')}
                 </Button>
               ) : null}
-              {canDeleteInvoiceApplication(row.original, isAdmin) ? (
+              {canDelete ? (
                 <Button
+                  className='w-full'
                   size='sm'
                   variant='destructive'
                   disabled={deletingId === row.original.id}

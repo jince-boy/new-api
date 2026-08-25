@@ -513,12 +513,7 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
               <dd>{application.invoice_email_send_count}</dd>
             </dl>
             <div className='flex flex-wrap gap-2'>
-              {props.isAdmin ? (
-                <InvoiceFileAction
-                  busy={props.busy}
-                  onView={props.onViewFile}
-                />
-              ) : null}
+              <InvoiceFileAction busy={props.busy} onView={props.onViewFile} />
               {emailAction ? (
                 <Button disabled={props.busy} onClick={props.onSend}>
                   {emailAction === 'send'

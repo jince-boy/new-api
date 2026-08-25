@@ -121,11 +121,19 @@ func CreateInvoiceApplication(c *gin.Context) {
 
 func ListInvoiceApplications(c *gin.Context) {
 	pageInfo := common.GetPageQuery(c)
-	userId := c.GetInt("id")
-	if c.GetInt("role") >= common.RoleAdminUser {
-		userId = 0
+	applications, total, err := service.ListInvoiceApplications(c.GetInt("id"), c.Query("status"), strings.TrimSpace(c.Query("keyword")), pageInfo)
+	if err != nil {
+		common.ApiError(c, err)
+		return
 	}
-	applications, total, err := service.ListInvoiceApplications(userId, c.Query("status"), strings.TrimSpace(c.Query("keyword")), pageInfo)
+	pageInfo.SetTotal(int(total))
+	pageInfo.SetItems(applications)
+	common.ApiSuccess(c, pageInfo)
+}
+
+func AdminListInvoiceApplications(c *gin.Context) {
+	pageInfo := common.GetPageQuery(c)
+	applications, total, err := service.ListInvoiceApplications(0, c.Query("status"), strings.TrimSpace(c.Query("keyword")), pageInfo)
 	if err != nil {
 		common.ApiError(c, err)
 		return
@@ -140,11 +148,20 @@ func GetInvoiceApplication(c *gin.Context) {
 	if !ok {
 		return
 	}
-	userId := c.GetInt("id")
-	if c.GetInt("role") >= common.RoleAdminUser {
-		userId = 0
+	application, err := service.GetInvoiceApplication(id, c.GetInt("id"))
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
 	}
-	application, err := service.GetInvoiceApplication(id, userId)
+	common.ApiSuccess(c, application)
+}
+
+func AdminGetInvoiceApplication(c *gin.Context) {
+	id, ok := invoiceApplicationId(c)
+	if !ok {
+		return
+	}
+	application, err := service.GetInvoiceApplication(id, 0)
 	if err != nil {
 		common.ApiErrorMsg(c, err.Error())
 		return
@@ -157,6 +174,22 @@ func GetInvoiceFile(c *gin.Context) {
 	if !ok {
 		return
 	}
+	serveInvoiceFile(c, id)
+}
+
+func GetOwnInvoiceFile(c *gin.Context) {
+	id, ok := invoiceApplicationId(c)
+	if !ok {
+		return
+	}
+	if _, err := service.GetInvoiceApplication(id, c.GetInt("id")); err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	serveInvoiceFile(c, id)
+}
+
+func serveInvoiceFile(c *gin.Context, id int) {
 	invoiceFile, err := service.GetInvoiceFileContent(id)
 	if err != nil {
 		status := http.StatusInternalServerError
@@ -420,17 +453,24 @@ func SendInvoiceEmail(c *gin.Context) {
 	if !ok {
 		return
 	}
-	userId := c.GetInt("id")
-	if c.GetInt("role") >= common.RoleAdminUser {
-		userId = 0
-	}
-	application, err := service.SendInvoiceEmail(id, userId)
+	application, err := service.SendInvoiceEmail(id, c.GetInt("id"))
 	if err != nil {
 		common.ApiErrorMsg(c, err.Error())
 		return
 	}
-	if userId == 0 {
-		recordManageAuditFor(c, application.UserId, "invoice.email.send", map[string]interface{}{"invoice_application_id": id})
+	common.ApiSuccess(c, application)
+}
+
+func AdminSendInvoiceEmail(c *gin.Context) {
+	id, ok := invoiceApplicationId(c)
+	if !ok {
+		return
 	}
+	application, err := service.SendInvoiceEmail(id, 0)
+	if err != nil {
+		common.ApiErrorMsg(c, err.Error())
+		return
+	}
+	recordManageAuditFor(c, application.UserId, "invoice.email.send", map[string]interface{}{"invoice_application_id": id})
 	common.ApiSuccess(c, application)
 }

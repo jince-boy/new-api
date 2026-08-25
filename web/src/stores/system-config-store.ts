@@ -40,7 +40,10 @@ export interface CurrencyConfig {
 
 export interface SystemConfig {
   systemName: string
+  /** Legacy single logo used as the compatibility fallback. */
   logo: string
+  logoLight: string
+  logoDark: string
   footerHtml?: string
   demoSiteEnabled?: boolean
   displayTokenStatEnabled?: boolean
@@ -75,6 +78,8 @@ export const useSystemConfigStore = create<SystemConfigState>()(
       config: {
         systemName: DEFAULT_SYSTEM_NAME,
         logo: DEFAULT_LOGO,
+        logoLight: '',
+        logoDark: '',
         currency: { ...DEFAULT_CURRENCY_CONFIG },
       },
       loading: true,
@@ -86,7 +91,7 @@ export const useSystemConfigStore = create<SystemConfigState>()(
             ...newConfig,
             currency: {
               ...state.config.currency,
-              ...(newConfig.currency ?? {}),
+              ...newConfig.currency,
             },
           },
         })),

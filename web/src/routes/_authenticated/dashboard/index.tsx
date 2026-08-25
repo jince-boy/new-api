@@ -18,13 +18,57 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { createFileRoute, redirect } from '@tanstack/react-router'
 
-import { DASHBOARD_DEFAULT_SECTION } from '@/features/dashboard/section-registry'
+import {
+  parseSidebarModuleLayers,
+  resolveConsoleHomePath,
+} from '@/hooks/use-sidebar-config'
+import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/_authenticated/dashboard/')({
-  beforeLoad: () => {
-    throw redirect({
-      to: '/dashboard/$section',
-      params: { section: DASHBOARD_DEFAULT_SECTION },
-    })
+  beforeLoad: ({ context }) => {
+    let status = context.queryClient.getQueryData<{
+      SidebarModulesAdmin?: string | null
+    }>(['status'])
+
+    if (!status && typeof window !== 'undefined') {
+      try {
+        const cachedStatus = window.localStorage.getItem('status')
+        status = cachedStatus ? JSON.parse(cachedStatus) : undefined
+      } catch {
+        status = undefined
+      }
+    }
+
+    const user = useAuthStore.getState().auth.user
+    const { adminConfig, userConfig } = parseSidebarModuleLayers(status, user)
+
+    const destination = resolveConsoleHomePath(adminConfig, userConfig)
+
+    if (destination === '/dashboard/overview') {
+      throw redirect({
+        to: '/dashboard/$section',
+        params: { section: 'overview' },
+      })
+    }
+    if (destination === '/dashboard/models') {
+      throw redirect({
+        to: '/dashboard/$section',
+        params: { section: 'models' },
+      })
+    }
+    if (destination === '/usage-logs/common') {
+      throw redirect({
+        to: '/usage-logs/$section',
+        params: { section: 'common' },
+      })
+    }
+    if (destination === '/usage-logs/task') {
+      throw redirect({
+        to: '/usage-logs/$section',
+        params: { section: 'task' },
+      })
+    }
+
+    throw redirect({ to: destination })
   },
 })

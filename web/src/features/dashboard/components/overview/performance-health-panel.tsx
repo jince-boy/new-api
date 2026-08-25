@@ -106,7 +106,10 @@ export function PerformanceHealthPanel() {
       description={t('Performance metrics for the last 24 hours')}
       contentClassName='flex flex-col gap-3 overflow-y-auto'
     >
-      <div className='grid grid-cols-3 gap-2'>
+      <div
+        data-testid='performance-metrics-grid'
+        className='grid grid-cols-1 gap-2 2xl:grid-cols-3'
+      >
         <MetricCell
           icon={HeartPulse}
           label={t('Success rate')}
@@ -189,19 +192,19 @@ function MetricCell(props: {
 }) {
   const Icon = props.icon
   return (
-    <div className='bg-muted/35 rounded-lg px-3 py-2.5'>
-      <div className='text-muted-foreground flex items-center gap-1.5 text-[11px] font-medium'>
+    <div className='bg-muted/35 flex min-w-0 items-center gap-2 rounded-lg px-3 py-2.5 2xl:block'>
+      <div className='text-muted-foreground flex min-w-0 flex-1 items-center gap-1.5 text-[11px] font-medium 2xl:flex-none'>
         <IconBadge tone={props.tone} size='xs'>
           <Icon />
         </IconBadge>
-        <span className='truncate'>{props.label}</span>
+        <span className='min-w-0 leading-tight text-pretty'>{props.label}</span>
       </div>
       {props.loading ? (
-        <Skeleton className='mt-1.5 h-5 w-16' />
+        <Skeleton className='h-5 w-16 shrink-0 2xl:mt-1.5' />
       ) : (
         <div
           className={cn(
-            'mt-1.5 font-mono text-sm font-semibold tabular-nums',
+            'ml-auto shrink-0 font-mono text-sm font-semibold tabular-nums 2xl:mt-1.5 2xl:ml-0',
             props.valueClassName
           )}
         >

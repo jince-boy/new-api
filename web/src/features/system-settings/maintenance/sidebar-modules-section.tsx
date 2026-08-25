@@ -98,7 +98,11 @@ export function SidebarModulesSection({
       },
     },
     console: {
-      detail: {
+      overview: {
+        title: t('Overview'),
+        description: t('Account summary, quick actions, and service health.'),
+      },
+      dashboard: {
         title: t('Dashboard'),
         description: t('Aggregated usage metrics and trend charts.'),
       },
@@ -110,13 +114,13 @@ export function SidebarModulesSection({
         title: t('Usage logs'),
         description: t('Detailed request logs for investigations.'),
       },
-      midjourney: {
-        title: t('Drawing logs'),
-        description: t('History of MjProxy-style image tasks.'),
-      },
       task: {
         title: t('Task logs'),
-        description: t('Background job tracker for queued work.'),
+        description: t('Drawing and background task records.'),
+      },
+      setupGuide: {
+        title: t('Setup guide'),
+        description: t('Show the setup guide on the overview page.'),
       },
     },
     personal: {
@@ -138,6 +142,14 @@ export function SidebarModulesSection({
         title: t('Channels'),
         description: t('Configure upstream providers and routing.'),
       },
+      channelScheduling: {
+        title: t('Intelligent Scheduling'),
+        description: t('Configure channel scheduling and routing priorities.'),
+      },
+      smartProtection: {
+        title: t('Smart Protection'),
+        description: t('Monitor and configure automatic protection policies.'),
+      },
       models: {
         title: t('Models'),
         description: t('Manage catalog visibility and pricing.'),
@@ -157,6 +169,14 @@ export function SidebarModulesSection({
       subscription: {
         title: t('Subscription Management'),
         description: t('Manage subscription plans and pricing.'),
+      },
+      invoiceManagement: {
+        title: t('Invoice Management'),
+        description: t('Review, issue, and deliver user invoice applications.'),
+      },
+      systemInfo: {
+        title: t('System Info'),
+        description: t('Inspect system instances and runtime status.'),
       },
     },
   }
@@ -238,6 +258,12 @@ export function SidebarModulesSection({
                       title: toTitleCase(moduleKey),
                       description: t('Custom module'),
                     }
+                    const moduleDisabled =
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      !form.watch(`${sectionKey}.enabled` as any) ||
+                      (sectionKey === 'console' &&
+                        moduleKey === 'setupGuide' &&
+                        !form.watch('console.overview'))
                     return (
                       <FormField
                         key={`${sectionKey}.${moduleKey}`}
@@ -245,7 +271,11 @@ export function SidebarModulesSection({
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
                         name={`${sectionKey}.${moduleKey}` as any}
                         render={({ field }) => (
-                          <SettingsSwitchItem className='py-2'>
+                          <SettingsSwitchItem
+                            className={
+                              moduleDisabled ? 'py-2 opacity-50' : 'py-2'
+                            }
+                          >
                             <SettingsSwitchContent>
                               <FormLabel>{moduleInfo.title}</FormLabel>
                               <FormDescription>
@@ -256,10 +286,7 @@ export function SidebarModulesSection({
                               <Switch
                                 checked={Boolean(field.value)}
                                 onCheckedChange={field.onChange}
-                                disabled={
-                                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                  !form.watch(`${sectionKey}.enabled` as any)
-                                }
+                                disabled={moduleDisabled}
                               />
                             </FormControl>
                           </SettingsSwitchItem>

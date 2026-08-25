@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/card'
 import { IconBadge } from '@/components/ui/icon-badge'
 import { Switch } from '@/components/ui/switch'
+import { parseSidebarModulesUser } from '@/features/system-settings/maintenance/config'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -79,7 +80,12 @@ export function SidebarModulesCard() {
       description: t('Data management and log viewing'),
       modules: [
         {
-          key: 'detail',
+          key: 'overview',
+          title: t('Overview'),
+          description: t('Account summary and quick actions'),
+        },
+        {
+          key: 'dashboard',
           title: t('Dashboard'),
           description: t('System data statistics'),
         },
@@ -94,14 +100,9 @@ export function SidebarModulesCard() {
           description: t('API usage records'),
         },
         {
-          key: 'midjourney',
-          title: t('Drawing Logs'),
-          description: t('Drawing task records'),
-        },
-        {
           key: 'task',
           title: t('Task Logs'),
-          description: t('System task records'),
+          description: t('Drawing and system task records'),
         },
       ],
     },
@@ -134,8 +135,8 @@ export function SidebarModulesCard() {
       const res = await api.get('/api/user/self')
       if (res.data.success && res.data.data?.sidebar_modules) {
         const raw = res.data.data.sidebar_modules
-        const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
-        setConfig(parsed)
+        const serialized = typeof raw === 'string' ? raw : JSON.stringify(raw)
+        setConfig(parseSidebarModulesUser(serialized) ?? {})
       } else {
         const defaults: SidebarModulesConfig = {}
         for (const sec of sectionDefs) {
