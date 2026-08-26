@@ -27,15 +27,14 @@ import { FadeIn } from '@/components/page-transition'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import {
-  ToggleGroup,
-  ToggleGroupItem,
-} from '@/components/ui/toggle-group'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { useStatus } from '@/hooks/use-status'
+import { isTokenRankingEnabled } from '@/hooks/use-system-config'
 import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -59,6 +58,7 @@ import {
   DASHBOARD_DEFAULT_SECTION,
   DASHBOARD_SECTION_IDS,
 } from './section-registry'
+import { isDashboardSectionAccessible } from './section-access'
 import type {
   DashboardChartPreferences,
   DashboardFilters,
@@ -233,6 +233,10 @@ export function Dashboard() {
   const queryClient = useQueryClient()
   const params = route.useParams()
   const userRole = useAuthStore((state) => state.auth.user?.role)
+  const { status } = useStatus()
+  const displayTokenRankingEnabled = isTokenRankingEnabled(
+    status?.display_token_ranking_enabled
+  )
   const activeSection = (params.section ??
     DASHBOARD_DEFAULT_SECTION) as DashboardSectionId
 
@@ -310,9 +314,11 @@ export function Dashboard() {
   const visibleSections = useMemo(
     () =>
       DASHBOARD_SECTION_IDS.filter(
-        (section) => section !== 'overview' && (section !== 'users' || isAdmin)
+        (section) =>
+          section !== 'overview' &&
+          isDashboardSectionAccessible(section, userRole)
       ),
-    [isAdmin]
+    [userRole]
   )
   const handleSectionChange = useCallback(
     (section: string) => {
@@ -462,14 +468,16 @@ export function Dashboard() {
                   </Suspense>
                 </FadeIn>
               )}
-              <FadeIn delay={0.1}>
-                <Suspense fallback={<TokenRankingFallback />}>
-                  <LazyTokenRankingPanel
-                    filters={modelFilters}
-                    refreshKey={modelRefreshKey}
-                  />
-                </Suspense>
-              </FadeIn>
+              {displayTokenRankingEnabled && (
+                <FadeIn delay={0.1}>
+                  <Suspense fallback={<TokenRankingFallback />}>
+                    <LazyTokenRankingPanel
+                      filters={modelFilters}
+                      refreshKey={modelRefreshKey}
+                    />
+                  </Suspense>
+                </FadeIn>
+              )}
               <FadeIn delay={0.15}>
                 <Suspense fallback={<ModelChartsFallback />}>
                   <LazyConsumptionDistributionChart

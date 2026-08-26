@@ -29,8 +29,6 @@ func SetApiRouter(router *gin.Engine) {
 		apiRouter.GET("/notice", controller.GetNotice)
 		apiRouter.GET("/group-chat-qrcode", middleware.DownloadRateLimit(), controller.GetGroupChatQRCode)
 		apiRouter.GET("/logo", middleware.DownloadRateLimit(), controller.GetLogo)
-		// custom: brand
-		apiRouter.GET("/logo/:variant", middleware.DownloadRateLimit(), controller.GetThemeLogo)
 		apiRouter.GET("/user-agreement", controller.GetUserAgreement)
 		apiRouter.GET("/privacy-policy", controller.GetPrivacyPolicy)
 		apiRouter.GET("/about", controller.GetAbout)
@@ -231,9 +229,6 @@ func SetApiRouter(router *gin.Engine) {
 			optionRoute.PUT("/group", controller.UpdateGroupOptions)
 			optionRoute.POST("/logo", middleware.UploadRateLimit(), controller.UploadLogo)
 			optionRoute.DELETE("/logo", controller.DeleteLogo)
-			// custom: brand
-			optionRoute.POST("/logo/:variant", middleware.UploadRateLimit(), controller.UploadThemeLogo)
-			optionRoute.DELETE("/logo/:variant", controller.DeleteThemeLogo)
 			optionRoute.POST("/group-chat-qrcode", middleware.UploadRateLimit(), controller.UploadGroupChatQRCode)
 			optionRoute.POST("/payment_compliance", controller.ConfirmPaymentCompliance)
 			optionRoute.GET("/channel_affinity_cache", controller.GetChannelAffinityCacheStats)

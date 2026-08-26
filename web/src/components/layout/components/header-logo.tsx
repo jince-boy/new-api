@@ -18,6 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { cn } from '@/lib/utils'
 
+import { SystemLogoImage } from './system-logo-image'
+
 interface HeaderLogoProps {
   src: string
   alt?: string
@@ -38,7 +40,7 @@ export function HeaderLogo({
   className,
 }: HeaderLogoProps) {
   return (
-    <img
+    <SystemLogoImage
       src={src}
       alt={alt}
       className={cn(

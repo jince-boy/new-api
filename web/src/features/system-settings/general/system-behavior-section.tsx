@@ -26,8 +26,16 @@ import {
   FormControl,
   FormDescription,
   FormField,
+  FormItem,
   FormLabel,
 } from '@/components/ui/form'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 
 import {
@@ -42,6 +50,7 @@ import { useUpdateOption } from '../hooks/use-update-option'
 
 const behaviorSchema = z.object({
   DefaultCollapseSidebar: z.boolean(),
+  ConsoleHomePage: z.string(),
   DemoSiteEnabled: z.boolean(),
   SelfUseModeEnabled: z.boolean(),
 })
@@ -83,6 +92,68 @@ export function SystemBehaviorSection({
             onSave={form.handleSubmit(onSubmit)}
             isSaving={updateOption.isPending}
           />
+          <FormField
+            control={form.control}
+            name='ConsoleHomePage'
+            render={({ field }) => (
+              <FormItem>
+                <FormLabel>{t('Default Home Page')}</FormLabel>
+                <Select
+                  value={field.value}
+                  onValueChange={field.onChange}
+                  items={[
+                    {
+                      value: '/dashboard/overview',
+                      label: t('Overview'),
+                    },
+                    {
+                      value: '/dashboard/models',
+                      label: t('Model Analytics'),
+                    },
+                    { value: '/keys', label: t('API Keys') },
+                    {
+                      value: '/usage-logs/common',
+                      label: t('Usage Logs'),
+                    },
+                    { value: '/usage-logs/task', label: t('Task Logs') },
+                    { value: '/wallet', label: t('Wallet') },
+                    { value: '/playground', label: t('Playground') },
+                    { value: '/profile', label: t('Profile') },
+                  ]}
+                >
+                  <FormControl>
+                    <SelectTrigger>
+                      <SelectValue placeholder={t('Select a page')} />
+                    </SelectTrigger>
+                  </FormControl>
+                  <SelectContent alignItemWithTrigger={false}>
+                    <SelectItem value='/dashboard/overview'>
+                      {t('Overview')}
+                    </SelectItem>
+                    <SelectItem value='/dashboard/models'>
+                      {t('Model Analytics')}
+                    </SelectItem>
+                    <SelectItem value='/keys'>{t('API Keys')}</SelectItem>
+                    <SelectItem value='/usage-logs/common'>
+                      {t('Usage Logs')}
+                    </SelectItem>
+                    <SelectItem value='/usage-logs/task'>
+                      {t('Task Logs')}
+                    </SelectItem>
+                    <SelectItem value='/wallet'>{t('Wallet')}</SelectItem>
+                    <SelectItem value='/playground'>
+                      {t('Playground')}
+                    </SelectItem>
+                    <SelectItem value='/profile'>{t('Profile')}</SelectItem>
+                  </SelectContent>
+                </Select>
+                <FormDescription>
+                  {t('Page users are redirected to after signing in')}
+                </FormDescription>
+              </FormItem>
+            )}
+          />
+
           <FormField
             control={form.control}
             name='DefaultCollapseSidebar'

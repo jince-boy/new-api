@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
@@ -24,15 +25,25 @@ import { ApiKeysDialogs } from './components/api-keys-dialogs'
 import { ApiKeysPrimaryButtons } from './components/api-keys-primary-buttons'
 import { ApiKeysProvider } from './components/api-keys-provider'
 import { ApiKeysTable } from './components/api-keys-table'
+import { ApiKeysTour } from './components/api-keys-tour'
 
 export function ApiKeys() {
-  const { t } = useTranslation()
   return (
     <ApiKeysProvider>
+      <ApiKeysPage />
+    </ApiKeysProvider>
+  )
+}
+
+function ApiKeysPage() {
+  const { t } = useTranslation()
+  const [tourOpen, setTourOpen] = useState(false)
+  return (
+    <>
       <SectionPageLayout fixedContent>
         <SectionPageLayout.Title>{t('API Keys')}</SectionPageLayout.Title>
         <SectionPageLayout.Actions>
-          <ApiKeysPrimaryButtons />
+          <ApiKeysPrimaryButtons onOpenTour={() => setTourOpen(true)} />
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <ApiKeysTable />
@@ -40,6 +51,7 @@ export function ApiKeys() {
       </SectionPageLayout>
 
       <ApiKeysDialogs />
-    </ApiKeysProvider>
+      <ApiKeysTour open={tourOpen} onOpenChange={setTourOpen} />
+    </>
   )
 }

@@ -94,6 +94,8 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 :root {
+  --logo-color-light: var(--foreground);
+  --logo-color: var(--logo-color-light);
   --radius: 1rem;
   --app-header-height: 3rem;
   /* Static build-channel fallback consumed when JS hasn't booted yet. */
@@ -179,6 +181,8 @@ For commercial licensing, please contact support@quantumnous.com
 }
 
 .dark {
+  --logo-color-dark: var(--foreground);
+  --logo-color: var(--logo-color-dark);
   /* OpenAI-like dark mode with a crisp charcoal canvas. */
   --background: oklch(0.235 0 0);
   --foreground: oklch(0.965 0 0);

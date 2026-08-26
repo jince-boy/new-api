@@ -28,6 +28,8 @@ import { useStatus } from '@/hooks/use-status'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { cn } from '@/lib/utils'
 
+import { SystemLogoImage } from './system-logo-image'
+
 type SystemBrandProps = {
   defaultName?: string
   defaultVersion?: string
@@ -66,7 +68,7 @@ export function SystemBrand(props: SystemBrandProps) {
         )}
       >
         <div className='flex size-5 items-center justify-center overflow-hidden rounded-md'>
-          <img
+          <SystemLogoImage
             src={logo}
             alt={t('Logo')}
             className='size-full rounded-md object-cover'
@@ -86,7 +88,7 @@ export function SystemBrand(props: SystemBrandProps) {
           render={<div />}
         >
           <div className='flex aspect-square size-8 items-center justify-center overflow-hidden rounded-lg'>
-            <img
+            <SystemLogoImage
               src={logo}
               alt={t('Logo')}
               className='size-full rounded-lg object-cover'

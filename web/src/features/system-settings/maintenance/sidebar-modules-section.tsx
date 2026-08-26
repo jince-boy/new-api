@@ -118,10 +118,6 @@ export function SidebarModulesSection({
         title: t('Task logs'),
         description: t('Drawing and background task records.'),
       },
-      setupGuide: {
-        title: t('Setup guide'),
-        description: t('Show the setup guide on the overview page.'),
-      },
     },
     personal: {
       invoice: {
@@ -260,10 +256,7 @@ export function SidebarModulesSection({
                     }
                     const moduleDisabled =
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      !form.watch(`${sectionKey}.enabled` as any) ||
-                      (sectionKey === 'console' &&
-                        moduleKey === 'setupGuide' &&
-                        !form.watch('console.overview'))
+                      !form.watch(`${sectionKey}.enabled` as any)
                     return (
                       <FormField
                         key={`${sectionKey}.${moduleKey}`}

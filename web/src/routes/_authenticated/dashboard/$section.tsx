@@ -23,6 +23,8 @@ import {
   DASHBOARD_SECTION_IDS,
   DASHBOARD_DEFAULT_SECTION,
 } from '@/features/dashboard/section-registry'
+import { isDashboardSectionAccessible } from '@/features/dashboard/section-access'
+import { useAuthStore } from '@/stores/auth-store'
 
 export const Route = createFileRoute('/_authenticated/dashboard/$section')({
   beforeLoad: ({ params }) => {
@@ -32,6 +34,14 @@ export const Route = createFileRoute('/_authenticated/dashboard/$section')({
         to: '/dashboard/$section',
         params: { section: DASHBOARD_DEFAULT_SECTION },
       })
+    }
+    if (
+      !isDashboardSectionAccessible(
+        params.section,
+        useAuthStore.getState().auth.user?.role
+      )
+    ) {
+      throw redirect({ to: '/403' })
     }
   },
   component: Dashboard,

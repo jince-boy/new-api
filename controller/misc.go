@@ -50,7 +50,6 @@ func GetStatus(c *gin.Context) {
 	passkeySetting := system_setting.GetPasskeySettings()
 	legalSetting := system_setting.GetLegalSettings()
 
-	// custom: brand — clients select by resolved theme and fall back to logo.
 	data := gin.H{
 		"version":                      common.Version,
 		"start_time":                   common.StartTime,
@@ -67,8 +66,6 @@ func GetStatus(c *gin.Context) {
 		"theme":                        "default",
 		"system_name":                  common.SystemName,
 		"logo":                         common.Logo,
-		"logo_light":                   common.OptionMap[logoLightOptionKey],
-		"logo_dark":                    common.OptionMap[logoDarkOptionKey],
 		"footer_html":                  common.Footer,
 		"group_chat_qrcode":            common.GroupChatQRCodeImageURL,
 		"group_chat_qrcode_expires_at": common.GroupChatQRCodeExpiresAt,
@@ -93,6 +90,8 @@ func GetStatus(c *gin.Context) {
 		"enable_data_export":            common.DataExportEnabled,
 		"data_export_default_time":      common.DataExportDefaultTime,
 		"default_collapse_sidebar":      common.DefaultCollapseSidebar,
+		"console_home_page":             common.ConsoleHomePage,
+		"display_token_ranking_enabled": common.DisplayTokenRankingEnabled,
 		"mj_notify_enabled":             setting.MjNotifyEnabled,
 		"chats":                         setting.Chats,
 		"demo_site_enabled":             operation_setting.DemoSiteEnabled,

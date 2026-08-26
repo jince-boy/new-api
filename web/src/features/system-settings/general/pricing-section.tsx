@@ -64,6 +64,7 @@ const createPricingSchema = (t: (key: string) => string) =>
         .min(0.0001, t('Exchange rate must be greater than 0')),
       DisplayInCurrencyEnabled: z.boolean(),
       DisplayTokenStatEnabled: z.boolean(),
+      DisplayTokenRankingEnabled: z.boolean(),
       general_setting: z.object({
         quota_display_type: z.enum(['USD', 'CNY', 'TOKENS', 'CUSTOM']),
         custom_currency_symbol: z.string().max(8).optional(),
@@ -187,6 +188,29 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
 
             <FormField
               control={form.control}
+              name='DisplayTokenRankingEnabled'
+              render={({ field }) => (
+                <SettingsSwitchItem>
+                  <SettingsSwitchContent>
+                    <FormLabel>{t('Display Token Usage Ranking')}</FormLabel>
+                    <FormDescription>
+                      {t(
+                        'Show the Token Usage Ranking panel on the model analytics dashboard.'
+                      )}
+                    </FormDescription>
+                  </SettingsSwitchContent>
+                  <FormControl>
+                    <Switch
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                    />
+                  </FormControl>
+                </SettingsSwitchItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
               name='general_setting.quota_display_type'
               render={({ field }) => (
                 <FormItem>
@@ -238,9 +262,7 @@ export function PricingSection({ defaultValues }: PricingSectionProps) {
                     <FormLabel>
                       {displayType === 'CNY'
                         ? t('CNY per USD')
-                        : displayType === 'USD'
-                          ? t('USD Exchange Rate')
-                          : t('USD Exchange Rate')}
+                        : t('USD Exchange Rate')}
                     </FormLabel>
                     <FormControl>
                       <Input

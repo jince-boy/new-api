@@ -25,21 +25,20 @@ import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Spinner } from '@/components/ui/spinner'
-import { cn } from '@/lib/utils'
-import { useSystemConfigStore } from '@/stores/system-config-store'
 
-import { removeLogo, uploadLogo, type LogoVariant } from '../api'
+import { removeLogo, uploadLogo } from '../api'
 
 const LOGO_MAX_BYTES = 5 * 1024 * 1024
+const LOGO_PUBLIC_URL = '/api/logo'
 const LOGO_CONTENT_TYPES = new Set([
   'image/gif',
   'image/jpeg',
   'image/png',
+  'image/svg+xml',
   'image/webp',
 ])
 
 type LogoUploadFieldProps = {
-  variant: LogoVariant
   value: string
   disabled?: boolean
   onSaved: (value: string) => void
@@ -48,24 +47,16 @@ type LogoUploadFieldProps = {
 export function LogoUploadField(props: LogoUploadFieldProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const setSystemConfig = useSystemConfigStore((state) => state.setConfig)
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const [isUploading, setIsUploading] = useState(false)
   const [isRemoving, setIsRemoving] = useState(false)
   const [previewVersion, setPreviewVersion] = useState(() => Date.now())
-  const publicURL = `/api/logo/${props.variant}`
 
   const previewURL = useMemo(() => {
-    if (!props.value.startsWith(publicURL)) return props.value
+    if (!props.value.startsWith(LOGO_PUBLIC_URL)) return props.value
     const separator = props.value.includes('?') ? '&' : '?'
     return `${props.value}${separator}preview=${previewVersion}`
-  }, [previewVersion, props.value, publicURL])
-  const previewClassName = cn(
-    'flex size-20 items-center justify-center rounded-xl border p-2',
-    props.variant === 'light' && 'border-zinc-200 bg-white text-zinc-500',
-    props.variant === 'dark' && 'border-zinc-800 bg-zinc-950 text-zinc-400',
-    !previewURL && 'border-dashed text-center text-xs'
-  )
+  }, [previewVersion, props.value])
 
   const refreshSystemConfig = () => {
     queryClient.invalidateQueries({ queryKey: ['system-options'] })
@@ -83,7 +74,7 @@ export function LogoUploadField(props: LogoUploadFieldProps) {
     if (!file) return
 
     if (!LOGO_CONTENT_TYPES.has(file.type)) {
-      toast.error(t('Logo image must be PNG, JPEG, WebP, or GIF'))
+      toast.error(t('Logo image must be PNG, JPEG, WebP, GIF, or SVG'))
       return
     }
     if (file.size > LOGO_MAX_BYTES) {
@@ -93,19 +84,14 @@ export function LogoUploadField(props: LogoUploadFieldProps) {
 
     setIsUploading(true)
     try {
-      const response = await uploadLogo(props.variant, file)
+      const response = await uploadLogo(file)
       if (!response.success) {
         toast.error(response.message || t('Failed to upload logo'))
         return
       }
 
-      const nextURL = response.data?.url || publicURL
+      const nextURL = response.data?.url || LOGO_PUBLIC_URL
       props.onSaved(nextURL)
-      if (props.variant === 'light') {
-        setSystemConfig({ logoLight: nextURL })
-      } else {
-        setSystemConfig({ logoDark: nextURL })
-      }
       setPreviewVersion(Date.now())
       refreshSystemConfig()
       toast.success(t('Logo uploaded successfully'))
@@ -121,18 +107,13 @@ export function LogoUploadField(props: LogoUploadFieldProps) {
   const handleRemove = async () => {
     setIsRemoving(true)
     try {
-      const response = await removeLogo(props.variant)
+      const response = await removeLogo()
       if (!response.success) {
         toast.error(response.message || t('Failed to remove logo'))
         return
       }
 
       props.onSaved('')
-      if (props.variant === 'light') {
-        setSystemConfig({ logoLight: '' })
-      } else {
-        setSystemConfig({ logoDark: '' })
-      }
       refreshSystemConfig()
       toast.success(t('Logo removed successfully'))
     } catch (error) {
@@ -150,21 +131,21 @@ export function LogoUploadField(props: LogoUploadFieldProps) {
   return (
     <div className='flex min-w-0 flex-col gap-3'>
       {previewURL ? (
-        <div className={previewClassName}>
-          <img
-            src={previewURL}
-            alt={t('Logo preview')}
-            className='size-full object-contain'
-          />
-        </div>
+        <img
+          src={previewURL}
+          alt={t('Logo preview')}
+          className='bg-muted/30 size-20 rounded-xl border object-contain p-2'
+        />
       ) : (
-        <div className={previewClassName}>{t('No custom logo uploaded')}</div>
+        <div className='text-muted-foreground flex size-20 items-center justify-center rounded-xl border border-dashed p-2 text-center text-xs'>
+          {t('No custom logo uploaded')}
+        </div>
       )}
 
       <input
         ref={fileInputRef}
         type='file'
-        accept='image/png,image/jpeg,image/webp,image/gif'
+        accept='image/png,image/jpeg,image/svg+xml,image/webp,image/gif'
         className='hidden'
         onChange={handleFileChange}
       />

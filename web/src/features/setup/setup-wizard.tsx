@@ -25,6 +25,7 @@ import { toast } from 'sonner'
 
 import { ErrorState } from '@/components/error-state'
 import { LanguageSwitcher } from '@/components/language-switcher'
+import { SystemLogoImage } from '@/components/layout/components/system-logo-image'
 import { LoadingState } from '@/components/loading-state'
 import {
   Card,
@@ -289,7 +290,7 @@ export function SetupWizard() {
             {systemConfigLoading ? (
               <Skeleton className='absolute inset-0 rounded-full' />
             ) : (
-              <img
+              <SystemLogoImage
                 src={logo}
                 alt={t('System logo')}
                 className='h-12 w-12 rounded-full object-cover shadow-sm'
@@ -325,27 +326,28 @@ export function SetupWizard() {
               {STEPS.map((step, index) => {
                 const isActive = currentStep === index
                 const isCompleted = currentStep > index
+                let stepClassName = 'border-muted bg-card'
+                if (isActive) {
+                  stepClassName = 'border-primary ring-primary/20 ring-2'
+                } else if (isCompleted) {
+                  stepClassName = 'border-primary/40 bg-primary/5'
+                }
+                let numberClassName =
+                  'border-muted-foreground/40 text-muted-foreground'
+                if (isActive || isCompleted) {
+                  numberClassName =
+                    'border-primary bg-primary text-primary-foreground'
+                }
                 return (
                   <li
                     key={step.titleKey}
-                    className={cn(
-                      'rounded-xl border p-3',
-                      isActive
-                        ? 'border-primary ring-primary/20 ring-2'
-                        : isCompleted
-                          ? 'border-primary/40 bg-primary/5'
-                          : 'border-muted bg-card'
-                    )}
+                    className={cn('rounded-xl border p-3', stepClassName)}
                   >
                     <div className='flex items-start gap-3'>
                       <span
                         className={cn(
                           'flex size-6 items-center justify-center rounded-md border text-xs font-semibold',
-                          isActive
-                            ? 'border-primary bg-primary text-primary-foreground'
-                            : isCompleted
-                              ? 'border-primary bg-primary text-primary-foreground'
-                              : 'border-muted-foreground/40 text-muted-foreground'
+                          numberClassName
                         )}
                       >
                         {index + 1}
@@ -364,14 +366,14 @@ export function SetupWizard() {
               })}
             </ol>
 
-            {isLoading ? (
-              <LoadingState message={t('Loading setup status…')} />
-            ) : isError ? (
+            {isLoading && <LoadingState message={t('Loading setup status…')} />}
+            {!isLoading && isError && (
               <ErrorState
                 title={t('We could not load the setup status.')}
                 onRetry={() => refetch()}
               />
-            ) : (
+            )}
+            {!isLoading && !isError && (
               <Form {...form}>
                 <form
                   className='space-y-6'

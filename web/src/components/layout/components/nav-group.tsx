@@ -156,6 +156,7 @@ function SidebarMenuLink({ item, href }: { item: NavLink; href: string }) {
         render={
           <Link
             to={item.url}
+            data-tour={item.tourId}
             preload={isMobile ? false : undefined}
             onClick={() => setOpenMobile(false)}
           />
@@ -210,6 +211,7 @@ function SidebarMenuCollapsible({
                 render={
                   <Link
                     to={subItem.url}
+                    data-tour={subItem.tourId}
                     preload={isMobile ? false : undefined}
                     onClick={() => setOpenMobile(false)}
                   />
@@ -266,6 +268,7 @@ function SidebarMenuCollapsedDropdown({
                 render={
                   <Link
                     to={sub.url}
+                    data-tour={sub.tourId}
                     className={`${checkIsActive(href, sub) ? 'bg-secondary' : ''}`}
                   />
                 }

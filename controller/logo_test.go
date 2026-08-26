@@ -47,6 +47,7 @@ func TestGetLogoServesConfiguredImage(t *testing.T) {
 	require.Equal(t, http.StatusOK, recorder.Code)
 	assert.Equal(t, "image/png", recorder.Header().Get("Content-Type"))
 	assert.Equal(t, "no-store, no-cache, must-revalidate, max-age=0", recorder.Header().Get("Cache-Control"))
+	assert.Equal(t, "nosniff", recorder.Header().Get("X-Content-Type-Options"))
 	assert.Equal(t, imageBytes, recorder.Body.Bytes())
 }
 
@@ -67,5 +68,11 @@ func TestUploadLogoRejectsNonImageContent(t *testing.T) {
 	UploadLogo(ctx)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
-	assert.Contains(t, recorder.Body.String(), "logo image must be PNG, JPEG, WebP, or GIF")
+	assert.Contains(t, recorder.Body.String(), "logo image must be PNG, JPEG, WebP, GIF, or SVG")
+}
+
+func TestIsSafeLogoSVGValidatesActiveContent(t *testing.T) {
+	require.True(t, isSafeLogoSVG([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0h1v1z"/></svg>`)))
+	require.False(t, isSafeLogoSVG([]byte(`<svg><script>alert(1)</script></svg>`)))
+	require.False(t, isSafeLogoSVG([]byte(`<svg><image href="javascript:alert(1)"/></svg>`)))
 }

@@ -18,10 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useCallback } from 'react'
 
-import { useTheme } from '@/context/theme-provider'
 import { DEFAULT_SYSTEM_NAME, DEFAULT_LOGO } from '@/lib/constants'
 import { applyFaviconToDom } from '@/lib/dom-utils'
-import { resolveSystemLogo } from '@/lib/system-logo'
 import {
   useSystemConfigStore,
   type CurrencyConfig,
@@ -40,11 +38,11 @@ interface StatusApiResponse {
   data: {
     system_name?: string
     logo?: string
-    logo_light?: string
-    logo_dark?: string
     footer_html?: string
     demo_site_enabled?: boolean
     display_token_stat_enabled?: boolean
+    display_token_ranking_enabled?: boolean
+    console_home_page?: string
     display_in_currency?: boolean
     quota_display_type?: CurrencyDisplayType
     quota_per_unit?: number
@@ -61,6 +59,10 @@ function toNumber(value: unknown, fallback: number): number {
     if (!Number.isNaN(parsed)) return parsed
   }
   return fallback
+}
+
+export function isTokenRankingEnabled(value: unknown): boolean {
+  return value === true
 }
 
 /**
@@ -99,11 +101,11 @@ export function mapStatusDataToConfig(
   return {
     systemName: data.system_name || DEFAULT_SYSTEM_NAME,
     logo: data.logo || DEFAULT_LOGO,
-    logoLight: data.logo_light || '',
-    logoDark: data.logo_dark || '',
     footerHtml: data.footer_html,
     demoSiteEnabled: data.demo_site_enabled,
     displayTokenStatEnabled: data.display_token_stat_enabled,
+    displayTokenRankingEnabled: data.display_token_ranking_enabled,
+    consoleHomePage: data.console_home_page,
     currency,
   }
 }
@@ -149,7 +151,6 @@ function preloadImage(
  */
 export function useSystemConfig(options: UseSystemConfigOptions = {}) {
   const { autoLoad = false } = options
-  const { resolvedTheme } = useTheme()
   const {
     config,
     loading,
@@ -158,7 +159,7 @@ export function useSystemConfig(options: UseSystemConfigOptions = {}) {
     setLoadedLogoUrl,
     setLoading,
   } = useSystemConfigStore()
-  const activeLogo = resolveSystemLogo(config, resolvedTheme)
+  const activeLogo = config.logo
 
   // Load config from backend
   const loadConfig = useCallback(async () => {

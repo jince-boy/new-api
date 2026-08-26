@@ -53,6 +53,8 @@ func InitOptionMap() {
 	common.OptionMap["LogConsumeEnabled"] = strconv.FormatBool(common.LogConsumeEnabled)
 	common.OptionMap["DisplayInCurrencyEnabled"] = strconv.FormatBool(common.DisplayInCurrencyEnabled)
 	common.OptionMap["DisplayTokenStatEnabled"] = strconv.FormatBool(common.DisplayTokenStatEnabled)
+	common.OptionMap["DisplayTokenRankingEnabled"] = strconv.FormatBool(common.DisplayTokenRankingEnabled)
+	common.OptionMap["ConsoleHomePage"] = common.ConsoleHomePage
 	common.OptionMap["DrawingEnabled"] = strconv.FormatBool(common.DrawingEnabled)
 	common.OptionMap["TaskEnabled"] = strconv.FormatBool(common.TaskEnabled)
 	common.OptionMap["DataExportEnabled"] = strconv.FormatBool(common.DataExportEnabled)
@@ -76,9 +78,6 @@ func InitOptionMap() {
 	common.OptionMap["Footer"] = common.Footer
 	common.OptionMap["SystemName"] = common.SystemName
 	common.OptionMap["Logo"] = common.Logo
-	// custom: brand — theme-specific logos fall back to the legacy Logo option.
-	common.OptionMap["LogoLight"] = ""
-	common.OptionMap["LogoDark"] = ""
 	common.OptionMap["GroupChatQRCodeImageURL"] = common.GroupChatQRCodeImageURL
 	common.OptionMap["GroupChatQRCodeExpiresAt"] = common.GroupChatQRCodeExpiresAt
 	common.OptionMap["GroupChatQRCodeReminderSentFor"] = common.GroupChatQRCodeReminderSentFor
@@ -257,11 +256,24 @@ func normalizeOptionValueForStorage(key string, value string) (string, error) {
 	}
 }
 
+func isValidConsoleHomePage(value string) bool {
+	switch value {
+	case "/dashboard/overview", "/dashboard/models", "/keys", "/usage-logs/common", "/usage-logs/task", "/wallet", "/playground", "/profile":
+		return true
+	default:
+		return false
+	}
+}
+
 func validateOptionValue(key string, value string) error {
 	if isGroupCatalogOptionKey(key) {
 		return validateGroupOptionSet(map[string]string{key: value})
 	}
 	switch key {
+	case "ConsoleHomePage":
+		if !isValidConsoleHomePage(value) {
+			return fmt.Errorf("unsupported console home page")
+		}
 	case operation_setting.ToolPriceOptionKey:
 		return operation_setting.ValidateToolPricesJSON(value)
 	case operation_setting.AsyncTaskPollIntervalOptionKey:
@@ -519,6 +531,8 @@ func updateOptionMap(key string, value string) (err error) {
 			}
 		case "DisplayTokenStatEnabled":
 			common.DisplayTokenStatEnabled = boolValue
+		case "DisplayTokenRankingEnabled":
+			common.DisplayTokenRankingEnabled = boolValue
 		case "DrawingEnabled":
 			common.DrawingEnabled = boolValue
 		case "TaskEnabled":
@@ -566,6 +580,10 @@ func updateOptionMap(key string, value string) (err error) {
 		}
 	}
 	switch key {
+	case "ConsoleHomePage":
+		if isValidConsoleHomePage(value) {
+			common.ConsoleHomePage = value
+		}
 	case "EmailDomainWhitelist":
 		common.EmailDomainWhitelist = strings.Split(value, ",")
 	case "SMTPServer":

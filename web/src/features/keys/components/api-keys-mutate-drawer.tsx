@@ -92,12 +92,14 @@ import { AutoGroupOrderEditor } from './auto-group-order-editor'
 type ApiKeyMutateDrawerProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
+  onOpenChangeComplete?: (open: boolean) => void
   currentRow?: ApiKey
 }
 
 export function ApiKeysMutateDrawer({
   open,
   onOpenChange,
+  onOpenChangeComplete,
   currentRow,
 }: ApiKeyMutateDrawerProps) {
   const { t } = useTranslation()
@@ -369,6 +371,7 @@ export function ApiKeysMutateDrawer({
           form.reset()
         }
       }}
+      onOpenChangeComplete={onOpenChangeComplete}
     >
       <SheetContent
         className={sideDrawerContentClassName('max-w-none sm:!max-w-[620px]')}
@@ -402,7 +405,7 @@ export function ApiKeysMutateDrawer({
                 control={form.control}
                 name='name'
                 render={({ field }) => (
-                  <FormItem>
+                  <FormItem data-tour='api-key-name'>
                     <FormLabel>{t('Name')}</FormLabel>
                     <FormControl>
                       <Input {...field} placeholder={t('Enter a name')} />
@@ -416,7 +419,7 @@ export function ApiKeysMutateDrawer({
                 control={form.control}
                 name='group'
                 render={({ field }) => (
-                  <FormItem>
+                  <FormItem data-tour='api-key-group'>
                     <FormLabel>{t('Group')}</FormLabel>
                     <FormControl>
                       <ApiKeyGroupCombobox
@@ -514,7 +517,7 @@ export function ApiKeysMutateDrawer({
                 control={form.control}
                 name='expired_time'
                 render={({ field }) => (
-                  <FormItem>
+                  <FormItem data-tour='api-key-quota'>
                     <FormLabel>{t('Expiration Time')}</FormLabel>
                     <div className='grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center'>
                       <FormControl>

@@ -131,8 +131,6 @@ export type SiteSettings = {
   Notice: string
   SystemName: string
   Logo: string
-  LogoLight: string
-  LogoDark: string
   GroupChatQRCodeImageURL: string
   GroupChatQRCodeExpiresAt: string
   Footer: string
@@ -297,6 +295,7 @@ export type BillingSettings = {
   'general_setting.custom_currency_exchange_rate': number
   DisplayInCurrencyEnabled: boolean
   DisplayTokenStatEnabled: boolean
+  DisplayTokenRankingEnabled: boolean
   ModelPrice: string
   ModelRatio: string
   CacheRatio: string
@@ -390,6 +389,7 @@ export type BillingSettings = {
 
 export type OperationsSettings = {
   DefaultCollapseSidebar: boolean
+  ConsoleHomePage: string
   DemoSiteEnabled: boolean
   SelfUseModeEnabled: boolean
   QuotaRemindThreshold: string

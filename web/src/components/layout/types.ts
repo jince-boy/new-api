@@ -24,6 +24,7 @@ import type { TFunction } from 'i18next'
  */
 type BaseNavItem = {
   title: string
+  tourId?: string
   badge?: string
   icon?: React.ElementType
   activeUrls?: (LinkProps['to'] | (string & {}))[]

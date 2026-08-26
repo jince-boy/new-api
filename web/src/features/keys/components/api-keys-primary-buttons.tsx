@@ -16,19 +16,53 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Plus } from 'lucide-react'
+import { CircleHelp, Plus } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { useApiKeys } from './api-keys-provider'
 
-export function ApiKeysPrimaryButtons() {
+type ApiKeysPrimaryButtonsProps = {
+  onOpenTour: () => void
+}
+
+export function ApiKeysPrimaryButtons(props: ApiKeysPrimaryButtonsProps) {
   const { t } = useTranslation()
   const { setOpen } = useApiKeys()
+  const user = useAuthStore((state) => state.auth.user)
+  const showGuide = user?.role === ROLE.USER
   return (
     <div className='flex gap-2'>
-      <Button size='sm' onClick={() => setOpen('create')}>
+      {showGuide && (
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant='ghost'
+                size='icon-sm'
+                onClick={props.onOpenTour}
+                aria-label={t('View API key guide')}
+              />
+            }
+          >
+            <CircleHelp />
+          </TooltipTrigger>
+          <TooltipContent>{t('View API key guide')}</TooltipContent>
+        </Tooltip>
+      )}
+      <Button
+        size='sm'
+        data-tour='api-key-create'
+        onClick={() => setOpen('create')}
+      >
         <Plus className='h-4 w-4' />
         {t('Create API Key')}
       </Button>

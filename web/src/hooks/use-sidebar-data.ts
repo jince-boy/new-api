@@ -94,6 +94,7 @@ export function useSidebarData(): SidebarData {
             title: t('Playground'),
             url: SIDEBAR_ROUTE_URLS.playground,
             icon: FlaskConical,
+            tourId: 'playground',
           },
           {
             title: t('Chat'),
@@ -115,11 +116,13 @@ export function useSidebarData(): SidebarData {
             title: t('Dashboard'),
             url: SIDEBAR_ROUTE_URLS.dashboard,
             icon: LayoutDashboard,
+            tourId: 'dashboard',
           },
           {
             title: t('API Keys'),
             url: SIDEBAR_ROUTE_URLS.keys,
             icon: Key,
+            tourId: 'api-keys',
           },
           {
             title: t('Usage Logs'),
@@ -146,6 +149,7 @@ export function useSidebarData(): SidebarData {
             title: t('Wallet'),
             url: SIDEBAR_ROUTE_URLS.wallet,
             icon: Wallet,
+            tourId: 'wallet',
           },
           {
             title: t('Invoice applications'),

@@ -72,26 +72,15 @@ export async function uploadGroupChatQRCode(file: File, expiresAt: string) {
   return res.data
 }
 
-export type LogoVariant = 'light' | 'dark'
-
-function getLogoEndpoint(basePath: string, variant: LogoVariant): string {
-  return `${basePath}/${variant}`
-}
-
-export async function uploadLogo(variant: LogoVariant, file: File) {
+export async function uploadLogo(file: File) {
   const formData = new FormData()
   formData.append('file', file)
-  const res = await api.post<LogoUploadResponse>(
-    getLogoEndpoint('/api/option/logo', variant),
-    formData
-  )
+  const res = await api.post<LogoUploadResponse>('/api/option/logo', formData)
   return res.data
 }
 
-export async function removeLogo(variant: LogoVariant) {
-  const res = await api.delete<UpdateOptionResponse>(
-    getLogoEndpoint('/api/option/logo', variant)
-  )
+export async function removeLogo() {
+  const res = await api.delete<UpdateOptionResponse>('/api/option/logo')
   return res.data
 }
 

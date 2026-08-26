@@ -1,0 +1,53 @@
+/*
+Copyright (C) 2023-2026 QuantumNous
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as
+published by the Free Software Foundation, either version 3 of the
+License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+For commercial licensing, please contact support@quantumnous.com
+*/
+import { describe, expect, it } from 'vitest'
+
+import { SIDEBAR_MODULES_DEFAULT } from '@/features/system-settings/maintenance/config'
+
+import { resolveConsoleHomePath } from '../use-sidebar-config'
+
+function createSidebarConfig() {
+  return structuredClone(SIDEBAR_MODULES_DEFAULT)
+}
+
+describe('resolveConsoleHomePath', () => {
+  it('uses the configured home page when its module is visible', () => {
+    expect(resolveConsoleHomePath(createSidebarConfig(), null, '/keys')).toBe(
+      '/keys'
+    )
+  })
+
+  it('falls back to the first visible page when the configured page is disabled', () => {
+    const config = createSidebarConfig()
+    config.console.token = false
+
+    expect(resolveConsoleHomePath(config, null, '/keys')).toBe(
+      '/dashboard/overview'
+    )
+  })
+
+  it('respects the user sidebar layer when resolving the configured page', () => {
+    const userConfig = createSidebarConfig()
+    userConfig.personal.topup = false
+
+    expect(
+      resolveConsoleHomePath(createSidebarConfig(), userConfig, '/wallet')
+    ).toBe('/dashboard/overview')
+  })
+})

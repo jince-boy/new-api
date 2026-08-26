@@ -45,17 +45,23 @@ export type ConsoleHomePath =
   | '/keys'
   | '/usage-logs/common'
   | '/usage-logs/task'
+  | '/wallet'
+  | '/playground'
   | '/profile'
 
 const CONSOLE_HOME_CANDIDATES: ReadonlyArray<{
+  section: string
   module: string
   path: ConsoleHomePath
 }> = [
-  { module: 'overview', path: '/dashboard/overview' },
-  { module: 'dashboard', path: '/dashboard/models' },
-  { module: 'token', path: '/keys' },
-  { module: 'log', path: '/usage-logs/common' },
-  { module: 'task', path: '/usage-logs/task' },
+  { section: 'console', module: 'overview', path: '/dashboard/overview' },
+  { section: 'console', module: 'dashboard', path: '/dashboard/models' },
+  { section: 'console', module: 'token', path: '/keys' },
+  { section: 'console', module: 'log', path: '/usage-logs/common' },
+  { section: 'console', module: 'task', path: '/usage-logs/task' },
+  { section: 'personal', module: 'topup', path: '/wallet' },
+  { section: 'chat', module: 'playground', path: '/playground' },
+  { section: 'personal', module: 'personal', path: '/profile' },
 ]
 
 export function parseSidebarModuleLayers(
@@ -84,11 +90,27 @@ export function parseSidebarModuleLayers(
 
 export function resolveConsoleHomePath(
   adminConfig: SidebarModulesAdminConfig,
-  userConfig: SidebarModulesUserConfig
+  userConfig: SidebarModulesUserConfig,
+  preferredPath?: string
 ): ConsoleHomePath {
+  const preferred = CONSOLE_HOME_CANDIDATES.find(
+    (candidate) => candidate.path === preferredPath
+  )
+  if (
+    preferred &&
+    isSidebarModuleEnabledForConfig(
+      preferred.section,
+      preferred.module,
+      adminConfig,
+      userConfig
+    )
+  ) {
+    return preferred.path
+  }
+
   const destination = CONSOLE_HOME_CANDIDATES.find((candidate) =>
     isSidebarModuleEnabledForConfig(
-      'console',
+      candidate.section,
       candidate.module,
       adminConfig,
       userConfig
@@ -181,11 +203,11 @@ export function isSidebarModuleEnabledForConfig(
     return false
   }
 
-  return !(
-    section === 'console' &&
-    module === 'setupGuide' &&
-    userSection.overview === false
-  )
+  if (section === 'console' && module === 'setupGuide') {
+    return userSection.overview !== false
+  }
+
+  return true
 }
 
 /**

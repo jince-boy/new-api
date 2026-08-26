@@ -90,7 +90,6 @@ export const SIDEBAR_MODULES_DEFAULT: SidebarModulesAdminConfig = {
     token: true,
     log: true,
     task: true,
-    setupGuide: true,
   },
   personal: {
     enabled: true,
@@ -284,7 +283,7 @@ export function parseSidebarModulesAdmin(
 
       Object.entries(raw as Record<string, unknown>).forEach(
         ([moduleKey, moduleValue]) => {
-          if (moduleKey === 'enabled') return
+          if (moduleKey === 'enabled' || moduleKey === 'setupGuide') return
           sectionConfig[moduleKey] = toBoolean(
             moduleValue,
             defaultSection[moduleKey] ?? true
@@ -350,7 +349,7 @@ export function parseSidebarModulesUser(
         enabled: toBoolean(rawSection.enabled, true),
       }
       Object.entries(rawSection).forEach(([moduleKey, moduleValue]) => {
-        if (moduleKey !== 'enabled') {
+        if (moduleKey !== 'enabled' && moduleKey !== 'setupGuide') {
           sectionConfig[moduleKey] = toBoolean(moduleValue, true)
         }
       })

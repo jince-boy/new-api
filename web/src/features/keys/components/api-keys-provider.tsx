@@ -24,11 +24,13 @@ import useDialogState from '@/hooks/use-dialog'
 
 import { fetchTokenKey, fetchTokenKeysBatch } from '../api'
 import { ERROR_MESSAGES } from '../constants'
-import { type ApiKey, type ApiKeysDialogType } from '../types'
+import type { ApiKey, ApiKeysDialogType } from '../types'
 
 type ApiKeysContextType = {
   open: ApiKeysDialogType | null
   setOpen: (str: ApiKeysDialogType | null) => void
+  mutateDrawerOpenComplete: boolean
+  setMutateDrawerOpenComplete: React.Dispatch<React.SetStateAction<boolean>>
   currentRow: ApiKey | null
   setCurrentRow: React.Dispatch<React.SetStateAction<ApiKey | null>>
   refreshTrigger: number
@@ -48,6 +50,8 @@ const ApiKeysContext = React.createContext<ApiKeysContextType | null>(null)
 export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation()
   const [open, setOpen] = useDialogState<ApiKeysDialogType>(null)
+  const [mutateDrawerOpenComplete, setMutateDrawerOpenComplete] =
+    useState(false)
   const [currentRow, setCurrentRow] = useState<ApiKey | null>(null)
   const [refreshTrigger, setRefreshTrigger] = useState(0)
   const [resolvedKey, setResolvedKey] = useState('')
@@ -159,6 +163,8 @@ export function ApiKeysProvider({ children }: { children: React.ReactNode }) {
       value={{
         open,
         setOpen,
+        mutateDrawerOpenComplete,
+        setMutateDrawerOpenComplete,
         currentRow,
         setCurrentRow,
         refreshTrigger,

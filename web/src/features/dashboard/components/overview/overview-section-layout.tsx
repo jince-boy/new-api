@@ -22,14 +22,11 @@ export interface OverviewSectionLayoutProps {
   summary: ReactNode
   community: ReactNode
   informationPanels?: ReactNode
-  setup: ReactNode
 }
 
 export function OverviewSectionLayout(props: OverviewSectionLayoutProps) {
   return (
     <div className='flex flex-col gap-4'>
-      {props.setup}
-
       <div
         data-testid='overview-primary-row'
         className='grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.8fr)_minmax(18rem,0.75fr)] [&>*:only-child]:xl:col-span-2'

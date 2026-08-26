@@ -21,6 +21,8 @@ import i18next from 'i18next'
 import { useCallback, useEffect, useRef } from 'react'
 import { toast } from 'sonner'
 
+import { useSystemConfigStore } from '@/stores/system-config-store'
+
 import { updateSystemOption } from '../api'
 import type { UpdateOptionRequest } from '../types'
 
@@ -32,12 +34,12 @@ const STATUS_RELATED_KEYS = new Set([
   'Notice',
   'LogConsumeEnabled',
   'Logo',
-  'LogoLight',
-  'LogoDark',
   'QuotaPerUnit',
   'USDExchangeRate',
   'DisplayInCurrencyEnabled',
   'DisplayTokenStatEnabled',
+  'DisplayTokenRankingEnabled',
+  'ConsoleHomePage',
   'GroupChatQRCodeImageURL',
   'GroupChatQRCodeExpiresAt',
   'general_setting.quota_display_type',
@@ -169,6 +171,20 @@ export function useUpdateOption(options: UseUpdateOptionOptions = {}) {
     },
     onSuccess: (data, variables) => {
       if (data.success) {
+        if (variables.key === 'DisplayTokenRankingEnabled') {
+          const displayTokenRankingEnabled =
+            variables.value === true || variables.value === 'true'
+          useSystemConfigStore.getState().setConfig({
+            displayTokenRankingEnabled,
+          })
+          queryClient.setQueryData<Record<string, unknown>>(
+            ['status'],
+            (current = {}) => ({
+              ...current,
+              display_token_ranking_enabled: displayTokenRankingEnabled,
+            })
+          )
+        }
         if (variables.key === 'SidebarModulesAdmin') {
           queryClient.setQueryData<Record<string, unknown>>(
             ['status'],

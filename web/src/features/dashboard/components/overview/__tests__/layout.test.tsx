@@ -42,7 +42,7 @@ describe('OverviewSectionLayout', () => {
     domWindow.close()
   })
 
-  test('keeps setup first, followed by the primary and information rows', async () => {
+  test('renders the primary row before optional information panels', async () => {
     const container = document.createElement('div')
     document.body.append(container)
     const root = createRoot(container)
@@ -60,7 +60,6 @@ describe('OverviewSectionLayout', () => {
               <section>FAQ</section>
             </>
           }
-          setup={<section>Setup guide</section>}
         />
       )
     })
@@ -73,10 +72,6 @@ describe('OverviewSectionLayout', () => {
     )
     assert.ok(primaryRow)
     assert.ok(informationRow)
-    assert.equal(
-      container.firstElementChild?.firstElementChild?.textContent,
-      'Setup guide'
-    )
     assert.deepEqual(
       [...primaryRow.children].map((item) => item.textContent),
       ['Usage summary', 'User community']

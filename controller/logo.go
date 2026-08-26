@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"bytes"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -15,50 +17,71 @@ import (
 )
 
 const (
-	logoOptionKey      = "Logo"
-	logoLightOptionKey = "LogoLight"
-	logoDarkOptionKey  = "LogoDark"
-	logoPublicURL      = "/api/logo"
-	logoMaxBytes       = int64(5 << 20)
-)
-
-type logoVariant string
-
-const (
-	logoVariantLight logoVariant = "light"
-	logoVariantDark  logoVariant = "dark"
+	logoOptionKey = "Logo"
+	logoPublicURL = "/api/logo"
+	logoMaxBytes  = int64(5 << 20)
 )
 
 var logoContentTypes = map[string]string{
-	"image/gif":  ".gif",
-	"image/jpeg": ".jpg",
-	"image/png":  ".png",
-	"image/webp": ".webp",
+	"image/gif":     ".gif",
+	"image/jpeg":    ".jpg",
+	"image/png":     ".png",
+	"image/webp":    ".webp",
+	"image/svg+xml": ".svg",
+}
+
+func isSafeLogoSVG(data []byte) bool {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	foundRoot := false
+	blockedElements := map[string]bool{
+		"embed": true, "foreignobject": true, "iframe": true,
+		"object": true, "script": true,
+	}
+
+	for {
+		token, err := decoder.Token()
+		if err == io.EOF {
+			return foundRoot
+		}
+		if err != nil {
+			return false
+		}
+
+		start, ok := token.(xml.StartElement)
+		if !ok {
+			continue
+		}
+		elementName := strings.ToLower(start.Name.Local)
+		if !foundRoot {
+			if elementName != "svg" {
+				return false
+			}
+			foundRoot = true
+		}
+		if blockedElements[elementName] {
+			return false
+		}
+		for _, attribute := range start.Attr {
+			attributeName := strings.ToLower(attribute.Name.Local)
+			attributeValue := strings.ToLower(strings.TrimSpace(attribute.Value))
+			if strings.HasPrefix(attributeName, "on") ||
+				((attributeName == "href" || attributeName == "src") &&
+					(strings.HasPrefix(attributeValue, "javascript:") ||
+						strings.HasPrefix(attributeValue, "data:text/html"))) {
+				return false
+			}
+		}
+	}
 }
 
 func logoDir() string {
 	return filepath.Join("upload", "logo")
 }
 
-func parseLogoVariant(value string) (logoVariant, bool) {
-	variant := logoVariant(value)
-	return variant, variant == logoVariantLight || variant == logoVariantDark
-}
-
-func logoConfig(variant *logoVariant) (string, string, string) {
-	if variant == nil {
-		return logoOptionKey, logoPublicURL, "current"
-	}
-	if *variant == logoVariantLight {
-		return logoLightOptionKey, logoPublicURL + "/light", string(logoVariantLight)
-	}
-	return logoDarkOptionKey, logoPublicURL + "/dark", string(logoVariantDark)
-}
-
-func currentLogoFile(fileName string) (string, string, bool) {
+func currentLogoFile() (string, string, bool) {
 	dir := logoDir()
 	for contentType, ext := range logoContentTypes {
-		filePath := filepath.Join(dir, fileName+ext)
+		filePath := filepath.Join(dir, "current"+ext)
 		if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
 			return filePath, contentType, true
 		}
@@ -67,19 +90,6 @@ func currentLogoFile(fileName string) (string, string, bool) {
 }
 
 func UploadLogo(c *gin.Context) {
-	uploadLogo(c, nil)
-}
-
-func UploadThemeLogo(c *gin.Context) {
-	variant, ok := parseLogoVariant(c.Param("variant"))
-	if !ok {
-		common.ApiErrorMsg(c, "logo variant must be light or dark")
-		return
-	}
-	uploadLogo(c, &variant)
-}
-
-func uploadLogo(c *gin.Context, variant *logoVariant) {
 	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, logoMaxBytes+(1<<20))
 
 	file, _, err := c.Request.FormFile("file")
@@ -109,8 +119,13 @@ func uploadLogo(c *gin.Context, variant *logoVariant) {
 	}
 	contentType := http.DetectContentType(head)
 	ext, ok := logoContentTypes[contentType]
+	if contentType == "image/svg+xml" && !isSafeLogoSVG(data) {
+		ok = false
+	} else if !ok && isSafeLogoSVG(data) {
+		contentType, ext, ok = "image/svg+xml", ".svg", true
+	}
 	if !ok {
-		common.ApiErrorMsg(c, "logo image must be PNG, JPEG, WebP, or GIF")
+		common.ApiErrorMsg(c, "logo image must be PNG, JPEG, WebP, GIF, or SVG")
 		return
 	}
 
@@ -120,9 +135,8 @@ func uploadLogo(c *gin.Context, variant *logoVariant) {
 		return
 	}
 
-	optionKey, publicURL, fileName := logoConfig(variant)
-	targetPath := filepath.Join(dir, fileName+ext)
-	tempPath := filepath.Join(dir, fileName+".tmp")
+	targetPath := filepath.Join(dir, "current"+ext)
+	tempPath := filepath.Join(dir, "current.tmp")
 	if err = os.WriteFile(tempPath, data, 0644); err != nil {
 		common.ApiError(c, fmt.Errorf("failed to save logo image: %w", err))
 		return
@@ -138,45 +152,34 @@ func uploadLogo(c *gin.Context, variant *logoVariant) {
 		return
 	}
 	for _, oldExt := range logoContentTypes {
-		oldPath := filepath.Join(dir, fileName+oldExt)
+		oldPath := filepath.Join(dir, "current"+oldExt)
 		if oldPath != targetPath {
 			_ = os.Remove(oldPath)
 		}
 	}
 
-	nextLogoURL := fmt.Sprintf("%s?v=%d", publicURL, time.Now().UnixMilli())
-	if err = model.UpdateOption(optionKey, nextLogoURL); err != nil {
+	nextLogoURL := fmt.Sprintf("%s?v=%d", logoPublicURL, time.Now().UnixMilli())
+	if contentType == "image/svg+xml" {
+		nextLogoURL += "&format=svg"
+	}
+	if err = model.UpdateOption(logoOptionKey, nextLogoURL); err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	recordManageAudit(c, "option.logo.upload", map[string]interface{}{
-		"key": optionKey,
+		"key": logoOptionKey,
 	})
 	common.ApiSuccess(c, gin.H{"url": nextLogoURL})
 }
 
 func DeleteLogo(c *gin.Context) {
-	deleteLogo(c, nil)
-}
-
-func DeleteThemeLogo(c *gin.Context) {
-	variant, ok := parseLogoVariant(c.Param("variant"))
-	if !ok {
-		common.ApiErrorMsg(c, "logo variant must be light or dark")
-		return
-	}
-	deleteLogo(c, &variant)
-}
-
-func deleteLogo(c *gin.Context, variant *logoVariant) {
-	optionKey, _, fileName := logoConfig(variant)
-	if err := model.UpdateOption(optionKey, ""); err != nil {
+	if err := model.UpdateOption(logoOptionKey, ""); err != nil {
 		common.ApiError(c, err)
 		return
 	}
 
 	for _, ext := range logoContentTypes {
-		filePath := filepath.Join(logoDir(), fileName+ext)
+		filePath := filepath.Join(logoDir(), "current"+ext)
 		if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
 			common.ApiError(c, fmt.Errorf("failed to remove logo image: %w", err))
 			return
@@ -184,30 +187,16 @@ func deleteLogo(c *gin.Context, variant *logoVariant) {
 	}
 
 	recordManageAudit(c, "option.logo.delete", map[string]interface{}{
-		"key": optionKey,
+		"key": logoOptionKey,
 	})
 	common.ApiSuccess(c, nil)
 }
 
 func GetLogo(c *gin.Context) {
-	getLogo(c, nil)
-}
-
-func GetThemeLogo(c *gin.Context) {
-	variant, ok := parseLogoVariant(c.Param("variant"))
-	if !ok {
-		c.JSON(http.StatusNotFound, gin.H{"success": false, "message": "logo variant must be light or dark"})
-		return
-	}
-	getLogo(c, &variant)
-}
-
-func getLogo(c *gin.Context, variant *logoVariant) {
-	optionKey, publicURL, fileName := logoConfig(variant)
 	common.OptionMapRWMutex.RLock()
-	configuredURL := common.OptionMap[optionKey]
+	configuredURL := common.OptionMap[logoOptionKey]
 	common.OptionMapRWMutex.RUnlock()
-	if configuredURL != publicURL && !strings.HasPrefix(configuredURL, publicURL+"?") {
+	if configuredURL != logoPublicURL && !strings.HasPrefix(configuredURL, logoPublicURL+"?") {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
 			"message": "uploaded logo is not configured",
@@ -215,7 +204,7 @@ func getLogo(c *gin.Context, variant *logoVariant) {
 		return
 	}
 
-	filePath, contentType, ok := currentLogoFile(fileName)
+	filePath, contentType, ok := currentLogoFile()
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{
 			"success": false,
@@ -227,6 +216,8 @@ func getLogo(c *gin.Context, variant *logoVariant) {
 	c.Header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
 	c.Header("Pragma", "no-cache")
 	c.Header("Expires", "0")
+	c.Header("Content-Security-Policy", "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'")
+	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("Content-Type", contentType)
 	c.File(filePath)
 }

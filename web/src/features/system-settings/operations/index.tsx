@@ -28,6 +28,7 @@ import {
 
 const defaultOperationsSettings: OperationsSettings = {
   DefaultCollapseSidebar: false,
+  ConsoleHomePage: '/dashboard/overview',
   DemoSiteEnabled: false,
   SelfUseModeEnabled: false,
   QuotaRemindThreshold: '',

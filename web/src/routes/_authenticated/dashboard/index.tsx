@@ -28,6 +28,7 @@ export const Route = createFileRoute('/_authenticated/dashboard/')({
   beforeLoad: ({ context }) => {
     let status = context.queryClient.getQueryData<{
       SidebarModulesAdmin?: string | null
+      console_home_page?: string
     }>(['status'])
 
     if (!status && typeof window !== 'undefined') {
@@ -42,7 +43,11 @@ export const Route = createFileRoute('/_authenticated/dashboard/')({
     const user = useAuthStore.getState().auth.user
     const { adminConfig, userConfig } = parseSidebarModuleLayers(status, user)
 
-    const destination = resolveConsoleHomePath(adminConfig, userConfig)
+    const destination = resolveConsoleHomePath(
+      adminConfig,
+      userConfig,
+      status?.console_home_page
+    )
 
     if (destination === '/dashboard/overview') {
       throw redirect({
