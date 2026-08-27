@@ -115,6 +115,7 @@ test('overview groups come only from explicit intelligent strategy overrides', (
     auto_recovery_interval_seconds: 60,
     max_attempts: 8,
     realtime_retention_minutes: 60,
+    soft_affinity_enabled: false,
   }
 
   assert.deepEqual(listConfiguredSchedulingGroups(setting), ['premium', 'vip'])

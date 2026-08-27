@@ -84,6 +84,7 @@ func UpdateChannelSchedulingSetting(c *gin.Context) {
 		"channel_scheduling_setting.auto_recovery_interval_seconds": strconv.Itoa(request.AutoRecoveryIntervalSeconds),
 		"channel_scheduling_setting.max_attempts":                   strconv.Itoa(request.MaxAttempts),
 		"channel_scheduling_setting.realtime_retention_minutes":     strconv.Itoa(request.RealtimeRetentionMin),
+		"channel_scheduling_setting.soft_affinity_enabled":          strconv.FormatBool(request.SoftAffinityEnabled),
 	}
 	if err := model.UpdateOptionsBulk(values); err != nil {
 		common.ApiError(c, err)

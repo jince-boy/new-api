@@ -34,6 +34,7 @@ export interface ChannelSchedulingSetting {
   auto_recovery_interval_seconds: number
   max_attempts: number
   realtime_retention_minutes: number
+  soft_affinity_enabled?: boolean
 }
 
 export interface SchedulingBucket {

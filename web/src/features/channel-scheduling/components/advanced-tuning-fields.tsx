@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { ChevronDown, RotateCcw, SlidersHorizontal } from 'lucide-react'
-import type { UseFormReturn } from 'react-hook-form'
+import { Controller, type UseFormReturn } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
@@ -36,6 +36,7 @@ import {
   FieldSet,
 } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 
 import type { SchedulingSettingsForm } from '../lib/scheduling-settings'
 import { recommendedTuning, tuningSections } from '../lib/scheduling-tuning'
@@ -81,6 +82,38 @@ export function AdvancedTuningFields(props: AdvancedTuningFieldsProps) {
               )}
             </AlertDescription>
           </Alert>
+
+          <FieldSet>
+            <FieldLegend>{t('Session affinity')}</FieldLegend>
+            <FieldDescription>
+              {t(
+                'When enabled, intelligent scheduling gives a small bonus to the last successful channel for stable Codex or client session keys. Health, priority, concurrency, and retry rules remain authoritative.'
+              )}
+            </FieldDescription>
+            <Controller
+              control={props.form.control}
+              name='soft_affinity_enabled'
+              render={({ field }) => (
+                <Field className='flex flex-row items-center justify-between gap-4 rounded-md border p-4'>
+                  <div className='space-y-1'>
+                    <FieldLabel htmlFor='soft-affinity-enabled'>
+                      {t('Enable soft session affinity')}
+                    </FieldLabel>
+                    <FieldDescription>
+                      {t(
+                        'The scheduler still makes the final channel decision; disabling this keeps intelligent scheduling behavior unchanged.'
+                      )}
+                    </FieldDescription>
+                  </div>
+                  <Switch
+                    id='soft-affinity-enabled'
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </Field>
+              )}
+            />
+          </FieldSet>
 
           {tuningSections.map((section) => (
             <FieldSet key={section.title}>

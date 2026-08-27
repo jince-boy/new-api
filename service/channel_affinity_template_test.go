@@ -236,6 +236,50 @@ func TestGetPreferredChannelByAffinity_RequestHeaderKeySource(t *testing.T) {
 	require.Equal(t, buildChannelAffinityKeyHint(affinityValue), meta.KeyHint)
 }
 
+func TestCodexAffinityPrefersSessionHeaderOverPromptCacheKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	setting := operation_setting.GetChannelAffinitySetting()
+	require.NotNil(t, setting)
+	var codexRule *operation_setting.ChannelAffinityRule
+	for i := range setting.Rules {
+		if strings.EqualFold(strings.TrimSpace(setting.Rules[i].Name), "codex cli trace") {
+			codexRule = &setting.Rules[i]
+			break
+		}
+	}
+	require.NotNil(t, codexRule)
+
+	sessionValue := fmt.Sprintf("session-hit-%d", time.Now().UnixNano())
+	promptCacheValue := fmt.Sprintf("prompt-cache-hit-%d", time.Now().UnixNano())
+	sessionKey := buildChannelAffinityCacheKeySuffix(*codexRule, "gpt-5", "default", sessionValue)
+	promptCacheKey := buildChannelAffinityCacheKeySuffix(*codexRule, "gpt-5", "default", promptCacheValue)
+	cache := getChannelAffinityCache()
+	require.NoError(t, cache.SetWithTTL(sessionKey, 9529, time.Minute))
+	require.NoError(t, cache.SetWithTTL(promptCacheKey, 9530, time.Minute))
+	t.Cleanup(func() {
+		_, _ = cache.DeleteMany([]string{sessionKey, promptCacheKey})
+	})
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(
+		http.MethodPost,
+		"/v1/responses",
+		strings.NewReader(fmt.Sprintf(`{"prompt_cache_key":"%s"}`, promptCacheValue)),
+	)
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	ctx.Request.Header.Set("Session-Id", sessionValue)
+
+	channelID, found := GetPreferredChannelByAffinity(ctx, "gpt-5", "default")
+	require.True(t, found)
+	require.Equal(t, 9529, channelID)
+	meta, ok := getChannelAffinityMeta(ctx)
+	require.True(t, ok)
+	require.Equal(t, "request_header", meta.KeySourceType)
+	require.Equal(t, "Session-Id", meta.KeySourceKey)
+}
+
 func TestClearCurrentChannelAffinityCache(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

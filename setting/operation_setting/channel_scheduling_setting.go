@@ -44,6 +44,9 @@ type ChannelSchedulingSetting struct {
 	AutoRecoveryIntervalSeconds int               `json:"auto_recovery_interval_seconds"`
 	MaxAttempts                 int               `json:"max_attempts"`
 	RealtimeRetentionMin        int               `json:"realtime_retention_minutes"`
+	// SoftAffinityEnabled lets intelligent scheduling use a stable session
+	// affinity as a bounded weight hint without bypassing normal scheduling.
+	SoftAffinityEnabled bool `json:"soft_affinity_enabled"`
 }
 
 var channelSchedulingSetting = ChannelSchedulingSetting{
@@ -62,6 +65,7 @@ var channelSchedulingSetting = ChannelSchedulingSetting{
 	AutoRecoveryIntervalSeconds: ChannelSchedulingDefaultRecoverySec,
 	MaxAttempts:                 8,
 	RealtimeRetentionMin:        60,
+	SoftAffinityEnabled:         false,
 }
 
 var channelSchedulingSettingMu sync.RWMutex

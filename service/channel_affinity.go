@@ -25,6 +25,7 @@ const (
 	ginKeyChannelAffinityMeta       = "channel_affinity_meta"
 	ginKeyChannelAffinityLogInfo    = "channel_affinity_log_info"
 	ginKeyChannelAffinitySkipRetry  = "channel_affinity_skip_retry_on_failure"
+	ginKeyChannelAffinityUsed       = "channel_affinity_used"
 
 	channelAffinityCacheNamespace           = "new-api:channel_affinity:v1"
 	channelAffinityUsageCacheStatsNamespace = "new-api:channel_affinity_usage_cache_stats:v1"
@@ -287,6 +288,9 @@ func matchAnyIncludeFold(patterns []string, s string) bool {
 }
 
 func extractChannelAffinityValue(c *gin.Context, src operation_setting.ChannelAffinityKeySource) string {
+	if c == nil {
+		return ""
+	}
 	switch src.Type {
 	case "context_int":
 		if src.Key == "" {
@@ -677,7 +681,7 @@ func MarkChannelAffinityUsed(c *gin.Context, selectedGroup string, channelID int
 	if c == nil || channelID <= 0 {
 		return
 	}
-	c.Set("channel_affinity_used", true)
+	c.Set(ginKeyChannelAffinityUsed, true)
 	meta, ok := getChannelAffinityMeta(c)
 	if !ok {
 		return

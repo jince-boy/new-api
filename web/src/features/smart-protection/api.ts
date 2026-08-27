@@ -36,6 +36,8 @@ export type SmartProtectionSettings = {
   retention_days: number
   api_key_configured: boolean
   api_key_hint?: string
+  api_key_count?: number
+  api_key_hints?: string[]
 }
 
 export type SmartProtectionRule = {
@@ -109,7 +111,11 @@ export async function getSmartProtectionSettings() {
 }
 
 export async function updateSmartProtectionSettings(
-  settings: SmartProtectionSettings & { api_key?: string }
+  settings: SmartProtectionSettings & {
+    api_key?: string
+    api_keys_add?: string[]
+    api_key_remove_indices?: number[]
+  }
 ) {
   const response = await api.put<ApiResponse<SmartProtectionSettings>>(
     '/api/smart-protection/settings',

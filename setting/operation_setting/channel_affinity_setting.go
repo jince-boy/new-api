@@ -36,8 +36,9 @@ type ChannelAffinitySetting struct {
 	Rules                 []ChannelAffinityRule `json:"rules"`
 }
 
-// Keep Codex CLI passthrough aligned with upstream. Codex uses lower-case
-// header names, while HTTP matching here is case-insensitive.
+// Keep Codex CLI passthrough aligned with upstream. Current Codex releases use
+// hyphenated session/thread headers; underscore variants remain for older
+// clients and compatible proxies. HTTP header matching is case-insensitive.
 // Request session/thread headers:
 // https://github.com/openai/codex/commit/7c7b4861d88960f7e3bd5b7f30f8351be666dd84
 // Responses metadata headers/client_metadata:
@@ -121,6 +122,12 @@ var channelAffinitySetting = ChannelAffinitySetting{
 			ModelRegex: []string{"^gpt-.*$"},
 			PathRegex:  []string{"/v1/responses"},
 			KeySources: []ChannelAffinityKeySource{
+				{Type: "request_header", Key: "Session-Id"},
+				{Type: "request_header", Key: "Thread-Id"},
+				{Type: "request_header", Key: "Session_id"},
+				{Type: "request_header", Key: "Thread_id"},
+				{Type: "gjson", Path: "session_id"},
+				{Type: "gjson", Path: "thread_id"},
 				{Type: "gjson", Path: "prompt_cache_key"},
 			},
 			ValueRegex:            "",

@@ -19,15 +19,19 @@ type smartProtectionSettingsResponse struct {
 	// Override the embedded field so the credential is omitted entirely. An
 	// empty api_key in the GET response could otherwise be submitted by a
 	// client on the next save and clear the stored key.
-	APIKey           string `json:"api_key,omitempty"`
-	APIKeyConfigured bool   `json:"api_key_configured"`
-	APIKeyHint       string `json:"api_key_hint,omitempty"`
+	APIKey           string   `json:"api_key,omitempty"`
+	APIKeyConfigured bool     `json:"api_key_configured"`
+	APIKeyHint       string   `json:"api_key_hint,omitempty"`
+	APIKeyHints      []string `json:"api_key_hints,omitempty"`
+	APIKeyCount      int      `json:"api_key_count"`
 }
 
 type smartProtectionUpdateRequest struct {
 	Enabled              bool                                         `json:"enabled"`
 	BaseURL              string                                       `json:"base_url"`
 	APIKey               *string                                      `json:"api_key"`
+	APIKeysAdd           []string                                     `json:"api_keys_add"`
+	APIKeyRemoveIndices  []int                                        `json:"api_key_remove_indices"`
 	Model                string                                       `json:"model"`
 	TimeoutSeconds       int                                          `json:"timeout_seconds"`
 	MaxContextChars      int                                          `json:"max_context_chars"`
@@ -46,8 +50,18 @@ type smartProtectionUpdateRequest struct {
 func GetSmartProtectionSettings(c *gin.Context) {
 	setting := operation_setting.GetSmartProtectionSetting()
 	key := strings.TrimSpace(setting.APIKey)
+	apiKeyCount := len(setting.APIKeys)
+	apiKeyHints := make([]string, 0, apiKeyCount)
+	for _, apiKey := range setting.APIKeys {
+		if len(apiKey) > 4 {
+			apiKeyHints = append(apiKeyHints, "••••"+apiKey[len(apiKey)-4:])
+		} else {
+			apiKeyHints = append(apiKeyHints, "••••")
+		}
+	}
 	setting.APIKey = ""
-	response := smartProtectionSettingsResponse{SmartProtectionSetting: setting, APIKeyConfigured: key != ""}
+	setting.APIKeys = nil
+	response := smartProtectionSettingsResponse{SmartProtectionSetting: setting, APIKeyConfigured: apiKeyCount > 0, APIKeyCount: apiKeyCount, APIKeyHints: apiKeyHints}
 	if len(key) > 4 {
 		response.APIKeyHint = "••••" + key[len(key)-4:]
 	}
@@ -65,8 +79,43 @@ func UpdateSmartProtectionSettings(c *gin.Context) {
 	if request.APIKey != nil {
 		apiKey = strings.TrimSpace(*request.APIKey)
 	}
+	apiKeys := append([]string(nil), current.APIKeys...)
+	if request.APIKey != nil {
+		apiKeys = nil
+		if apiKey != "" {
+			apiKeys = []string{apiKey}
+		}
+	} else if len(apiKeys) == 0 && apiKey != "" {
+		apiKeys = []string{apiKey}
+	}
+	for _, newKey := range request.APIKeysAdd {
+		newKey = strings.TrimSpace(newKey)
+		if newKey != "" {
+			apiKeys = append(apiKeys, newKey)
+		}
+	}
+	if len(request.APIKeyRemoveIndices) > 0 {
+		removed := make(map[int]struct{}, len(request.APIKeyRemoveIndices))
+		for _, index := range request.APIKeyRemoveIndices {
+			if index >= 0 && index < len(apiKeys) {
+				removed[index] = struct{}{}
+			}
+		}
+		filtered := make([]string, 0, len(apiKeys)-len(removed))
+		for index, existingKey := range apiKeys {
+			if _, remove := removed[index]; !remove {
+				filtered = append(filtered, existingKey)
+			}
+		}
+		apiKeys = filtered
+	}
+	if len(apiKeys) > 0 {
+		apiKey = apiKeys[0]
+	} else {
+		apiKey = ""
+	}
 	setting := operation_setting.SmartProtectionSetting{
-		Enabled: request.Enabled, BaseURL: strings.TrimSpace(request.BaseURL), APIKey: apiKey, Model: strings.TrimSpace(request.Model),
+		Enabled: request.Enabled, BaseURL: strings.TrimSpace(request.BaseURL), APIKey: apiKey, APIKeys: apiKeys, Model: strings.TrimSpace(request.Model),
 		TimeoutSeconds: request.TimeoutSeconds, MaxContextChars: request.MaxContextChars, MaxConcurrent: request.MaxConcurrent,
 		BlockedSafeties: request.BlockedSafeties, BlockedCategories: request.BlockedCategories,
 		BlockedRules: request.BlockedRules,
@@ -107,10 +156,16 @@ func UpdateSmartProtectionSettings(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	apiKeysJSON, err := common.Marshal(normalized.APIKeys)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	values := map[string]string{
 		"smart_protection_setting.enabled":                strconv.FormatBool(normalized.Enabled),
 		"smart_protection_setting.base_url":               normalized.BaseURL,
 		"smart_protection_setting.api_key":                normalized.APIKey,
+		"smart_protection_setting.api_keys":               string(apiKeysJSON),
 		"smart_protection_setting.model":                  normalized.Model,
 		"smart_protection_setting.timeout_seconds":        strconv.Itoa(normalized.TimeoutSeconds),
 		"smart_protection_setting.max_context_chars":      strconv.Itoa(normalized.MaxContextChars),

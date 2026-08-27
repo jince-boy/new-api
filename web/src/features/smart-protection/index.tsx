@@ -151,6 +151,14 @@ const DEFAULT_SETTINGS: SmartProtectionSettings = {
 
 let ruleSequence = 0
 let templateSequence = 0
+let apiKeySequence = 0
+
+type NewAPIKey = { id: string; value: string }
+
+function makeNewAPIKey(): NewAPIKey {
+  apiKeySequence += 1
+  return { id: `new-api-key-${apiKeySequence}`, value: '' }
+}
 
 function makeRule(
   value?: Partial<SmartProtectionRule>,
@@ -240,7 +248,8 @@ export function SmartProtectionSection() {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
-  const [apiKey, setApiKey] = useState('')
+  const [apiKeys, setApiKeys] = useState<NewAPIKey[]>(() => [makeNewAPIKey()])
+  const [removedApiKeyIndices, setRemovedApiKeyIndices] = useState<number[]>([])
   const [activeTab, setActiveTab] = useState('events')
   const [channelSearch, setChannelSearch] = useState('')
   const [eventUsername, setEventUsername] = useState('')
@@ -292,12 +301,17 @@ export function SmartProtectionSection() {
 
   useEffect(() => {
     if (settingsQuery.data) setSettings(normalizeSettings(settingsQuery.data))
+    if (settingsQuery.data) {
+      setApiKeys([makeNewAPIKey()])
+      setRemovedApiKeyIndices([])
+    }
   }, [settingsQuery.data])
   const saveMutation = useMutation({
     mutationFn: updateSmartProtectionSettings,
     onSuccess: (data) => {
       setSettings(normalizeSettings(data))
-      setApiKey('')
+      setApiKeys([makeNewAPIKey()])
+      setRemovedApiKeyIndices([])
       queryClient.invalidateQueries({ queryKey: ['smart-protection-settings'] })
       toast.success(t('Smart protection settings saved'))
     },
@@ -371,7 +385,16 @@ export function SmartProtectionSection() {
         ...template,
         enabled: template.enabled !== false,
       })),
-      ...(apiKey.trim() ? { api_key: apiKey.trim() } : {}),
+      ...(apiKeys.some((key) => key.value.trim())
+        ? {
+            api_keys_add: apiKeys
+              .map((key) => key.value.trim())
+              .filter(Boolean),
+          }
+        : {}),
+      ...(removedApiKeyIndices.length > 0
+        ? { api_key_remove_indices: removedApiKeyIndices }
+        : {}),
     })
   }
   const totalPages = Math.max(
@@ -424,8 +447,10 @@ export function SmartProtectionSection() {
             <ConfigurationTab
               t={t}
               settings={settings}
-              apiKey={apiKey}
-              setApiKey={setApiKey}
+              apiKeys={apiKeys}
+              setApiKeys={setApiKeys}
+              removedApiKeyIndices={removedApiKeyIndices}
+              setRemovedApiKeyIndices={setRemovedApiKeyIndices}
               update={update}
               channelSearch={channelSearch}
               setChannelSearch={setChannelSearch}
@@ -580,8 +605,10 @@ type CommonTabProps = {
 
 function ConfigurationTab(
   props: CommonTabProps & {
-    apiKey: string
-    setApiKey: (value: string) => void
+    apiKeys: NewAPIKey[]
+    setApiKeys: (value: NewAPIKey[]) => void
+    removedApiKeyIndices: number[]
+    setRemovedApiKeyIndices: (value: number[]) => void
     channelSearch: string
     setChannelSearch: (value: string) => void
     channelsLoading: boolean
@@ -634,24 +661,84 @@ function ConfigurationTab(
             />
           </Field>
           <Field>
-            <FieldLabel htmlFor='smart-protection-key'>
-              {props.t('Security model API key')}
-            </FieldLabel>
+            <div className='flex items-center justify-between gap-2'>
+              <FieldLabel>{props.t('Security model API keys')}</FieldLabel>
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                aria-label={props.t('Add API key')}
+                onClick={() =>
+                  props.setApiKeys([...props.apiKeys, makeNewAPIKey()])
+                }
+              >
+                <HugeiconsIcon icon={Add01Icon} size={16} aria-hidden='true' />
+                {props.t('Add')}
+              </Button>
+            </div>
+            <FieldDescription>
+              {props.t('Existing keys are masked. Add new keys below; requests rotate between all configured keys.')}
+            </FieldDescription>
             {props.settings.api_key_configured && (
               <FieldDescription>
                 {props.t('Leave empty to keep existing key')}
               </FieldDescription>
             )}
-            <Input
-              id='smart-protection-key'
-              type='password'
-              value={props.apiKey}
-              placeholder={
-                props.settings.api_key_hint ||
-                props.t('Example: sk-your-security-key')
-              }
-              onChange={(event) => props.setApiKey(event.target.value)}
-            />
+            <div className='flex flex-col gap-2'>
+              {(props.settings.api_key_hints || []).map((hint, index) => {
+                if (props.removedApiKeyIndices.includes(index)) return null
+                return (
+                  <div key={hint} className='flex items-center gap-2'>
+                    <Input value={hint} readOnly aria-label={`${props.t('Configured API key')} ${index + 1}`} />
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon'
+                      aria-label={props.t('Remove API key')}
+                      onClick={() =>
+                        props.setRemovedApiKeyIndices([
+                          ...props.removedApiKeyIndices,
+                          index,
+                        ])
+                      }
+                    >
+                      <HugeiconsIcon icon={Delete02Icon} size={16} aria-hidden='true' />
+                    </Button>
+                  </div>
+                )
+              })}
+              {props.apiKeys.map((apiKey, index) => (
+                <div key={apiKey.id} className='flex items-center gap-2'>
+                  <Input
+                    id={index === 0 ? 'smart-protection-key' : undefined}
+                    type='password'
+                    value={apiKey.value}
+                    placeholder={props.t('Example: sk-your-security-key')}
+                    aria-label={`${props.t('New API key')} ${index + 1}`}
+                    onChange={(event) => {
+                      const next = [...props.apiKeys]
+                      next[index] = { ...apiKey, value: event.target.value }
+                      props.setApiKeys(next)
+                    }}
+                  />
+                  {props.apiKeys.length > 1 && (
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon'
+                      aria-label={props.t('Remove API key')}
+                      onClick={() =>
+                        props.setApiKeys(
+                          props.apiKeys.filter((_, item) => item !== index)
+                        )
+                      }
+                    >
+                      <HugeiconsIcon icon={Delete02Icon} size={16} aria-hidden='true' />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
           </Field>
           <Field>
             <FieldLabel htmlFor='smart-protection-timeout'>

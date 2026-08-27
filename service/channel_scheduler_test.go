@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
 	"testing"
 	"time"
 
@@ -366,6 +367,70 @@ func TestChannelAffinityIsSkippedForIntelligentGroups(t *testing.T) {
 
 	assert.False(t, ShouldUseChannelAffinityForRequest(&RetryParam{TokenGroup: intelligentGroup}))
 	assert.True(t, ShouldUseChannelAffinityForRequest(&RetryParam{TokenGroup: legacyGroup}))
+}
+
+func TestSoftChannelAffinityIsOptInForIntelligentGroups(t *testing.T) {
+	const group = "scheduler-soft-affinity-test"
+	configureSchedulerGroupStrategyForTest(t, group, operation_setting.ChannelSchedulingStrategyIntelligent)
+	original := operation_setting.GetChannelSchedulingSetting()
+	t.Cleanup(func() {
+		_ = operation_setting.ApplyChannelSchedulingConfig(map[string]string{
+			"soft_affinity_enabled": strconv.FormatBool(original.SoftAffinityEnabled),
+		})
+	})
+
+	require.NoError(t, operation_setting.ApplyChannelSchedulingConfig(map[string]string{"soft_affinity_enabled": "false"}))
+	assert.False(t, ShouldUseSoftChannelAffinityForRequest(&RetryParam{TokenGroup: group}))
+	require.NoError(t, operation_setting.ApplyChannelSchedulingConfig(map[string]string{"soft_affinity_enabled": "true"}))
+	assert.True(t, ShouldUseSoftChannelAffinityForRequest(&RetryParam{TokenGroup: group}))
+}
+
+func TestSmoothWeightedSoftAffinityIsBoundedAndKeepsOtherChannelsInRotation(t *testing.T) {
+	key := schedulingPoolKey{Group: "bounded-soft-affinity", Model: "gpt-test", Priority: 10}
+	channelScheduler.poolsMu.Lock()
+	delete(channelScheduler.pools, key)
+	channelScheduler.poolsMu.Unlock()
+	t.Cleanup(func() {
+		channelScheduler.poolsMu.Lock()
+		delete(channelScheduler.pools, key)
+		channelScheduler.poolsMu.Unlock()
+	})
+
+	channels := []*model.Channel{{Id: 1, Name: "regular"}, {Id: 2, Name: "affinity"}}
+	selected := map[int]int{}
+	for range 9 {
+		channel := selectSmoothWeightedEligibleChannelWithAffinity(key, channels, channels, 2)
+		require.NotNil(t, channel)
+		selected[channel.Id]++
+	}
+
+	assert.Equal(t, 4, selected[1])
+	assert.Equal(t, 5, selected[2])
+	assert.Equal(t, intelligentSchedulingBaseWeight, getSchedulingPool(key).channels[2].BaseWeight)
+}
+
+func TestSmoothWeightedSoftAffinityCannotSelectIneligibleChannel(t *testing.T) {
+	key := schedulingPoolKey{Group: "ineligible-soft-affinity", Model: "gpt-test", Priority: 10}
+	channelScheduler.poolsMu.Lock()
+	delete(channelScheduler.pools, key)
+	channelScheduler.poolsMu.Unlock()
+	t.Cleanup(func() {
+		channelScheduler.poolsMu.Lock()
+		delete(channelScheduler.pools, key)
+		channelScheduler.poolsMu.Unlock()
+	})
+
+	affinity := &model.Channel{Id: 1, Name: "affinity"}
+	eligible := &model.Channel{Id: 2, Name: "eligible"}
+	selected := selectSmoothWeightedEligibleChannelWithAffinity(
+		key,
+		[]*model.Channel{affinity, eligible},
+		[]*model.Channel{eligible},
+		affinity.Id,
+	)
+
+	require.NotNil(t, selected)
+	assert.Equal(t, eligible.Id, selected.Id)
 }
 
 func TestScheduledAttemptDoesNotCountLocalErrorBeforeUpstreamRequest(t *testing.T) {

@@ -43,6 +43,7 @@ export const schedulingSettingsSchema = z
     auto_recovery_interval_seconds: z.number().int().min(5).max(86400),
     max_attempts: z.number().int().min(1).max(64),
     realtime_retention_minutes: z.number().int().min(1).max(1440),
+    soft_affinity_enabled: z.boolean(),
   })
   .superRefine((value, context) => {
     if (value.maximum_factor < value.minimum_factor) {
@@ -79,6 +80,7 @@ export function createDefaultSchedulingSettingsForm(): SchedulingSettingsForm {
   return {
     default_strategy: 'legacy',
     group_strategies: [],
+    soft_affinity_enabled: false,
     ...recommendedTuning,
   }
 }
@@ -88,6 +90,9 @@ export function toSchedulingSettingsForm(
 ): SchedulingSettingsForm {
   return {
     ...setting,
+    // Older servers may not return the opt-in field yet. Keep the form
+    // backward-compatible and preserve the safe default in that case.
+    soft_affinity_enabled: setting.soft_affinity_enabled ?? false,
     group_strategies: Object.entries(setting.group_strategies).map(
       ([group, strategy]) => ({ group, strategy })
     ),

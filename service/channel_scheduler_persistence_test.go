@@ -208,6 +208,67 @@ func TestIntelligentSchedulingExhaustsCurrentPriorityBeforeFailover(t *testing.T
 	assert.Len(t, selectedChannels, 3)
 }
 
+func TestIntelligentSoftAffinityCannotCrossPriorityOrRetryExclusion(t *testing.T) {
+	db := setupChannelSchedulerPersistenceTest(t)
+	const group = "scheduler-soft-affinity-boundary-test"
+	createSchedulerCandidate(t, db, 91104, group, 20)
+	createSchedulerCandidate(t, db, 91105, group, 20)
+	createSchedulerCandidate(t, db, 91106, group, 10)
+	common.MemoryCacheEnabled = true
+	model.InitChannelCache()
+	configureSchedulerGroupStrategyForTest(t, group, operation_setting.ChannelSchedulingStrategyIntelligent)
+
+	original := operation_setting.GetChannelSchedulingSetting()
+	require.NoError(t, operation_setting.ApplyChannelSchedulingConfig(map[string]string{"soft_affinity_enabled": "true"}))
+	t.Cleanup(func() {
+		require.NoError(t, operation_setting.ApplyChannelSchedulingConfig(map[string]string{
+			"soft_affinity_enabled": fmt.Sprintf("%t", original.SoftAffinityEnabled),
+		}))
+	})
+
+	affinitySetting := operation_setting.GetChannelAffinitySetting()
+	require.NotNil(t, affinitySetting)
+	var codexRule *operation_setting.ChannelAffinityRule
+	for i := range affinitySetting.Rules {
+		if strings.EqualFold(strings.TrimSpace(affinitySetting.Rules[i].Name), "codex cli trace") {
+			codexRule = &affinitySetting.Rules[i]
+			break
+		}
+	}
+	require.NotNil(t, codexRule)
+
+	affinityValue := fmt.Sprintf("scheduler-boundary-%d", time.Now().UnixNano())
+	cacheKey := buildChannelAffinityCacheKeySuffix(*codexRule, "gpt-test", group, affinityValue)
+	cache := getChannelAffinityCache()
+	require.NoError(t, cache.SetWithTTL(cacheKey, 91106, time.Minute))
+	t.Cleanup(func() {
+		_, _ = cache.DeleteMany([]string{cacheKey})
+	})
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	ctx.Request.Header.Set("Session-Id", affinityValue)
+	param := &RetryParam{Ctx: ctx, ModelName: "gpt-test", TokenGroup: group, RequestPath: "/v1/responses"}
+
+	first, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	assert.Equal(t, group, selectedGroup)
+	assert.Equal(t, int64(20), first.GetPriority())
+	assert.NotEqual(t, 91106, first.Id)
+	assert.False(t, ctx.GetBool(ginKeyChannelAffinityUsed))
+
+	require.NoError(t, cache.SetWithTTL(cacheKey, first.Id, time.Minute))
+	param.MarkAttempted(first.Id)
+	second, selectedGroup, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	assert.Equal(t, group, selectedGroup)
+	assert.Equal(t, int64(20), second.GetPriority())
+	assert.NotEqual(t, first.Id, second.Id)
+	assert.False(t, ctx.GetBool(ginKeyChannelAffinityUsed))
+}
+
 func TestLegacySchedulingSkipsRateLimitedChannelsBeforeFallingBackPriority(t *testing.T) {
 	db := setupChannelSchedulerPersistenceTest(t)
 	const group = "scheduler-legacy-rate-limit-test"
@@ -403,30 +464,36 @@ func TestChannelSchedulingOptionsPersistAndApplyAtRuntime(t *testing.T) {
 	original := operation_setting.GetChannelSchedulingSetting()
 	t.Cleanup(func() {
 		require.NoError(t, operation_setting.ApplyChannelSchedulingConfig(map[string]string{
-			"default_strategy": original.DefaultStrategy,
-			"severe_ttft_ms":   fmt.Sprintf("%d", original.SevereTtftMs),
+			"default_strategy":      original.DefaultStrategy,
+			"severe_ttft_ms":        fmt.Sprintf("%d", original.SevereTtftMs),
+			"soft_affinity_enabled": fmt.Sprintf("%t", original.SoftAffinityEnabled),
 		}))
 		common.OptionMapRWMutex.Lock()
 		delete(common.OptionMap, "channel_scheduling_setting.default_strategy")
 		delete(common.OptionMap, "channel_scheduling_setting.severe_ttft_ms")
+		delete(common.OptionMap, "channel_scheduling_setting.soft_affinity_enabled")
 		common.OptionMapRWMutex.Unlock()
 	})
 
 	require.NoError(t, model.UpdateOptionsBulk(map[string]string{
-		"channel_scheduling_setting.default_strategy": operation_setting.ChannelSchedulingStrategyIntelligent,
-		"channel_scheduling_setting.severe_ttft_ms":   "45000",
+		"channel_scheduling_setting.default_strategy":      operation_setting.ChannelSchedulingStrategyIntelligent,
+		"channel_scheduling_setting.severe_ttft_ms":        "45000",
+		"channel_scheduling_setting.soft_affinity_enabled": "true",
 	}))
 
 	setting := operation_setting.GetChannelSchedulingSetting()
 	assert.Equal(t, operation_setting.ChannelSchedulingStrategyIntelligent, setting.DefaultStrategy)
 	assert.Equal(t, int64(45_000), setting.SevereTtftMs)
+	assert.True(t, setting.SoftAffinityEnabled)
 	var options []model.Option
 	require.NoError(t, db.Where("key LIKE ?", "channel_scheduling_setting.%").Order("key ASC").Find(&options).Error)
-	require.Len(t, options, 2)
+	require.Len(t, options, 3)
 	assert.Equal(t, "channel_scheduling_setting.default_strategy", options[0].Key)
 	assert.Equal(t, operation_setting.ChannelSchedulingStrategyIntelligent, options[0].Value)
 	assert.Equal(t, "channel_scheduling_setting.severe_ttft_ms", options[1].Key)
 	assert.Equal(t, "45000", options[1].Value)
+	assert.Equal(t, "channel_scheduling_setting.soft_affinity_enabled", options[2].Key)
+	assert.Equal(t, "true", options[2].Value)
 }
 
 func TestRateLimitFaultDisablesWholeChannelAndFailsOver(t *testing.T) {

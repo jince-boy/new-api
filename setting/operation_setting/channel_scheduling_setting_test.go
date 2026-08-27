@@ -45,6 +45,7 @@ func validChannelSchedulingSettingForTest() ChannelSchedulingSetting {
 		AutoRecoveryIntervalSeconds: 60,
 		MaxAttempts:                 8,
 		RealtimeRetentionMin:        60,
+		SoftAffinityEnabled:         false,
 	}
 }
 
@@ -140,4 +141,5 @@ func TestChannelSchedulingRecommendedDefaults(t *testing.T) {
 	assert.Equal(t, ChannelSchedulingDefaultRecoverySec, setting.AutoRecoveryIntervalSeconds)
 	assert.Equal(t, 8, setting.MaxAttempts)
 	assert.Equal(t, 60, setting.RealtimeRetentionMin)
+	assert.False(t, setting.SoftAffinityEnabled)
 }

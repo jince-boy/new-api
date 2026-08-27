@@ -111,6 +111,7 @@ var smartProtectionLimiter = struct {
 }{changed: make(chan struct{})}
 
 var smartProtectionLastCleanup atomic.Int64
+var smartProtectionAPIKeySequence atomic.Uint64
 
 type smartProtectionEmailLimitEntry struct {
 	expires time.Time
@@ -372,7 +373,11 @@ func reviewSmartProtectionChunks(ctx context.Context, setting operation_setting.
 
 func reviewSmartProtectionChunkCached(ctx context.Context, setting operation_setting.SmartProtectionSetting, content string, concurrencyLimit int) (smartProtectionDecision, error) {
 	// Include the credential fingerprint in the key without retaining the credential itself.
-	hash := sha256.Sum256([]byte(setting.BaseURL + "\x00" + setting.Model + "\x00" + setting.APIKey + "\x00" + content))
+	credentialFingerprint := strings.Join(setting.APIKeys, "\x00")
+	if credentialFingerprint == "" {
+		credentialFingerprint = setting.APIKey
+	}
+	hash := sha256.Sum256([]byte(setting.BaseURL + "\x00" + setting.Model + "\x00" + credentialFingerprint + "\x00" + content))
 	key := hex.EncodeToString(hash[:])
 	now := time.Now()
 	smartProtectionDecisionCache.Lock()
@@ -451,6 +456,7 @@ func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.S
 		return smartProtectionDecision{}, err
 	}
 	client := &http.Client{}
+	apiKey := nextSmartProtectionAPIKey(setting)
 	var responseBody []byte
 	for attempt := 1; attempt <= smartProtectionUpstreamMaxAttempts; attempt++ {
 		attemptCtx, attemptCancel := context.WithTimeout(ctx, time.Duration(setting.TimeoutSeconds)*time.Second)
@@ -460,8 +466,8 @@ func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.S
 			return smartProtectionDecision{}, err
 		}
 		request.Header.Set("Content-Type", "application/json")
-		if setting.APIKey != "" {
-			request.Header.Set("Authorization", "Bearer "+setting.APIKey)
+		if apiKey != "" {
+			request.Header.Set("Authorization", "Bearer "+apiKey)
 		}
 		response, err := client.Do(request)
 		if err != nil {
@@ -553,6 +559,18 @@ func reviewSmartProtectionChunk(ctx context.Context, setting operation_setting.S
 		decision.Categories = nil
 	}
 	return decision, nil
+}
+
+func nextSmartProtectionAPIKey(setting operation_setting.SmartProtectionSetting) string {
+	keys := setting.APIKeys
+	if len(keys) == 0 && setting.APIKey != "" {
+		return setting.APIKey
+	}
+	if len(keys) == 0 {
+		return ""
+	}
+	index := smartProtectionAPIKeySequence.Add(1) - 1
+	return keys[index%uint64(len(keys))]
 }
 
 const smartProtectionMaxErrorBodyRunes = 4096

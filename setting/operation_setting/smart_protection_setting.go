@@ -15,6 +15,7 @@ const (
 	SmartProtectionMinContext              = 1000
 	SmartProtectionMaxContext              = 24000
 	SmartProtectionMaxConcurrent           = 32
+	SmartProtectionMaxAPIKeys              = 100
 	SmartProtectionMaxEmailCooldownMinutes = 7 * 24 * 60
 )
 
@@ -22,6 +23,7 @@ type SmartProtectionSetting struct {
 	Enabled              bool                       `json:"enabled"`
 	BaseURL              string                     `json:"base_url"`
 	APIKey               string                     `json:"api_key"`
+	APIKeys              []string                   `json:"api_keys"`
 	Model                string                     `json:"model"`
 	TimeoutSeconds       int                        `json:"timeout_seconds"`
 	MaxContextChars      int                        `json:"max_context_chars"`
@@ -98,6 +100,7 @@ func GetSmartProtectionSetting() SmartProtectionSetting {
 	setting.BlockedRules = cloneSmartProtectionRules(setting.BlockedRules)
 	setting.EmailRules = cloneSmartProtectionEmailRules(setting.EmailRules)
 	setting.ChannelIDs = append([]int(nil), setting.ChannelIDs...)
+	setting.APIKeys = append([]string(nil), setting.APIKeys...)
 	smartProtectionSettingMu.RUnlock()
 	setting = normalizeSmartProtectionSetting(setting)
 	if setting.TimeoutSeconds > SmartProtectionMaxTimeout {
@@ -156,6 +159,19 @@ func NormalizeAndValidateSmartProtectionSetting(setting SmartProtectionSetting) 
 	if len(setting.EmailRules) > 50 {
 		return SmartProtectionSetting{}, errors.New("too many smart protection email rules")
 	}
+	if len(setting.APIKeys) > SmartProtectionMaxAPIKeys {
+		return SmartProtectionSetting{}, errors.New("too many smart protection API keys")
+	}
+	apiKeys := make(map[string]struct{}, len(setting.APIKeys))
+	for _, key := range setting.APIKeys {
+		if key == "" {
+			continue
+		}
+		if _, exists := apiKeys[key]; exists {
+			return SmartProtectionSetting{}, errors.New("smart protection API keys must be unique")
+		}
+		apiKeys[key] = struct{}{}
+	}
 	templateIDs := make(map[string]struct{}, len(setting.EmailRules))
 	for _, rule := range setting.EmailRules {
 		if len([]rune(rule.Name)) > 64 || len([]rune(rule.Subject)) > 255 || len([]rune(rule.Body)) > 20000 {
@@ -209,12 +225,39 @@ func NormalizeAndValidateSmartProtectionSetting(setting SmartProtectionSetting) 
 func ApplySmartProtectionConfig(configMap map[string]string) error {
 	smartProtectionSettingMu.Lock()
 	defer smartProtectionSettingMu.Unlock()
+	if _, hasLegacyAPIKey := configMap["api_key"]; hasLegacyAPIKey {
+		if _, hasAPIKeys := configMap["api_keys"]; !hasAPIKeys {
+			// A legacy single-key update replaces the migrated key list.
+			smartProtectionSetting.APIKeys = nil
+		}
+	}
 	return config.UpdateConfigFromMap(&smartProtectionSetting, configMap)
 }
 
 func normalizeSmartProtectionSetting(setting SmartProtectionSetting) SmartProtectionSetting {
 	setting.BaseURL = strings.TrimRight(strings.TrimSpace(setting.BaseURL), "/")
 	setting.Model = strings.TrimSpace(setting.Model)
+	setting.APIKey = strings.TrimSpace(setting.APIKey)
+	keys := make([]string, 0, len(setting.APIKeys)+1)
+	seenKeys := make(map[string]struct{}, len(setting.APIKeys)+1)
+	for _, key := range setting.APIKeys {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if _, exists := seenKeys[key]; exists {
+			continue
+		}
+		seenKeys[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	if len(keys) == 0 && setting.APIKey != "" {
+		keys = append(keys, setting.APIKey)
+	}
+	setting.APIKeys = keys
+	if len(keys) > 0 {
+		setting.APIKey = keys[0]
+	}
 	if setting.TimeoutSeconds <= 0 {
 		setting.TimeoutSeconds = 15
 	}

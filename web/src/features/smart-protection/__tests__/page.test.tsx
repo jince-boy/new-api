@@ -190,6 +190,40 @@ describe('Smart Protection page', () => {
     queryClient.clear()
   })
 
+  it('adds multiple API keys without exposing existing key values', async () => {
+    await i18n.changeLanguage('en')
+    const saveSpy = vi
+      .spyOn(smartProtectionApi, 'updateSmartProtectionSettings')
+      .mockResolvedValue(settings)
+    const queryClient = renderPage({
+      ...settings,
+      api_key_hints: ['••••1234'],
+      api_key_count: 1,
+    })
+
+    fireEvent.click(
+      screen.getByRole('tab', { name: 'Protection configuration' })
+    )
+    fireEvent.change(screen.getByLabelText('New API key 1'), {
+      target: { value: 'key-one' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Add API key' }))
+    fireEvent.change(screen.getByLabelText('New API key 2'), {
+      target: { value: 'key-two' },
+    })
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save smart protection settings' })
+    )
+
+    await waitFor(() => expect(saveSpy).toHaveBeenCalledOnce())
+    expect(saveSpy.mock.calls[0][0]).toMatchObject({
+      api_keys_add: ['key-one', 'key-two'],
+    })
+    expect(saveSpy.mock.calls[0][0]).not.toHaveProperty('api_key')
+
+    queryClient.clear()
+  })
+
   it('separates templates from conditions and exposes independent rule actions', async () => {
     await i18n.changeLanguage('en')
     const queryClient = renderPage(settings, true)

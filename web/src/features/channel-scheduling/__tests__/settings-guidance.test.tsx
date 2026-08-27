@@ -30,6 +30,7 @@ import { SettingsPanel } from '../components/settings-panel'
 import { StrategyFields } from '../components/strategy-fields'
 import {
   createDefaultSchedulingSettingsForm,
+  toSchedulingSettingsForm,
   type SchedulingSettingsForm,
 } from '../lib/scheduling-settings'
 import { recommendedTuning, tuningSections } from '../lib/scheduling-tuning'
@@ -56,6 +57,7 @@ test('settings lead with the safe two-step rollout and hide tuning complexity', 
     auto_recovery_interval_seconds: 60,
     max_attempts: 8,
     realtime_retention_minutes: 60,
+    soft_affinity_enabled: false,
   }
   queryClient.setQueryData(['channel-scheduling-settings'], setting)
 
@@ -71,6 +73,25 @@ test('settings lead with the safe two-step rollout and hide tuning complexity', 
   assert.match(html, /No group exceptions/)
   assert.match(html, /Advanced tuning/)
   assert.match(html, /<form noValidate=""/)
+})
+
+test('soft session affinity is opt-in by default', () => {
+  const setting = createDefaultSchedulingSettingsForm()
+
+  assert.equal(setting.soft_affinity_enabled, false)
+})
+
+test('settings remain compatible with older server responses', () => {
+  const legacySetting: ChannelSchedulingSetting = {
+    default_strategy: 'legacy',
+    group_strategies: {},
+    ...recommendedTuning,
+  }
+
+  assert.equal(
+    toSchedulingSettingsForm(legacySetting).soft_affinity_enabled,
+    false
+  )
 })
 
 test('automatic recovery cadence belongs to intelligent scheduling tuning', () => {

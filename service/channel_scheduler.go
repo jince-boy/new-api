@@ -26,7 +26,10 @@ type schedulingPoolKey struct {
 	Priority int64
 }
 
-const intelligentSchedulingBaseWeight = 100
+const (
+	intelligentSchedulingBaseWeight    = 100
+	intelligentSchedulingAffinityBonus = 1.25
+)
 
 const channelFailureShardCount = 64
 
@@ -265,6 +268,13 @@ func ShouldUseChannelAffinityForRequest(param *RetryParam) bool {
 	return !IsIntelligentSchedulingForRequest(param)
 }
 
+// ShouldUseSoftChannelAffinityForRequest enables affinity hints for
+// intelligent scheduling while keeping the scheduler as the final decision
+// maker. It is deliberately opt-in and never affects legacy groups.
+func ShouldUseSoftChannelAffinityForRequest(param *RetryParam) bool {
+	return IsIntelligentSchedulingForRequest(param) && operation_setting.GetChannelSchedulingSetting().SoftAffinityEnabled
+}
+
 func GetRelayAttemptLimit(param *RetryParam) int {
 	if IsIntelligentSchedulingForRequest(param) {
 		return operation_setting.GetChannelSchedulingSetting().MaxAttempts
@@ -381,7 +391,26 @@ func selectIntelligentChannel(param *RetryParam, group string) (*model.Channel, 
 		}
 		if len(eligibleTier) > 0 {
 			key := schedulingPoolKey{Group: group, Model: normalizedModel, Priority: targetPriority}
-			return selectSmoothWeightedEligibleChannel(key, activeTier, eligibleTier), nil
+			affinityChannelID := 0
+			if ShouldUseSoftChannelAffinityForRequest(param) {
+				if param.Ctx != nil {
+					param.Ctx.Set(ginKeyChannelAffinityUsed, false)
+					param.Ctx.Set(ginKeyChannelAffinityLogInfo, nil)
+				}
+				if preferredID, found := GetPreferredChannelByAffinity(param.Ctx, param.ModelName, group); found {
+					for _, candidate := range eligibleTier {
+						if candidate.Id == preferredID {
+							affinityChannelID = preferredID
+							break
+						}
+					}
+				}
+			}
+			selected := selectSmoothWeightedEligibleChannelWithAffinity(key, activeTier, eligibleTier, affinityChannelID)
+			if affinityChannelID > 0 && selected != nil && selected.Id == affinityChannelID {
+				MarkChannelAffinityUsed(param.Ctx, group, selected.Id)
+			}
+			return selected, nil
 		}
 		remaining := active[:0]
 		for _, channel := range active {
@@ -418,6 +447,10 @@ func selectSmoothWeightedChannel(key schedulingPoolKey, candidates []*model.Chan
 }
 
 func selectSmoothWeightedEligibleChannel(key schedulingPoolKey, activeCandidates []*model.Channel, eligibleCandidates []*model.Channel) *model.Channel {
+	return selectSmoothWeightedEligibleChannelWithAffinity(key, activeCandidates, eligibleCandidates, 0)
+}
+
+func selectSmoothWeightedEligibleChannelWithAffinity(key schedulingPoolKey, activeCandidates []*model.Channel, eligibleCandidates []*model.Channel, affinityChannelID int) *model.Channel {
 	if len(activeCandidates) == 0 || len(eligibleCandidates) == 0 {
 		return nil
 	}
@@ -450,8 +483,14 @@ func selectSmoothWeightedEligibleChannel(key schedulingPoolKey, activeCandidates
 	totalWeight := 0.0
 	for _, channel := range eligibleCandidates {
 		state := pool.channels[channel.Id]
-		state.CurrentWeight += state.EffectiveWeight
-		totalWeight += state.EffectiveWeight
+		weight := state.EffectiveWeight
+		if affinityChannelID > 0 && channel.Id == affinityChannelID {
+			// A modest bonus improves cache locality, but cannot override priority,
+			// health isolation, rate limits, or retry exclusion.
+			weight *= intelligentSchedulingAffinityBonus
+		}
+		state.CurrentWeight += weight
+		totalWeight += weight
 		if selectedState == nil || state.CurrentWeight > selectedState.CurrentWeight ||
 			(state.CurrentWeight == selectedState.CurrentWeight && channel.Id < selected.Id) {
 			selected = channel
@@ -526,8 +565,11 @@ func BeginScheduledChannelAttempt(c *gin.Context, info *relaycommon.RelayInfo, c
 	state.RequestCount++
 	now := time.Now().Unix()
 	state.LastSelectedAt = now
-	if c != nil && c.GetBool("channel_affinity_used") {
+	if c != nil && c.GetBool(ginKeyChannelAffinityUsed) {
 		state.AffinityHits++
+		// The marker belongs to this selection only. Consume it so a later
+		// retry on another channel cannot be counted as an affinity hit.
+		c.Set(ginKeyChannelAffinityUsed, false)
 	}
 	setting := operation_setting.GetChannelSchedulingSetting()
 	refreshSchedulingPoolWeights(pool, setting, now)
