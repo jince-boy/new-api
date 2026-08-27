@@ -112,6 +112,7 @@ test('overview groups come only from explicit intelligent strategy overrides', (
     severe_ttft_ms: 60_000,
     failure_threshold: 5,
     failure_window_seconds: 60,
+    auto_recovery_interval_seconds: 60,
     max_attempts: 8,
     realtime_retention_minutes: 60,
   }

@@ -89,3 +89,11 @@ func TestValidateChannelTestConcurrency(t *testing.T) {
 	assert.Error(t, ValidateChannelTestConcurrency("33"))
 	assert.Error(t, ValidateChannelTestConcurrency("1.5"))
 }
+
+func TestValidateAutoRecoveryInterval(t *testing.T) {
+	require.NoError(t, ValidateAutoRecoveryInterval("5"))
+	require.NoError(t, ValidateAutoRecoveryInterval("86400"))
+	assert.Error(t, ValidateAutoRecoveryInterval("4"))
+	assert.Error(t, ValidateAutoRecoveryInterval("86401"))
+	assert.Error(t, ValidateAutoRecoveryInterval("1.5"))
+}

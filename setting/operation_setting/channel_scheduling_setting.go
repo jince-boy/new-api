@@ -21,42 +21,47 @@ const (
 	ChannelSchedulingMaxSevereTtftMs     = int64(24 * 60 * 60 * 1000)
 	ChannelSchedulingMaxFailureThreshold = 100
 	ChannelSchedulingMaxFailureWindowSec = 60 * 60
+	ChannelSchedulingMinRecoverySec      = 5
+	ChannelSchedulingMaxRecoverySec      = 24 * 60 * 60
 	ChannelSchedulingDefaultFailureCount = 5
 	ChannelSchedulingDefaultFailureSec   = 60
+	ChannelSchedulingDefaultRecoverySec  = 60
 )
 
 type ChannelSchedulingSetting struct {
-	DefaultStrategy      string            `json:"default_strategy"`
-	GroupStrategies      map[string]string `json:"group_strategies"`
-	MinimumFactor        float64           `json:"minimum_factor"`
-	MaximumFactor        float64           `json:"maximum_factor"`
-	PerformanceExponent  float64           `json:"performance_exponent"`
-	InflightPenalty      float64           `json:"inflight_penalty"`
-	WarmupSamples        int               `json:"warmup_samples"`
-	SampleWindowSize     int               `json:"sample_window_size"`
-	SampleMaxAgeMinutes  int               `json:"sample_max_age_minutes"`
-	SevereTtftMs         int64             `json:"severe_ttft_ms"`
-	FailureThreshold     int               `json:"failure_threshold"`
-	FailureWindowSeconds int               `json:"failure_window_seconds"`
-	MaxAttempts          int               `json:"max_attempts"`
-	RealtimeRetentionMin int               `json:"realtime_retention_minutes"`
+	DefaultStrategy             string            `json:"default_strategy"`
+	GroupStrategies             map[string]string `json:"group_strategies"`
+	MinimumFactor               float64           `json:"minimum_factor"`
+	MaximumFactor               float64           `json:"maximum_factor"`
+	PerformanceExponent         float64           `json:"performance_exponent"`
+	InflightPenalty             float64           `json:"inflight_penalty"`
+	WarmupSamples               int               `json:"warmup_samples"`
+	SampleWindowSize            int               `json:"sample_window_size"`
+	SampleMaxAgeMinutes         int               `json:"sample_max_age_minutes"`
+	SevereTtftMs                int64             `json:"severe_ttft_ms"`
+	FailureThreshold            int               `json:"failure_threshold"`
+	FailureWindowSeconds        int               `json:"failure_window_seconds"`
+	AutoRecoveryIntervalSeconds int               `json:"auto_recovery_interval_seconds"`
+	MaxAttempts                 int               `json:"max_attempts"`
+	RealtimeRetentionMin        int               `json:"realtime_retention_minutes"`
 }
 
 var channelSchedulingSetting = ChannelSchedulingSetting{
-	DefaultStrategy:      ChannelSchedulingStrategyLegacy,
-	GroupStrategies:      map[string]string{},
-	MinimumFactor:        0.2,
-	MaximumFactor:        1.5,
-	PerformanceExponent:  0.5,
-	InflightPenalty:      0.25,
-	WarmupSamples:        5,
-	SampleWindowSize:     20,
-	SampleMaxAgeMinutes:  15,
-	SevereTtftMs:         60_000,
-	FailureThreshold:     ChannelSchedulingDefaultFailureCount,
-	FailureWindowSeconds: ChannelSchedulingDefaultFailureSec,
-	MaxAttempts:          8,
-	RealtimeRetentionMin: 60,
+	DefaultStrategy:             ChannelSchedulingStrategyLegacy,
+	GroupStrategies:             map[string]string{},
+	MinimumFactor:               0.2,
+	MaximumFactor:               1.5,
+	PerformanceExponent:         0.5,
+	InflightPenalty:             0.25,
+	WarmupSamples:               5,
+	SampleWindowSize:            20,
+	SampleMaxAgeMinutes:         15,
+	SevereTtftMs:                60_000,
+	FailureThreshold:            ChannelSchedulingDefaultFailureCount,
+	FailureWindowSeconds:        ChannelSchedulingDefaultFailureSec,
+	AutoRecoveryIntervalSeconds: ChannelSchedulingDefaultRecoverySec,
+	MaxAttempts:                 8,
+	RealtimeRetentionMin:        60,
 }
 
 var channelSchedulingSettingMu sync.RWMutex
@@ -105,6 +110,9 @@ func GetChannelSchedulingSetting() ChannelSchedulingSetting {
 	if setting.FailureWindowSeconds <= 0 || setting.FailureWindowSeconds > ChannelSchedulingMaxFailureWindowSec {
 		setting.FailureWindowSeconds = ChannelSchedulingDefaultFailureSec
 	}
+	if setting.AutoRecoveryIntervalSeconds < ChannelSchedulingMinRecoverySec || setting.AutoRecoveryIntervalSeconds > ChannelSchedulingMaxRecoverySec {
+		setting.AutoRecoveryIntervalSeconds = ChannelSchedulingDefaultRecoverySec
+	}
 	if setting.MaxAttempts <= 0 {
 		setting.MaxAttempts = 8
 	}
@@ -133,6 +141,9 @@ func NormalizeAndValidateChannelSchedulingSetting(setting ChannelSchedulingSetti
 	if setting.FailureWindowSeconds == 0 {
 		setting.FailureWindowSeconds = ChannelSchedulingDefaultFailureSec
 	}
+	if setting.AutoRecoveryIntervalSeconds == 0 {
+		setting.AutoRecoveryIntervalSeconds = ChannelSchedulingDefaultRecoverySec
+	}
 
 	normalizedGroups := make(map[string]string, len(setting.GroupStrategies))
 	for group, strategy := range setting.GroupStrategies {
@@ -159,6 +170,7 @@ func NormalizeAndValidateChannelSchedulingSetting(setting ChannelSchedulingSetti
 		setting.SevereTtftMs <= 0 || setting.SevereTtftMs > ChannelSchedulingMaxSevereTtftMs ||
 		setting.FailureThreshold <= 0 || setting.FailureThreshold > ChannelSchedulingMaxFailureThreshold ||
 		setting.FailureWindowSeconds <= 0 || setting.FailureWindowSeconds > ChannelSchedulingMaxFailureWindowSec ||
+		setting.AutoRecoveryIntervalSeconds < ChannelSchedulingMinRecoverySec || setting.AutoRecoveryIntervalSeconds > ChannelSchedulingMaxRecoverySec ||
 		setting.MaxAttempts <= 0 || setting.MaxAttempts > 64 ||
 		setting.RealtimeRetentionMin <= 0 || setting.RealtimeRetentionMin > 24*60 {
 		return ChannelSchedulingSetting{}, errors.New("invalid scheduling parameters")

@@ -42,6 +42,19 @@ func EnableChannel(channelId int, usingKey string, channelName string) {
 	}
 }
 
+// EnableChannelIfEligible performs a fresh state check so scheduling recovery
+// cannot overwrite an administrator's manual disable made during testing.
+func EnableChannelIfEligible(channelId int, channelName string) bool {
+	changed, err := model.RestoreChannelForScheduling(channelId)
+	if err != nil || !changed {
+		return false
+	}
+	model.InitChannelCache()
+	ResetChannelSchedulingState(channelId, "")
+	appendSchedulingEvent(ChannelSchedulingEvent{Ts: common.GetTimestamp(), Type: "restored_channel", ChannelId: channelId, ChannelName: channelName, Message: "channel restored automatically after all model tests passed"})
+	return true
+}
+
 func ShouldDisableChannel(err *types.NewAPIError) bool {
 	if !common.AutomaticDisableChannelEnabled {
 		return false

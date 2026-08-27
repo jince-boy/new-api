@@ -19,9 +19,49 @@ import (
 // service.StartSystemTaskRunner.
 func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(channelTestHandler{})
+	service.RegisterSystemTaskHandler(channelSchedulingRecoveryHandler{})
 	service.RegisterSystemTaskHandler(modelUpdateHandler{})
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
+}
+
+// channelSchedulingRecoveryHandler probes only channels isolated by
+// intelligent scheduling. It is deliberately separate from the general
+// channel health-check task and uses the scheduling-specific cadence.
+type channelSchedulingRecoveryHandler struct{}
+
+func (channelSchedulingRecoveryHandler) Type() string { return model.SystemTaskTypeChannelRecovery }
+
+func (channelSchedulingRecoveryHandler) Enabled() bool {
+	channels, err := model.ListAutoDisabledChannels()
+	if err != nil {
+		return false
+	}
+	for _, channel := range channels {
+		if model.IsChannelSchedulingFault(&channel) {
+			return true
+		}
+	}
+	return false
+}
+
+func (channelSchedulingRecoveryHandler) Interval() time.Duration {
+	seconds := operation_setting.GetChannelSchedulingSetting().AutoRecoveryIntervalSeconds
+	if seconds < operation_setting.ChannelSchedulingMinRecoverySec {
+		seconds = operation_setting.ChannelSchedulingDefaultRecoverySec
+	}
+	return time.Duration(seconds) * time.Second
+}
+
+func (channelSchedulingRecoveryHandler) NewPayload() any { return nil }
+
+func (channelSchedulingRecoveryHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	summary, err := runChannelSchedulingRecoveryTask(ctx, service.NewSystemTaskProgressReporter(task, runnerID))
+	if err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
+		return
+	}
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, summary, nil)
 }
 
 // channelTestHandler runs the scheduled "test all channels" job. Enablement and
@@ -36,7 +76,8 @@ func (channelTestHandler) Enabled() bool {
 }
 
 func (channelTestHandler) Interval() time.Duration {
-	minutes := operation_setting.GetMonitorSetting().AutoTestChannelMinutes
+	setting := operation_setting.GetMonitorSetting()
+	minutes := setting.AutoTestChannelMinutes
 	if minutes <= 0 {
 		minutes = 10
 	}

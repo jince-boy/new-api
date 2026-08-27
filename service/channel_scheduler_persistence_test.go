@@ -808,6 +808,59 @@ func TestChannelModelSchedulingFaultPersistsAndRequiresManualRestore(t *testing.
 	assert.Empty(t, states)
 }
 
+func TestManualModelDisableStopsAutomaticRecoveryUntilRestore(t *testing.T) {
+	db := setupChannelSchedulerPersistenceTest(t)
+	createSchedulerPersistenceChannel(t, db, 91021, common.ChannelStatusEnabled, "")
+	require.NoError(t, model.DisableChannelModel(91021, "gpt-test", "unsupported model", "model_not_found", 404))
+	reloadChannelSchedulerFaults()
+
+	require.NoError(t, MarkScheduledChannelModelManualDisabled(91021, "gpt-test"))
+	states, err := model.ListChannelModelStates(true)
+	require.NoError(t, err)
+	require.Len(t, states, 1)
+	assert.True(t, states[0].ManualDisabled)
+	assert.False(t, IsChannelModelUsableForScheduling("gpt-test", 91021))
+
+	changed, err := RestoreScheduledChannelModel(91021, "gpt-test")
+	require.NoError(t, err)
+	assert.True(t, changed)
+	states, err = model.ListChannelModelStates(false)
+	require.NoError(t, err)
+	require.Len(t, states, 1)
+	assert.False(t, states[0].Disabled)
+	assert.False(t, states[0].ManualDisabled)
+}
+
+func TestManualChannelDisableCannotBeAutomaticallyRestored(t *testing.T) {
+	db := setupChannelSchedulerPersistenceTest(t)
+	createSchedulerPersistenceChannel(t, db, 91022, common.ChannelStatusEnabled, "")
+	require.NoError(t, model.DisableChannelForScheduling(91022, "upstream failed"))
+
+	changed, err := MarkScheduledChannelManualDisabled(91022)
+	require.NoError(t, err)
+	assert.True(t, changed)
+	assert.False(t, EnableChannelIfEligible(91022, "scheduler-channel-91022"))
+
+	channel, err := model.GetChannelById(91022, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusManuallyDisabled, channel.Status)
+}
+
+func TestSchedulingChannelCanRecoverWithoutGlobalAutoEnable(t *testing.T) {
+	db := setupChannelSchedulerPersistenceTest(t)
+	createSchedulerPersistenceChannel(t, db, 91023, common.ChannelStatusEnabled, "")
+	require.NoError(t, model.DisableChannelForScheduling(91023, "upstream failed"))
+	original := common.AutomaticEnableChannelEnabled
+	common.AutomaticEnableChannelEnabled = false
+	t.Cleanup(func() { common.AutomaticEnableChannelEnabled = original })
+
+	assert.True(t, EnableChannelIfEligible(91023, "scheduler-channel-91023"))
+
+	channel, err := model.GetChannelById(91023, true)
+	require.NoError(t, err)
+	assert.Equal(t, common.ChannelStatusEnabled, channel.Status)
+}
+
 func TestRestoreScheduledChannelRejectsNonSchedulerDisabledChannels(t *testing.T) {
 	db := setupChannelSchedulerPersistenceTest(t)
 	createSchedulerPersistenceChannel(t, db, 91011, common.ChannelStatusEnabled, "")

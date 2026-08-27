@@ -69,20 +69,21 @@ func UpdateChannelSchedulingSetting(c *gin.Context) {
 		return
 	}
 	values := map[string]string{
-		"channel_scheduling_setting.default_strategy":           request.DefaultStrategy,
-		"channel_scheduling_setting.group_strategies":           string(groupStrategies),
-		"channel_scheduling_setting.minimum_factor":             strconv.FormatFloat(request.MinimumFactor, 'f', -1, 64),
-		"channel_scheduling_setting.maximum_factor":             strconv.FormatFloat(request.MaximumFactor, 'f', -1, 64),
-		"channel_scheduling_setting.performance_exponent":       strconv.FormatFloat(request.PerformanceExponent, 'f', -1, 64),
-		"channel_scheduling_setting.inflight_penalty":           strconv.FormatFloat(request.InflightPenalty, 'f', -1, 64),
-		"channel_scheduling_setting.warmup_samples":             strconv.Itoa(request.WarmupSamples),
-		"channel_scheduling_setting.sample_window_size":         strconv.Itoa(request.SampleWindowSize),
-		"channel_scheduling_setting.sample_max_age_minutes":     strconv.Itoa(request.SampleMaxAgeMinutes),
-		"channel_scheduling_setting.severe_ttft_ms":             strconv.FormatInt(request.SevereTtftMs, 10),
-		"channel_scheduling_setting.failure_threshold":          strconv.Itoa(request.FailureThreshold),
-		"channel_scheduling_setting.failure_window_seconds":     strconv.Itoa(request.FailureWindowSeconds),
-		"channel_scheduling_setting.max_attempts":               strconv.Itoa(request.MaxAttempts),
-		"channel_scheduling_setting.realtime_retention_minutes": strconv.Itoa(request.RealtimeRetentionMin),
+		"channel_scheduling_setting.default_strategy":               request.DefaultStrategy,
+		"channel_scheduling_setting.group_strategies":               string(groupStrategies),
+		"channel_scheduling_setting.minimum_factor":                 strconv.FormatFloat(request.MinimumFactor, 'f', -1, 64),
+		"channel_scheduling_setting.maximum_factor":                 strconv.FormatFloat(request.MaximumFactor, 'f', -1, 64),
+		"channel_scheduling_setting.performance_exponent":           strconv.FormatFloat(request.PerformanceExponent, 'f', -1, 64),
+		"channel_scheduling_setting.inflight_penalty":               strconv.FormatFloat(request.InflightPenalty, 'f', -1, 64),
+		"channel_scheduling_setting.warmup_samples":                 strconv.Itoa(request.WarmupSamples),
+		"channel_scheduling_setting.sample_window_size":             strconv.Itoa(request.SampleWindowSize),
+		"channel_scheduling_setting.sample_max_age_minutes":         strconv.Itoa(request.SampleMaxAgeMinutes),
+		"channel_scheduling_setting.severe_ttft_ms":                 strconv.FormatInt(request.SevereTtftMs, 10),
+		"channel_scheduling_setting.failure_threshold":              strconv.Itoa(request.FailureThreshold),
+		"channel_scheduling_setting.failure_window_seconds":         strconv.Itoa(request.FailureWindowSeconds),
+		"channel_scheduling_setting.auto_recovery_interval_seconds": strconv.Itoa(request.AutoRecoveryIntervalSeconds),
+		"channel_scheduling_setting.max_attempts":                   strconv.Itoa(request.MaxAttempts),
+		"channel_scheduling_setting.realtime_retention_minutes":     strconv.Itoa(request.RealtimeRetentionMin),
 	}
 	if err := model.UpdateOptionsBulk(values); err != nil {
 		common.ApiError(c, err)
@@ -114,6 +115,23 @@ func RestoreChannelModelScheduling(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": changed})
 }
 
+func DisableChannelModelScheduling(c *gin.Context) {
+	request := channelModelRestoreRequest{}
+	if err := c.ShouldBindJSON(&request); err != nil || request.ChannelId <= 0 || strings.TrimSpace(request.Model) == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid request"})
+		return
+	}
+	if err := service.MarkScheduledChannelModelManualDisabled(request.ChannelId, request.Model); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "channel.scheduling_model_manual_disable", map[string]interface{}{
+		"channel_id": request.ChannelId,
+		"model":      strings.TrimSpace(request.Model),
+	})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": true})
+}
+
 func RestoreChannelScheduling(c *gin.Context) {
 	request := channelRestoreRequest{}
 	if err := c.ShouldBindJSON(&request); err != nil || request.ChannelId <= 0 {
@@ -129,5 +147,20 @@ func RestoreChannelScheduling(c *gin.Context) {
 		"channel_id": request.ChannelId,
 		"changed":    changed,
 	})
+	c.JSON(http.StatusOK, gin.H{"success": true, "data": changed})
+}
+
+func DisableChannelScheduling(c *gin.Context) {
+	request := channelRestoreRequest{}
+	if err := c.ShouldBindJSON(&request); err != nil || request.ChannelId <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": "invalid request"})
+		return
+	}
+	changed, err := service.MarkScheduledChannelManualDisabled(request.ChannelId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	recordManageAudit(c, "channel.scheduling_channel_manual_disable", map[string]interface{}{"channel_id": request.ChannelId, "changed": changed})
 	c.JSON(http.StatusOK, gin.H{"success": true, "data": changed})
 }

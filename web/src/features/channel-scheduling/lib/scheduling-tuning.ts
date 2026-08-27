@@ -27,6 +27,7 @@ export const recommendedTuning = {
   severe_ttft_ms: 60000,
   failure_threshold: 5,
   failure_window_seconds: 60,
+  auto_recovery_interval_seconds: 60,
   max_attempts: 8,
   realtime_retention_minutes: 60,
 } as const
@@ -140,6 +141,15 @@ export const tuningSections = [
         step: 1,
         min: 1,
         max: 3600,
+      },
+      {
+        name: 'auto_recovery_interval_seconds',
+        label: 'Recovery interval (seconds)',
+        description:
+          'How frequently the system checks auto-disabled channels for recovery',
+        step: 1,
+        min: 5,
+        max: 86400,
       },
     ],
   },

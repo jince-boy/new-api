@@ -343,6 +343,12 @@ func TestSelectChannelsForAutomaticTestPassiveRecoveryOnlyUsesAutoDisabled(t *te
 	require.Equal(t, 2, selected[0].Id)
 }
 
+func TestChannelRecoveryModelsUsesEveryConfiguredModelOnce(t *testing.T) {
+	channel := &model.Channel{Models: " gpt-a,gpt-b,gpt-a,,gpt-c "}
+
+	assert.Equal(t, []string{"gpt-a", "gpt-b", "gpt-c"}, channelRecoveryModels(channel))
+}
+
 func TestSelectChannelsForAutomaticTestScheduledSkipsManualDisabled(t *testing.T) {
 	channels := []*model.Channel{
 		{Id: 1, Status: common.ChannelStatusEnabled},
@@ -355,6 +361,24 @@ func TestSelectChannelsForAutomaticTestScheduledSkipsManualDisabled(t *testing.T
 	require.Len(t, selected, 2)
 	require.Equal(t, 1, selected[0].Id)
 	require.Equal(t, 2, selected[1].Id)
+}
+
+func TestSelectChannelsForAutomaticTestScheduledSkipsSchedulingFaults(t *testing.T) {
+	schedulingFault := &model.Channel{Id: 2, Status: common.ChannelStatusAutoDisabled}
+	schedulingFault.SetOtherInfo(map[string]interface{}{
+		"status_reason": model.ChannelSchedulingFaultReasonPrefix + "upstream failed",
+	})
+	channels := []*model.Channel{
+		{Id: 1, Status: common.ChannelStatusEnabled},
+		schedulingFault,
+		{Id: 3, Status: common.ChannelStatusAutoDisabled},
+	}
+
+	selected := selectChannelsForAutomaticTest(channels, operation_setting.ChannelTestModeScheduledAll)
+
+	require.Len(t, selected, 2)
+	require.Equal(t, 1, selected[0].Id)
+	require.Equal(t, 3, selected[1].Id)
 }
 
 func TestSelectChannelsForAutomaticTestAutoBanOnlyUsesEligibleChannels(t *testing.T) {

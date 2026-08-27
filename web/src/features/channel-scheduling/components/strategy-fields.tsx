@@ -17,7 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Plus } from 'lucide-react'
-import { useFieldArray, useWatch, type UseFormReturn } from 'react-hook-form'
+import {
+  Controller,
+  useFieldArray,
+  useWatch,
+  type UseFormReturn,
+} from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -35,7 +40,14 @@ import {
   FieldLegend,
   FieldSet,
 } from '@/components/ui/field'
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 import type { SchedulingSettingsForm } from '../lib/scheduling-settings'
 import { GroupStrategyOverride } from './group-strategy-override'
@@ -87,18 +99,37 @@ export function StrategyFields(props: StrategyFieldsProps) {
           <FieldLabel htmlFor='default-strategy'>
             {t('Global default strategy')}
           </FieldLabel>
-          <NativeSelect
-            id='default-strategy'
-            className='w-full sm:w-96'
-            {...props.form.register('default_strategy')}
-          >
-            <NativeSelectOption value='legacy'>
-              {t('Legacy priority and weight')}
-            </NativeSelectOption>
-            <NativeSelectOption value='intelligent'>
-              {t('Intelligent round robin')}
-            </NativeSelectOption>
-          </NativeSelect>
+          <Controller
+            control={props.form.control}
+            name='default_strategy'
+            render={({ field }) => (
+              <Select
+                items={[
+                  { value: 'legacy', label: t('Legacy priority and weight') },
+                  {
+                    value: 'intelligent',
+                    label: t('Intelligent round robin'),
+                  },
+                ]}
+                value={field.value}
+                onValueChange={(value) => field.onChange(value)}
+              >
+                <SelectTrigger id='default-strategy' className='w-full sm:w-96'>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent alignItemWithTrigger={false}>
+                  <SelectGroup>
+                    <SelectItem value='legacy'>
+                      {t('Legacy priority and weight')}
+                    </SelectItem>
+                    <SelectItem value='intelligent'>
+                      {t('Intelligent round robin')}
+                    </SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            )}
+          />
           <FieldDescription>
             {defaultStrategy === 'intelligent'
               ? t(

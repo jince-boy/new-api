@@ -32,7 +32,9 @@ func TestChannelSchedulingRoutesUseLeastRequiredPermissions(t *testing.T) {
 	assertChannelRoutePermission(t, http.MethodGet, "/scheduling/settings", authz.ChannelRead, controller.GetChannelSchedulingSetting)
 	assertChannelRoutePermission(t, http.MethodPut, "/scheduling/settings", authz.ChannelWrite, controller.UpdateChannelSchedulingSetting)
 	assertChannelRoutePermission(t, http.MethodPost, "/scheduling/model/restore", authz.ChannelOperate, controller.RestoreChannelModelScheduling)
+	assertChannelRoutePermission(t, http.MethodPost, "/scheduling/model/disable", authz.ChannelOperate, controller.DisableChannelModelScheduling)
 	assertChannelRoutePermission(t, http.MethodPost, "/scheduling/channel/restore", authz.ChannelOperate, controller.RestoreChannelScheduling)
+	assertChannelRoutePermission(t, http.MethodPost, "/scheduling/channel/disable", authz.ChannelOperate, controller.DisableChannelScheduling)
 }
 
 func TestChannelStatusRoutesRegisterWithoutConflict(t *testing.T) {

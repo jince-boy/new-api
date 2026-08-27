@@ -81,9 +81,30 @@ export async function restoreChannelModel(
   return response.data.data
 }
 
+export async function disableChannelModelRecovery(
+  channelId: number,
+  model: string
+): Promise<boolean> {
+  const response = await api.post<ApiResponse<boolean>>(
+    '/api/channel/scheduling/model/disable',
+    { channel_id: channelId, model }
+  )
+  return response.data.data
+}
+
 export async function restoreChannel(channelId: number): Promise<boolean> {
   const response = await api.post<ApiResponse<boolean>>(
     '/api/channel/scheduling/channel/restore',
+    { channel_id: channelId }
+  )
+  return response.data.data
+}
+
+export async function disableChannelRecovery(
+  channelId: number
+): Promise<boolean> {
+  const response = await api.post<ApiResponse<boolean>>(
+    '/api/channel/scheduling/channel/disable',
     { channel_id: channelId }
   )
   return response.data.data

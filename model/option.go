@@ -291,6 +291,8 @@ func validateOptionValue(key string, value string) error {
 		}
 	case operation_setting.ChannelTestConcurrencyOptionKey:
 		return operation_setting.ValidateChannelTestConcurrency(value)
+	case operation_setting.AutoRecoveryIntervalOptionKey:
+		return operation_setting.ValidateAutoRecoveryInterval(value)
 	case "MaxTokenAutoGroups":
 		return setting.ValidateMaxTokenAutoGroups(value)
 	}

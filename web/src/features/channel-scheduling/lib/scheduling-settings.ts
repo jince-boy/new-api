@@ -40,6 +40,7 @@ export const schedulingSettingsSchema = z
     severe_ttft_ms: z.number().int().min(1).max(86400000),
     failure_threshold: z.number().int().min(1).max(100),
     failure_window_seconds: z.number().int().min(1).max(3600),
+    auto_recovery_interval_seconds: z.number().int().min(5).max(86400),
     max_attempts: z.number().int().min(1).max(64),
     realtime_retention_minutes: z.number().int().min(1).max(1440),
   })

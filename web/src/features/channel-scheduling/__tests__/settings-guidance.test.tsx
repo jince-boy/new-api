@@ -53,6 +53,7 @@ test('settings lead with the safe two-step rollout and hide tuning complexity', 
     severe_ttft_ms: 60000,
     failure_threshold: 5,
     failure_window_seconds: 60,
+    auto_recovery_interval_seconds: 60,
     max_attempts: 8,
     realtime_retention_minutes: 60,
   }
@@ -70,6 +71,19 @@ test('settings lead with the safe two-step rollout and hide tuning complexity', 
   assert.match(html, /No group exceptions/)
   assert.match(html, /Advanced tuning/)
   assert.match(html, /<form noValidate=""/)
+})
+
+test('automatic recovery cadence belongs to intelligent scheduling tuning', () => {
+  const failureProtection = tuningSections.find(
+    (section) => section.title === 'Failure protection'
+  )
+
+  assert.ok(failureProtection)
+  assert.ok(
+    failureProtection.fields.some(
+      (field) => field.name === 'auto_recovery_interval_seconds'
+    )
+  )
 })
 
 test('all recommended numbers satisfy their HTML input step constraints', () => {

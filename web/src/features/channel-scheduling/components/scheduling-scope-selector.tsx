@@ -21,7 +21,14 @@ import { useTranslation } from 'react-i18next'
 
 import { Badge } from '@/components/ui/badge'
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field'
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 import type { SchedulingPool } from '../lib/scheduling-analytics'
 import type { SchedulingStrategy } from '../types'
@@ -46,24 +53,31 @@ export function SchedulingScopeSelector(props: SchedulingScopeSelectorProps) {
         <FieldLabel htmlFor='scheduling-analysis-group'>
           {t('Analysis group')}
         </FieldLabel>
-        <NativeSelect
-          id='scheduling-analysis-group'
-          className='w-full'
-          value={props.selectedGroup}
+        <Select
+          items={props.groups.map((group) => ({ value: group, label: group }))}
+          value={props.selectedGroup || null}
           disabled={props.groups.length === 0}
-          onChange={(event) => props.onGroupChange(event.target.value)}
+          onValueChange={(value) => props.onGroupChange(value ?? '')}
         >
-          {props.groups.length === 0 && (
-            <NativeSelectOption value=''>
-              {t('No service groups available')}
-            </NativeSelectOption>
-          )}
-          {props.groups.map((group) => (
-            <NativeSelectOption key={group} value={group}>
-              {group}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
+          <SelectTrigger id='scheduling-analysis-group' className='w-full'>
+            <SelectValue placeholder={t('No service groups available')} />
+          </SelectTrigger>
+          <SelectContent alignItemWithTrigger={false}>
+            <SelectGroup>
+              {props.groups.length === 0 ? (
+                <SelectItem value='__empty__' disabled>
+                  {t('No service groups available')}
+                </SelectItem>
+              ) : (
+                props.groups.map((group) => (
+                  <SelectItem key={group} value={group}>
+                    {group}
+                  </SelectItem>
+                ))
+              )}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
         <FieldDescription>
           {t('Overview and pool details are isolated to this service group.')}
         </FieldDescription>
@@ -74,31 +88,48 @@ export function SchedulingScopeSelector(props: SchedulingScopeSelectorProps) {
           <FieldLabel htmlFor='scheduling-analysis-pool'>
             {t('Analysis pool')}
           </FieldLabel>
-          <NativeSelect
-            id='scheduling-analysis-pool'
-            className='w-full'
-            value={props.selectedPoolKey}
+          <Select
+            items={props.pools.map((pool) => ({
+              value: pool.key,
+              label: t(
+                '{{model}} · static priority {{priority}} · {{count}} channels',
+                {
+                  model: pool.model,
+                  priority: pool.priority,
+                  count: pool.channels.length,
+                }
+              ),
+            }))}
+            value={props.selectedPoolKey || null}
             disabled={props.pools.length === 0}
-            onChange={(event) => props.onPoolChange(event.target.value)}
+            onValueChange={(value) => props.onPoolChange(value ?? '')}
           >
-            {props.pools.length === 0 && (
-              <NativeSelectOption value=''>
-                {t('No active scheduling pools')}
-              </NativeSelectOption>
-            )}
-            {props.pools.map((pool) => (
-              <NativeSelectOption key={pool.key} value={pool.key}>
-                {t(
-                  '{{model}} · static priority {{priority}} · {{count}} channels',
-                  {
-                    model: pool.model,
-                    priority: pool.priority,
-                    count: pool.channels.length,
-                  }
+            <SelectTrigger id='scheduling-analysis-pool' className='w-full'>
+              <SelectValue placeholder={t('No active scheduling pools')} />
+            </SelectTrigger>
+            <SelectContent alignItemWithTrigger={false}>
+              <SelectGroup>
+                {props.pools.length === 0 ? (
+                  <SelectItem value='__empty__' disabled>
+                    {t('No active scheduling pools')}
+                  </SelectItem>
+                ) : (
+                  props.pools.map((pool) => (
+                    <SelectItem key={pool.key} value={pool.key}>
+                      {t(
+                        '{{model}} · static priority {{priority}} · {{count}} channels',
+                        {
+                          model: pool.model,
+                          priority: pool.priority,
+                          count: pool.channels.length,
+                        }
+                      )}
+                    </SelectItem>
+                  ))
                 )}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
           <FieldDescription>
             {t('A pool contains channels for one model at one failover level.')}
           </FieldDescription>

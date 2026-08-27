@@ -30,20 +30,21 @@ func TestChannelSchedulingStrategySupportsGlobalAndGroupOverrides(t *testing.T) 
 
 func validChannelSchedulingSettingForTest() ChannelSchedulingSetting {
 	return ChannelSchedulingSetting{
-		DefaultStrategy:      ChannelSchedulingStrategyIntelligent,
-		GroupStrategies:      map[string]string{"default": ChannelSchedulingStrategyLegacy},
-		MinimumFactor:        0.1,
-		MaximumFactor:        2,
-		PerformanceExponent:  0.7,
-		InflightPenalty:      0.35,
-		WarmupSamples:        10,
-		SampleWindowSize:     20,
-		SampleMaxAgeMinutes:  15,
-		SevereTtftMs:         60_000,
-		FailureThreshold:     8,
-		FailureWindowSeconds: 120,
-		MaxAttempts:          8,
-		RealtimeRetentionMin: 60,
+		DefaultStrategy:             ChannelSchedulingStrategyIntelligent,
+		GroupStrategies:             map[string]string{"default": ChannelSchedulingStrategyLegacy},
+		MinimumFactor:               0.1,
+		MaximumFactor:               2,
+		PerformanceExponent:         0.7,
+		InflightPenalty:             0.35,
+		WarmupSamples:               10,
+		SampleWindowSize:            20,
+		SampleMaxAgeMinutes:         15,
+		SevereTtftMs:                60_000,
+		FailureThreshold:            8,
+		FailureWindowSeconds:        120,
+		AutoRecoveryIntervalSeconds: 60,
+		MaxAttempts:                 8,
+		RealtimeRetentionMin:        60,
 	}
 }
 
@@ -63,12 +64,14 @@ func TestNormalizeAndValidateChannelSchedulingSettingDefaultsMissingFailureProte
 	setting := validChannelSchedulingSettingForTest()
 	setting.FailureThreshold = 0
 	setting.FailureWindowSeconds = 0
+	setting.AutoRecoveryIntervalSeconds = 0
 
 	normalized, err := NormalizeAndValidateChannelSchedulingSetting(setting)
 
 	require.NoError(t, err)
 	assert.Equal(t, ChannelSchedulingDefaultFailureCount, normalized.FailureThreshold)
 	assert.Equal(t, ChannelSchedulingDefaultFailureSec, normalized.FailureWindowSeconds)
+	assert.Equal(t, ChannelSchedulingDefaultRecoverySec, normalized.AutoRecoveryIntervalSeconds)
 }
 
 func TestNormalizeAndValidateChannelSchedulingSettingRejectsUnsafeFactors(t *testing.T) {
@@ -102,6 +105,12 @@ func TestNormalizeAndValidateChannelSchedulingSettingRejectsUnsafeFactors(t *tes
 		{name: "failure window too large", mutate: func(setting *ChannelSchedulingSetting) {
 			setting.FailureWindowSeconds = ChannelSchedulingMaxFailureWindowSec + 1
 		}},
+		{name: "recovery interval too small", mutate: func(setting *ChannelSchedulingSetting) {
+			setting.AutoRecoveryIntervalSeconds = ChannelSchedulingMinRecoverySec - 1
+		}},
+		{name: "recovery interval too large", mutate: func(setting *ChannelSchedulingSetting) {
+			setting.AutoRecoveryIntervalSeconds = ChannelSchedulingMaxRecoverySec + 1
+		}},
 	}
 
 	for _, test := range tests {
@@ -128,6 +137,7 @@ func TestChannelSchedulingRecommendedDefaults(t *testing.T) {
 	assert.Equal(t, int64(60_000), setting.SevereTtftMs)
 	assert.Equal(t, ChannelSchedulingDefaultFailureCount, setting.FailureThreshold)
 	assert.Equal(t, ChannelSchedulingDefaultFailureSec, setting.FailureWindowSeconds)
+	assert.Equal(t, ChannelSchedulingDefaultRecoverySec, setting.AutoRecoveryIntervalSeconds)
 	assert.Equal(t, 8, setting.MaxAttempts)
 	assert.Equal(t, 60, setting.RealtimeRetentionMin)
 }

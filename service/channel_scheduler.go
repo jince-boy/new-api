@@ -687,6 +687,37 @@ func RestoreScheduledChannelModel(channelId int, modelName string) (bool, error)
 	return changed, nil
 }
 
+func MarkScheduledChannelModelManualDisabled(channelId int, modelName string) error {
+	normalizedModel := ratio_setting.FormatMatchingModelName(modelName)
+	changed, err := model.MarkChannelModelManualDisabled(channelId, normalizedModel)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return fmt.Errorf("model capability is not currently auto-disabled")
+	}
+	channelScheduler.disabledMu.Lock()
+	if state, ok := channelScheduler.disabled[channelModelKey{ChannelId: channelId, Model: normalizedModel}]; ok {
+		state.ManualDisabled = true
+		channelScheduler.disabled[channelModelKey{ChannelId: channelId, Model: normalizedModel}] = state
+	}
+	channelScheduler.disabledMu.Unlock()
+	appendSchedulingEvent(ChannelSchedulingEvent{Ts: time.Now().Unix(), Type: "manual_disabled", ChannelId: channelId, Model: normalizedModel, Message: "model capability held disabled manually"})
+	return nil
+}
+
+func MarkScheduledChannelManualDisabled(channelId int) (bool, error) {
+	changed, err := model.MarkChannelManualDisabledForScheduling(channelId)
+	if err != nil || !changed {
+		return changed, err
+	}
+	channelScheduler.disabledMu.Lock()
+	delete(channelScheduler.disabledChannels, channelId)
+	channelScheduler.disabledMu.Unlock()
+	ResetChannelSchedulingState(channelId, "")
+	return true, nil
+}
+
 func RestoreScheduledChannel(channelId int) (bool, error) {
 	channel, err := model.GetChannelById(channelId, true)
 	if err != nil {

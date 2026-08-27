@@ -63,11 +63,7 @@ const numericString = z.string().refine((value) => {
   return !Number.isNaN(Number(trimmed)) && Number(trimmed) >= 0
 }, 'Enter a non-negative number or leave empty')
 
-const channelTestModes = [
-  'scheduled_all',
-  'auto_ban_only',
-  'passive_recovery',
-] as const
+const channelTestModes = ['scheduled_all', 'auto_ban_only'] as const
 type ChannelTestMode = (typeof channelTestModes)[number]
 const MAX_CHANNEL_TEST_CONCURRENCY = 32
 
@@ -169,7 +165,7 @@ type NormalizedRoutingReliabilityValues = {
 }
 
 function normalizeChannelTestMode(value?: string): ChannelTestMode {
-  if (value === 'auto_ban_only' || value === 'passive_recovery') {
+  if (value === 'auto_ban_only') {
     return value
   }
   return 'scheduled_all'
@@ -286,11 +282,6 @@ export function RoutingReliabilitySection({
     case 'auto_ban_only':
       channelTestModeDescription = t(
         'Periodically checks only channels with auto-disable enabled, excluding manually disabled channels.'
-      )
-      break
-    case 'passive_recovery':
-      channelTestModeDescription = t(
-        'Does not check healthy channels. It only rechecks auto-disabled channels and restores them after they recover.'
       )
       break
     default:
@@ -447,10 +438,6 @@ export function RoutingReliabilitySection({
                             'Actively check auto-disable-enabled channels'
                           ),
                         },
-                        {
-                          value: 'passive_recovery',
-                          label: t('Check channels awaiting recovery only'),
-                        },
                       ]}
                       value={field.value}
                       onValueChange={field.onChange}
@@ -467,9 +454,6 @@ export function RoutingReliabilitySection({
                           </SelectItem>
                           <SelectItem value='auto_ban_only'>
                             {t('Actively check auto-disable-enabled channels')}
-                          </SelectItem>
-                          <SelectItem value='passive_recovery'>
-                            {t('Check channels awaiting recovery only')}
                           </SelectItem>
                         </SelectGroup>
                       </SelectContent>
@@ -497,11 +481,7 @@ export function RoutingReliabilitySection({
                       />
                     </FormControl>
                     <FormDescription>
-                      {channelTestMode === 'passive_recovery'
-                        ? t(
-                            'How frequently the system checks auto-disabled channels for recovery'
-                          )
-                        : t('How frequently the system tests all channels')}
+                      {t('How frequently the system tests all channels')}
                     </FormDescription>
                     <FormMessage />
                   </FormItem>

@@ -31,6 +31,7 @@ export interface ChannelSchedulingSetting {
   severe_ttft_ms: number
   failure_threshold: number
   failure_window_seconds: number
+  auto_recovery_interval_seconds: number
   max_attempts: number
   realtime_retention_minutes: number
 }
@@ -74,6 +75,7 @@ export interface ChannelModelFault {
   channel_id: number
   model: string
   disabled: boolean
+  manual_disabled: boolean
   reason: string
   error_code: string
   status_code: number

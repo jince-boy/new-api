@@ -23,7 +23,14 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Combobox } from '@/components/ui/combobox'
 import { Field, FieldError, FieldLabel } from '@/components/ui/field'
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 import type { SchedulingSettingsForm } from '../lib/scheduling-settings'
 
@@ -82,18 +89,37 @@ export function GroupStrategyOverride(props: GroupStrategyOverrideProps) {
         <FieldLabel htmlFor={`group-override-strategy-${props.overrideId}`}>
           {t('Strategy for this group')}
         </FieldLabel>
-        <NativeSelect
-          id={`group-override-strategy-${props.overrideId}`}
-          className='w-full'
-          {...props.form.register(`group_strategies.${props.index}.strategy`)}
-        >
-          <NativeSelectOption value='legacy'>
-            {t('Legacy priority and weight')}
-          </NativeSelectOption>
-          <NativeSelectOption value='intelligent'>
-            {t('Intelligent round robin')}
-          </NativeSelectOption>
-        </NativeSelect>
+        <Controller
+          control={props.form.control}
+          name={`group_strategies.${props.index}.strategy`}
+          render={({ field }) => (
+            <Select
+              items={[
+                { value: 'legacy', label: t('Legacy priority and weight') },
+                { value: 'intelligent', label: t('Intelligent round robin') },
+              ]}
+              value={field.value}
+              onValueChange={(value) => field.onChange(value)}
+            >
+              <SelectTrigger
+                id={`group-override-strategy-${props.overrideId}`}
+                className='w-full'
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent alignItemWithTrigger={false}>
+                <SelectGroup>
+                  <SelectItem value='legacy'>
+                    {t('Legacy priority and weight')}
+                  </SelectItem>
+                  <SelectItem value='intelligent'>
+                    {t('Intelligent round robin')}
+                  </SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          )}
+        />
       </Field>
 
       <Button

@@ -919,6 +919,8 @@ type channelTestSummary struct {
 	Enabled   int `json:"enabled"`
 }
 
+const channelTestModeSchedulingRecovery = "scheduling_recovery"
+
 func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, testUserID int, allowDisable bool, disableThreshold int64) channelTestSummary {
 	summary := channelTestSummary{}
 	isChannelEnabled := channel.Status == common.ChannelStatusEnabled
@@ -980,6 +982,86 @@ func testChannelForHealthCheck(ctx context.Context, channel *model.Channel, test
 
 	channel.UpdateResponseTime(milliseconds)
 	return summary
+}
+
+func testChannelForPassiveRecovery(ctx context.Context, channel *model.Channel, testUserID int) channelTestSummary {
+	summary := channelTestSummary{}
+	if channel == nil || channel.Status != common.ChannelStatusAutoDisabled || !model.IsChannelSchedulingFault(channel) {
+		return summary
+	}
+	hasManualModel, err := model.HasManualDisabledChannelModel(channel.Id)
+	if err != nil || hasManualModel {
+		return summary
+	}
+	models := channelRecoveryModels(channel)
+	for _, modelName := range models {
+		if ctx.Err() != nil {
+			return summary
+		}
+		result := testChannel(ctx, channel, testUserID, strings.TrimSpace(modelName), "", shouldUseStreamForAutomaticChannelTest(channel))
+		summary.Tested++
+		if result.localErr != nil || result.newAPIError != nil {
+			summary.Failed++
+			continue
+		}
+		summary.Succeeded++
+	}
+	if summary.Failed == 0 && summary.Tested > 0 {
+		fresh, err := model.GetChannelById(channel.Id, true)
+		if err == nil && fresh.Status == common.ChannelStatusAutoDisabled && model.IsChannelSchedulingFault(fresh) {
+			if service.EnableChannelIfEligible(fresh.Id, fresh.Name) {
+				summary.Enabled++
+			}
+		}
+	}
+	return summary
+}
+
+func runChannelSchedulingRecoveryTask(ctx context.Context, report func(processed, total int)) (channelTestSummary, error) {
+	testUserID, err := resolveChannelTestUserID(nil)
+	if err != nil {
+		return channelTestSummary{}, err
+	}
+	channels, err := model.GetAllChannels(0, 0, true, false)
+	if err != nil {
+		return channelTestSummary{}, err
+	}
+	selected := selectChannelsForAutomaticTest(channels, channelTestModeSchedulingRecovery)
+	selected = lo.Filter(selected, func(channel *model.Channel, _ int) bool {
+		return model.IsChannelSchedulingFault(channel)
+	})
+	return runChannelTestWorkers(
+		ctx,
+		selected,
+		operation_setting.DefaultChannelTestConcurrency,
+		func(ctx context.Context, channel *model.Channel) channelTestSummary {
+			return testChannelForPassiveRecovery(ctx, channel, testUserID)
+		},
+		report,
+	), nil
+}
+
+func channelRecoveryModels(channel *model.Channel) []string {
+	if channel == nil {
+		return nil
+	}
+	models := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, modelName := range channel.GetModels() {
+		modelName = strings.TrimSpace(modelName)
+		if modelName == "" {
+			continue
+		}
+		if _, ok := seen[modelName]; ok {
+			continue
+		}
+		seen[modelName] = struct{}{}
+		models = append(models, modelName)
+	}
+	if len(models) == 0 {
+		return []string{"gpt-4o-mini"}
+	}
+	return models
 }
 
 // runChannelTestWorkers executes independent channel tests with bounded
@@ -1118,9 +1200,16 @@ func runChannelTestTask(ctx context.Context, mode string, notify bool, report fu
 		mode = operation_setting.GetMonitorSetting().ChannelTestMode
 	}
 	selected := selectChannelsForAutomaticTest(channels, mode)
-	allowDisable := mode != operation_setting.ChannelTestModePassiveRecovery
 	concurrency := operation_setting.GetMonitorSetting().ChannelTestConcurrency
-	summary := performChannelTests(ctx, selected, testUserID, allowDisable, concurrency, report)
+	allowDisable := mode != operation_setting.ChannelTestModePassiveRecovery
+	var summary channelTestSummary
+	if mode == operation_setting.ChannelTestModePassiveRecovery {
+		summary = runChannelTestWorkers(ctx, selected, concurrency, func(ctx context.Context, channel *model.Channel) channelTestSummary {
+			return testChannelForPassiveRecovery(ctx, channel, testUserID)
+		}, report)
+	} else {
+		summary = performChannelTests(ctx, selected, testUserID, allowDisable, concurrency, report)
+	}
 	if notify && (ctx == nil || ctx.Err() == nil) {
 		service.NotifyRootUser(dto.NotifyTypeChannelTest, "通道测试完成", "所有通道测试已完成")
 	}
@@ -1133,10 +1222,14 @@ func selectChannelsForAutomaticTest(channels []*model.Channel, mode string) []*m
 		if channel.Status == common.ChannelStatusManuallyDisabled {
 			continue
 		}
+		if mode != channelTestModeSchedulingRecovery && mode != operation_setting.ChannelTestModePassiveRecovery &&
+			channel.Status == common.ChannelStatusAutoDisabled && model.IsChannelSchedulingFault(channel) {
+			continue
+		}
 		if mode == operation_setting.ChannelTestModeAutoBanOnly && !channel.GetAutoBan() {
 			continue
 		}
-		if mode == operation_setting.ChannelTestModePassiveRecovery && channel.Status != common.ChannelStatusAutoDisabled {
+		if (mode == channelTestModeSchedulingRecovery || mode == operation_setting.ChannelTestModePassiveRecovery) && channel.Status != common.ChannelStatusAutoDisabled {
 			continue
 		}
 		selected = append(selected, channel)

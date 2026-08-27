@@ -17,11 +17,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { RotateCcw } from 'lucide-react'
+import { Ban, RotateCcw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import {
   Card,
   CardContent,
@@ -30,7 +31,12 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 
-import { restoreChannel, restoreChannelModel } from '../api'
+import {
+  disableChannelModelRecovery,
+  disableChannelRecovery,
+  restoreChannel,
+  restoreChannelModel,
+} from '../api'
 import type { ChannelFault, ChannelModelFault } from '../types'
 
 interface ManualRecoveryPanelProps {
@@ -62,6 +68,27 @@ export function ManualRecoveryPanel(props: ManualRecoveryPanelProps) {
     },
     onError: () => toast.error(t('Failed to restore channel')),
   })
+  const disableModelMutation = useMutation({
+    mutationFn: (fault: ChannelModelFault) =>
+      disableChannelModelRecovery(fault.channel_id, fault.model),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ['channel-scheduling-overview'],
+      })
+      toast.success(t('Automatic recovery stopped'))
+    },
+    onError: () => toast.error(t('Failed to stop automatic recovery')),
+  })
+  const disableChannelMutation = useMutation({
+    mutationFn: (fault: ChannelFault) => disableChannelRecovery(fault.channel_id),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: ['channel-scheduling-overview'],
+      })
+      toast.success(t('Automatic recovery stopped'))
+    },
+    onError: () => toast.error(t('Failed to stop automatic recovery')),
+  })
 
   if (props.faults.length === 0 && props.channelFaults.length === 0) return null
 
@@ -89,6 +116,11 @@ export function ManualRecoveryPanel(props: ManualRecoveryPanelProps) {
                 <div className='min-w-0'>
                   <div className='font-medium'>
                     #{fault.channel_id} · {fault.model}
+                    {fault.manual_disabled && (
+                      <Badge variant='secondary' className='ml-2'>
+                        {t('Manual disable')}
+                      </Badge>
+                    )}
                   </div>
                   <div
                     className='text-muted-foreground truncate text-sm'
@@ -97,15 +129,32 @@ export function ManualRecoveryPanel(props: ManualRecoveryPanelProps) {
                     {fault.reason}
                   </div>
                 </div>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  disabled={restoreMutation.isPending}
-                  onClick={() => restoreMutation.mutate(fault)}
-                >
-                  <RotateCcw className='size-4' aria-hidden='true' />
-                  {t('Restore manually')}
-                </Button>
+                <div className='flex flex-wrap gap-2'>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    disabled={restoreMutation.isPending || disableModelMutation.isPending}
+                    onClick={() => restoreMutation.mutate(fault)}
+                  >
+                    <RotateCcw className='size-4' aria-hidden='true' />
+                    {t('Restore manually')}
+                  </Button>
+                  {!fault.manual_disabled && (
+                    <Button
+                      size='sm'
+                      variant='destructive'
+                      disabled={restoreMutation.isPending || disableModelMutation.isPending}
+                      onClick={() => {
+                        if (window.confirm(t('Keep this model capability disabled?'))) {
+                          disableModelMutation.mutate(fault)
+                        }
+                      }}
+                    >
+                      <Ban className='size-4' aria-hidden='true' />
+                      {t('Keep disabled')}
+                    </Button>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -130,15 +179,30 @@ export function ManualRecoveryPanel(props: ManualRecoveryPanelProps) {
                     {fault.reason}
                   </div>
                 </div>
-                <Button
-                  size='sm'
-                  variant='outline'
-                  disabled={restoreChannelMutation.isPending}
-                  onClick={() => restoreChannelMutation.mutate(fault)}
-                >
-                  <RotateCcw className='size-4' aria-hidden='true' />
-                  {t('Restore manually')}
-                </Button>
+                <div className='flex flex-wrap gap-2'>
+                  <Button
+                    size='sm'
+                    variant='outline'
+                    disabled={restoreChannelMutation.isPending || disableChannelMutation.isPending}
+                    onClick={() => restoreChannelMutation.mutate(fault)}
+                  >
+                    <RotateCcw className='size-4' aria-hidden='true' />
+                    {t('Restore manually')}
+                  </Button>
+                  <Button
+                    size='sm'
+                    variant='destructive'
+                    disabled={restoreChannelMutation.isPending || disableChannelMutation.isPending}
+                    onClick={() => {
+                      if (window.confirm(t('Keep this channel disabled?'))) {
+                        disableChannelMutation.mutate(fault)
+                      }
+                    }}
+                  >
+                    <Ban className='size-4' aria-hidden='true' />
+                    {t('Keep disabled')}
+                  </Button>
+                </div>
               </div>
             ))}
           </div>
