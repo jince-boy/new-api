@@ -280,6 +280,31 @@ docker buildx build --platform linux/amd64,linux/arm64 `
   -t yourdockerhubuser/new-api:latest --push .
 ```
 
+例如你的 Docker Hub 仓库是 `jince0413/new-api`，推荐先构建一个明确的版本标签，再把同一个镜像标记为 `latest`：
+
+```powershell
+docker buildx build --platform linux/amd64 `
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com `
+  -t jince0413/new-api:v1.0.0 `
+  --load .
+docker tag jince0413/new-api:v1.0.0 jince0413/new-api:latest
+docker push jince0413/new-api:v1.0.0
+docker push jince0413/new-api:latest
+```
+
+镜像在 Docker Hub 中设置为 **Public** 后，其他人可以直接运行：
+
+```bash
+docker pull jince0413/new-api:latest
+docker run -d --name new-api --restart unless-stopped \
+  -p 3000:3000 \
+  -v new_api_data:/data \
+  -e 'SQLITE_PATH=/data/one-api.db?_busy_timeout=30000' \
+  jince0413/new-api:latest
+```
+
+发布镜像后，使用者可以根据自己的数据库、Redis、端口、域名和数据卷需求编写 `docker-compose.yml`，将服务的 `image` 设置为 `jince0413/new-api:latest`。镜像监听容器内 `3000` 端口，应用数据建议持久化到 `/data`，数据库和缓存通过 `SQL_DSN`、`REDIS_CONN_STRING` 等环境变量配置。
+
 使用 GitHub Actions 自动发布时，在仓库的 **Settings -> Secrets and variables -> Actions** 中添加 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN`（Docker Hub Access Token，不要使用密码）。工作流默认发布到 `${DOCKERHUB_USERNAME}/new-api`；如需其他仓库名，添加仓库变量 `DOCKERHUB_IMAGE` 覆盖它。
 
 也可以分开执行本地构建和推送：
