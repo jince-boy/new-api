@@ -8,7 +8,15 @@ DEV_POSTGRES_DB = new-api
 DEV_POSTGRES_USER = root
 DEV_SQLITE_PATH ?= one-api.db
 
-.PHONY: all build-web build-all-web start-api dev dev-api dev-api-rebuild dev-web reset-setup test
+DOCKER_IMAGE ?= new-api-local
+DOCKER_TAG ?= latest
+DOCKER_PLATFORMS ?= linux/amd64
+DOCKER_REGISTRY ?=
+NPM_REGISTRY ?= https://registry.npmmirror.com
+BUN_IMAGE ?= oven/bun:1@sha256:0733e50325078969732ebe3b15ce4c4be5082f18c4ac1a0f0ca4839c2e4e42a7
+DOCKER_REF = $(if $(DOCKER_REGISTRY),$(DOCKER_REGISTRY)/,)$(DOCKER_IMAGE):$(DOCKER_TAG)
+
+.PHONY: all build-web build-all-web start-api dev dev-api dev-api-rebuild dev-web reset-setup test docker-build docker-push docker-build-push
 
 all: build-all-web start-api
 
@@ -38,6 +46,15 @@ dev-web:
 	@cd $(WEB_DIR) && bun run dev -- --host 0.0.0.0 --port $(DEV_WEB_PORT)
 
 dev: dev-api dev-web
+
+docker-build:
+	@docker buildx build --platform $(DOCKER_PLATFORMS) --build-arg BUN_IMAGE=$(BUN_IMAGE) --build-arg NPM_REGISTRY=$(NPM_REGISTRY) -t $(DOCKER_REF) --load .
+
+docker-push:
+	@docker push $(DOCKER_REF)
+
+docker-build-push:
+	@docker buildx build --platform $(DOCKER_PLATFORMS) --build-arg BUN_IMAGE=$(BUN_IMAGE) --build-arg NPM_REGISTRY=$(NPM_REGISTRY) -t $(DOCKER_REF) --push .
 
 # The main package embeds the ignored web/dist output and is covered after build-web.
 test:

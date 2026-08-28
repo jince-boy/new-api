@@ -254,6 +254,48 @@ git diff 官方/main..HEAD
 docker build -t new-api-local:latest .
 ```
 
+本地构建默认使用合并前验证过的 Bun 1.x 基础镜像；CI 发布工作流通过 `BUN_IMAGE` 构建参数使用上游要求的 Bun 1.4.0。如需在本地复现 CI 构建，可显式传入同一个参数。
+
+如果构建在 `load metadata` 或 `auth.docker.io` 处失败，通常是 Docker Desktop 无法访问 Docker Hub，而不是项目编译失败。请先确认 Docker Desktop 使用 `desktop-linux` 引擎，并在 Docker Desktop 的 Docker Engine 设置中配置可用的 registry mirror 或代理，然后重试：
+
+```bash
+docker pull oven/bun:1.4.0
+docker pull golang:1.26.1-alpine
+docker pull debian:bookworm-slim
+```
+
+登录并发布到自己的 Docker Hub 仓库（把 `yourdockerhubuser` 换成你的用户名）：
+
+```bash
+docker login
+make docker-build-push DOCKER_REGISTRY=docker.io DOCKER_IMAGE=yourdockerhubuser/new-api DOCKER_TAG=latest DOCKER_PLATFORMS=linux/amd64,linux/arm64
+```
+
+PowerShell（未安装 GNU Make 时）可直接使用：
+
+```powershell
+docker login
+docker buildx build --platform linux/amd64,linux/arm64 `
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com `
+  -t yourdockerhubuser/new-api:latest --push .
+```
+
+使用 GitHub Actions 自动发布时，在仓库的 **Settings -> Secrets and variables -> Actions** 中添加 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN`（Docker Hub Access Token，不要使用密码）。工作流默认发布到 `${DOCKERHUB_USERNAME}/new-api`；如需其他仓库名，添加仓库变量 `DOCKERHUB_IMAGE` 覆盖它。
+
+也可以分开执行本地构建和推送：
+
+```bash
+make docker-build DOCKER_REGISTRY=docker.io DOCKER_IMAGE=yourdockerhubuser/new-api DOCKER_TAG=latest
+make docker-push DOCKER_REGISTRY=docker.io DOCKER_IMAGE=yourdockerhubuser/new-api DOCKER_TAG=latest
+```
+
+在 Compose 中使用已发布的镜像：
+
+```bash
+$env:NEW_API_IMAGE = "yourdockerhubuser/new-api:latest"  # PowerShell
+docker compose up -d
+```
+
 启动前请根据实际环境修改 `docker-compose.yml` 中的数据库地址、Redis、端口、挂载路径和 `my_network`：
 
 ```bash

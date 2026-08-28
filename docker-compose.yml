@@ -1,6 +1,7 @@
 services:
   new-api:
-    image: new-api-local:latest
+    # Override with e.g. NEW_API_IMAGE=yourdockerhubuser/new-api:latest.
+    image: ${NEW_API_IMAGE:-new-api-local:latest}
     container_name: new-api-local
     restart: unless-stopped
 
