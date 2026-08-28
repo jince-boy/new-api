@@ -26,10 +26,7 @@ type schedulingPoolKey struct {
 	Priority int64
 }
 
-const (
-	intelligentSchedulingBaseWeight    = 100
-	intelligentSchedulingAffinityBonus = 1.25
-)
+const intelligentSchedulingBaseWeight = 100
 
 const channelFailureShardCount = 64
 
@@ -268,11 +265,18 @@ func ShouldUseChannelAffinityForRequest(param *RetryParam) bool {
 	return !IsIntelligentSchedulingForRequest(param)
 }
 
-// ShouldUseSoftChannelAffinityForRequest enables affinity hints for
-// intelligent scheduling while keeping the scheduler as the final decision
-// maker. It is deliberately opt-in and never affects legacy groups.
+// ShouldUseSoftChannelAffinityForRequest is the persisted compatibility name
+// for intelligent session channel binding. It is deliberately opt-in and
+// never affects legacy groups.
 func ShouldUseSoftChannelAffinityForRequest(param *RetryParam) bool {
 	return IsIntelligentSchedulingForRequest(param) && operation_setting.GetChannelSchedulingSetting().SoftAffinityEnabled
+}
+
+// ShouldUseSessionChannelBinding is the semantic name for the opt-in
+// intelligent-scheduling affinity mode. The old function remains as a
+// compatibility alias for callers and persisted configuration migrations.
+func ShouldUseSessionChannelBinding(param *RetryParam) bool {
+	return ShouldUseSoftChannelAffinityForRequest(param)
 }
 
 func GetRelayAttemptLimit(param *RetryParam) int {
@@ -363,7 +367,89 @@ func selectLegacyWeightedChannel(channels []*model.Channel) *model.Channel {
 	return channels[len(channels)-1]
 }
 
+// selectBoundSessionChannel returns a previously assigned channel when it is
+// still a valid candidate for this request. A binding is a routing decision,
+// not a performance hint: once established it is reused until the channel is
+// unavailable, rate-limited for this attempt, or excluded by retry state.
+func selectBoundSessionChannel(param *RetryParam, group string, candidates []*model.Channel) (*model.Channel, bool) {
+	if !ShouldUseSessionChannelBinding(param) || param == nil || param.Ctx == nil {
+		return nil, false
+	}
+	preferredID, found := GetPreferredChannelByAffinity(param.Ctx, param.ModelName, group)
+	if !found || preferredID <= 0 || param.HasAttempted(preferredID) || param.HasRateLimited(preferredID) {
+		if found {
+			ClearCurrentChannelAffinityCache(param.Ctx)
+		}
+		return nil, false
+	}
+
+	for _, candidate := range candidates {
+		if candidate == nil || candidate.Id != preferredID || candidate.Status != common.ChannelStatusEnabled {
+			continue
+		}
+		if !IsChannelUsableForScheduling(group, param.ModelName, candidate.Id) {
+			break
+		}
+		MarkChannelAffinityUsed(param.Ctx, group, candidate.Id)
+		return candidate, true
+	}
+	ClearCurrentChannelAffinityCache(param.Ctx)
+	return nil, false
+}
+
+// bindSessionChannelIfAbsent reserves the first channel chosen for a new
+// session. Set-if-absent makes the binding first-writer-wins across processes;
+// a concurrent loser re-reads the established channel and uses it instead.
+func bindSessionChannelIfAbsent(param *RetryParam, group string, selected *model.Channel, candidates []*model.Channel) *model.Channel {
+	if !ShouldUseSessionChannelBinding(param) || param == nil || param.Ctx == nil || selected == nil {
+		return selected
+	}
+	cacheKey, ttlSeconds, ok := getChannelAffinityContext(param.Ctx)
+	if !ok || cacheKey == "" {
+		return selected
+	}
+	if ttlSeconds <= 0 {
+		setting := operation_setting.GetChannelAffinitySetting()
+		if setting != nil {
+			ttlSeconds = setting.DefaultTTLSeconds
+		}
+	}
+	if ttlSeconds <= 0 {
+		ttlSeconds = 3600
+	}
+	cache := getChannelAffinityCache()
+	bound, err := cache.SetIfAbsentWithTTL(cacheKey, selected.Id, time.Duration(ttlSeconds)*time.Second)
+	if err != nil {
+		common.SysError(fmt.Sprintf("channel affinity initial bind failed: key=%s, err=%v", cacheKey, err))
+		return selected
+	}
+	if bound {
+		return selected
+	}
+	preferredID, found, err := cache.Get(cacheKey)
+	if err != nil || !found || preferredID == selected.Id {
+		return selected
+	}
+	if param.HasAttempted(preferredID) || param.HasRateLimited(preferredID) {
+		return selected
+	}
+	for _, candidate := range candidates {
+		if candidate != nil && candidate.Id == preferredID && candidate.Status == common.ChannelStatusEnabled && IsChannelUsableForScheduling(group, param.ModelName, candidate.Id) {
+			MarkChannelAffinityUsed(param.Ctx, group, candidate.Id)
+			return candidate
+		}
+	}
+	return selected
+}
+
 func selectIntelligentChannel(param *RetryParam, group string) (*model.Channel, error) {
+	if param == nil {
+		return nil, nil
+	}
+	if param.Ctx != nil {
+		param.Ctx.Set(ginKeyChannelAffinityUsed, false)
+		param.Ctx.Set(ginKeyChannelAffinityLogInfo, nil)
+	}
 	candidates, err := model.GetSatisfiedChannels(group, param.ModelName, param.RequestPath)
 	if err != nil || len(candidates) == 0 {
 		return nil, err
@@ -380,6 +466,13 @@ func selectIntelligentChannel(param *RetryParam, group string) (*model.Channel, 
 		return nil, nil
 	}
 
+	// A session binding is a routing decision. Reuse it while the channel is
+	// still healthy and eligible; the scheduler is only consulted for new
+	// sessions or after a binding becomes unusable.
+	if bound, ok := selectBoundSessionChannel(param, group, active); ok {
+		return bound, nil
+	}
+
 	for len(active) > 0 {
 		targetPriority, activeTier := highestPrioritySchedulingTier(active)
 		eligibleTier := make([]*model.Channel, 0, len(activeTier))
@@ -391,26 +484,8 @@ func selectIntelligentChannel(param *RetryParam, group string) (*model.Channel, 
 		}
 		if len(eligibleTier) > 0 {
 			key := schedulingPoolKey{Group: group, Model: normalizedModel, Priority: targetPriority}
-			affinityChannelID := 0
-			if ShouldUseSoftChannelAffinityForRequest(param) {
-				if param.Ctx != nil {
-					param.Ctx.Set(ginKeyChannelAffinityUsed, false)
-					param.Ctx.Set(ginKeyChannelAffinityLogInfo, nil)
-				}
-				if preferredID, found := GetPreferredChannelByAffinity(param.Ctx, param.ModelName, group); found {
-					for _, candidate := range eligibleTier {
-						if candidate.Id == preferredID {
-							affinityChannelID = preferredID
-							break
-						}
-					}
-				}
-			}
-			selected := selectSmoothWeightedEligibleChannelWithAffinity(key, activeTier, eligibleTier, affinityChannelID)
-			if affinityChannelID > 0 && selected != nil && selected.Id == affinityChannelID {
-				MarkChannelAffinityUsed(param.Ctx, group, selected.Id)
-			}
-			return selected, nil
+			selected := selectSmoothWeightedEligibleChannel(key, activeTier, eligibleTier)
+			return bindSessionChannelIfAbsent(param, group, selected, active), nil
 		}
 		remaining := active[:0]
 		for _, channel := range active {
@@ -447,10 +522,6 @@ func selectSmoothWeightedChannel(key schedulingPoolKey, candidates []*model.Chan
 }
 
 func selectSmoothWeightedEligibleChannel(key schedulingPoolKey, activeCandidates []*model.Channel, eligibleCandidates []*model.Channel) *model.Channel {
-	return selectSmoothWeightedEligibleChannelWithAffinity(key, activeCandidates, eligibleCandidates, 0)
-}
-
-func selectSmoothWeightedEligibleChannelWithAffinity(key schedulingPoolKey, activeCandidates []*model.Channel, eligibleCandidates []*model.Channel, affinityChannelID int) *model.Channel {
 	if len(activeCandidates) == 0 || len(eligibleCandidates) == 0 {
 		return nil
 	}
@@ -484,11 +555,6 @@ func selectSmoothWeightedEligibleChannelWithAffinity(key schedulingPoolKey, acti
 	for _, channel := range eligibleCandidates {
 		state := pool.channels[channel.Id]
 		weight := state.EffectiveWeight
-		if affinityChannelID > 0 && channel.Id == affinityChannelID {
-			// A modest bonus improves cache locality, but cannot override priority,
-			// health isolation, rate limits, or retry exclusion.
-			weight *= intelligentSchedulingAffinityBonus
-		}
 		state.CurrentWeight += weight
 		totalWeight += weight
 		if selectedState == nil || state.CurrentWeight > selectedState.CurrentWeight ||

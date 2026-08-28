@@ -44,8 +44,10 @@ type ChannelSchedulingSetting struct {
 	AutoRecoveryIntervalSeconds int               `json:"auto_recovery_interval_seconds"`
 	MaxAttempts                 int               `json:"max_attempts"`
 	RealtimeRetentionMin        int               `json:"realtime_retention_minutes"`
-	// SoftAffinityEnabled lets intelligent scheduling use a stable session
-	// affinity as a bounded weight hint without bypassing normal scheduling.
+	// SoftAffinityEnabled is the persisted compatibility name for strict
+	// session channel binding in intelligent scheduling. New sessions are still
+	// assigned by the scheduler; established sessions stay on their channel
+	// until it becomes unavailable.
 	SoftAffinityEnabled bool `json:"soft_affinity_enabled"`
 }
 

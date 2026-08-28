@@ -669,6 +669,25 @@ func ClearCurrentChannelAffinityCache(c *gin.Context) bool {
 	return false
 }
 
+// ClearChannelAffinityOnUpstreamFailure removes the current session binding
+// only when it still points at the failed channel. This prevents a stale
+// retry from clearing a newer binding created by a concurrent request.
+func ClearChannelAffinityOnUpstreamFailure(c *gin.Context, channelID int) bool {
+	if c == nil || channelID <= 0 {
+		return false
+	}
+	cacheKey, _, ok := getChannelAffinityContext(c)
+	if !ok || cacheKey == "" {
+		return false
+	}
+	cache := getChannelAffinityCache()
+	boundID, found, err := cache.Get(cacheKey)
+	if err != nil || !found || boundID != channelID {
+		return false
+	}
+	return ClearCurrentChannelAffinityCache(c)
+}
+
 func ShouldKeepChannelAffinityOnChannelDisabled() bool {
 	setting := operation_setting.GetChannelAffinitySetting()
 	if setting == nil {

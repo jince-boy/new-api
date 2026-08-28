@@ -40,6 +40,36 @@ type HybridCache[V any] struct {
 	memOnce sync.Once
 	memInit func() *hot.HotCache[string, V]
 	mem     *hot.HotCache[string, V]
+	memMu   sync.Mutex
+}
+
+// SetIfAbsentWithTTL stores a value only when the key is not already bound.
+// It is used for first-writer-wins session bindings so concurrent requests do
+// not silently replace an established route. Redis provides the cross-process
+// atomic primitive; the mutex covers the in-memory fallback.
+func (c *HybridCache[V]) SetIfAbsentWithTTL(key string, v V, ttl time.Duration) (bool, error) {
+	full := c.ns.FullKey(key)
+	if full == "" {
+		return false, nil
+	}
+
+	if c.redisOn() {
+		raw, err := c.redisCodec.Encode(v)
+		if err != nil {
+			return false, err
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), defaultRedisOpTimeout)
+		defer cancel()
+		return c.redis.SetNX(ctx, full, raw, ttl).Result()
+	}
+
+	c.memMu.Lock()
+	defer c.memMu.Unlock()
+	if _, found, _ := c.memCache().Get(full); found {
+		return false, nil
+	}
+	c.memCache().SetWithTTL(full, v, ttl)
+	return true, nil
 }
 
 func NewHybridCache[V any](cfg HybridCacheConfig[V]) *HybridCache[V] {

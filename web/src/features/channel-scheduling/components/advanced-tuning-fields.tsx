@@ -87,7 +87,7 @@ export function AdvancedTuningFields(props: AdvancedTuningFieldsProps) {
             <FieldLegend>{t('Session affinity')}</FieldLegend>
             <FieldDescription>
               {t(
-                'When enabled, intelligent scheduling gives a small bonus to the last successful channel for stable Codex or client session keys. Health, priority, concurrency, and retry rules remain authoritative.'
+                'When enabled, reliable session keys bind a session to its assigned channel while it remains available. New sessions still use global intelligent scheduling, and failures trigger reassignment.'
               )}
             </FieldDescription>
             <Controller
@@ -97,11 +97,11 @@ export function AdvancedTuningFields(props: AdvancedTuningFieldsProps) {
                 <Field className='flex flex-row items-center justify-between gap-4 rounded-md border p-4'>
                   <div className='space-y-1'>
                     <FieldLabel htmlFor='soft-affinity-enabled'>
-                      {t('Enable soft session affinity')}
+                      {t('Enable session channel binding')}
                     </FieldLabel>
                     <FieldDescription>
                       {t(
-                        'The scheduler still makes the final channel decision; disabling this keeps intelligent scheduling behavior unchanged.'
+                        'Existing sessions stay on their assigned channel until it is unavailable; new sessions continue to use intelligent scheduling.'
                       )}
                     </FieldDescription>
                   </div>

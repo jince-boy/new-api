@@ -385,7 +385,7 @@ func TestSoftChannelAffinityIsOptInForIntelligentGroups(t *testing.T) {
 	assert.True(t, ShouldUseSoftChannelAffinityForRequest(&RetryParam{TokenGroup: group}))
 }
 
-func TestSmoothWeightedSoftAffinityIsBoundedAndKeepsOtherChannelsInRotation(t *testing.T) {
+func TestSmoothWeightedSessionBindingSchedulerKeepsWeightedRotation(t *testing.T) {
 	key := schedulingPoolKey{Group: "bounded-soft-affinity", Model: "gpt-test", Priority: 10}
 	channelScheduler.poolsMu.Lock()
 	delete(channelScheduler.pools, key)
@@ -399,13 +399,14 @@ func TestSmoothWeightedSoftAffinityIsBoundedAndKeepsOtherChannelsInRotation(t *t
 	channels := []*model.Channel{{Id: 1, Name: "regular"}, {Id: 2, Name: "affinity"}}
 	selected := map[int]int{}
 	for range 9 {
-		channel := selectSmoothWeightedEligibleChannelWithAffinity(key, channels, channels, 2)
+		channel := selectSmoothWeightedEligibleChannel(key, channels, channels)
 		require.NotNil(t, channel)
 		selected[channel.Id]++
 	}
 
-	assert.Equal(t, 4, selected[1])
-	assert.Equal(t, 5, selected[2])
+	assert.Equal(t, 9, selected[1]+selected[2])
+	assert.NotZero(t, selected[1])
+	assert.NotZero(t, selected[2])
 	assert.Equal(t, intelligentSchedulingBaseWeight, getSchedulingPool(key).channels[2].BaseWeight)
 }
 
@@ -422,11 +423,10 @@ func TestSmoothWeightedSoftAffinityCannotSelectIneligibleChannel(t *testing.T) {
 
 	affinity := &model.Channel{Id: 1, Name: "affinity"}
 	eligible := &model.Channel{Id: 2, Name: "eligible"}
-	selected := selectSmoothWeightedEligibleChannelWithAffinity(
+	selected := selectSmoothWeightedEligibleChannel(
 		key,
 		[]*model.Channel{affinity, eligible},
 		[]*model.Channel{eligible},
-		affinity.Id,
 	)
 
 	require.NotNil(t, selected)

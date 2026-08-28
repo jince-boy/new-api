@@ -179,11 +179,6 @@ func Distribute() func(c *gin.Context) {
 				ModelName:   modelRequest.Model,
 				TokenGroup:  usingGroup,
 				RequestPath: c.Request.URL.Path,
-			}) || service.ShouldUseSoftChannelAffinityForRequest(&service.RetryParam{
-				Ctx:         c,
-				ModelName:   modelRequest.Model,
-				TokenGroup:  usingGroup,
-				RequestPath: c.Request.URL.Path,
 			}) {
 				service.RecordChannelAffinity(c, channel.Id)
 			}

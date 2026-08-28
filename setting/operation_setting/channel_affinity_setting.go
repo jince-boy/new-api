@@ -51,6 +51,7 @@ var codexCliPassThroughHeaders = []string{
 	"Thread_id",
 	"Session-Id",
 	"Thread-Id",
+	"X-Session-ID",
 	"X-Client-Request-Id",
 	"User-Agent",
 	"X-Codex-Beta-Features",
@@ -122,6 +123,7 @@ var channelAffinitySetting = ChannelAffinitySetting{
 			ModelRegex: []string{"^gpt-.*$"},
 			PathRegex:  []string{"/v1/responses"},
 			KeySources: []ChannelAffinityKeySource{
+				{Type: "request_header", Key: "X-Session-ID"},
 				{Type: "request_header", Key: "Session-Id"},
 				{Type: "request_header", Key: "Thread-Id"},
 				{Type: "request_header", Key: "Session_id"},

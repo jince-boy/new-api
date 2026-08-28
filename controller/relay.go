@@ -573,6 +573,18 @@ func processChannelError(c *gin.Context, relayInfo *relaycommon.RelayInfo, chann
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 	usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
+	if relayInfo != nil && !relayInfo.UpstreamStartTime.IsZero() && service.IsIntelligentSchedulingFaultError(err) &&
+		service.ShouldUseSessionChannelBinding(&service.RetryParam{
+			Ctx:         c,
+			ModelName:   relayInfo.OriginModelName,
+			TokenGroup:  usingGroup,
+			RequestPath: c.Request.URL.Path,
+		}) {
+		// A real upstream failure ends the current session assignment. The next
+		// retry/new request re-enters intelligent scheduling and establishes a
+		// replacement binding with first-writer-wins semantics.
+		service.ClearChannelAffinityOnUpstreamFailure(c, channelError.ChannelId)
+	}
 	if !service.IsIntelligentSchedulingForGroup(usingGroup) && service.ShouldDisableChannel(err) && channelError.AutoBan {
 		gopool.Go(func() {
 			service.DisableChannel(channelError, err.ErrorWithStatusCode())

@@ -208,7 +208,7 @@ func TestIntelligentSchedulingExhaustsCurrentPriorityBeforeFailover(t *testing.T
 	assert.Len(t, selectedChannels, 3)
 }
 
-func TestIntelligentSoftAffinityCannotCrossPriorityOrRetryExclusion(t *testing.T) {
+func TestIntelligentSessionBindingReusesHealthyChannelAndMigratesAfterRetryExclusion(t *testing.T) {
 	db := setupChannelSchedulerPersistenceTest(t)
 	const group = "scheduler-soft-affinity-boundary-test"
 	createSchedulerCandidate(t, db, 91104, group, 20)
@@ -254,9 +254,9 @@ func TestIntelligentSoftAffinityCannotCrossPriorityOrRetryExclusion(t *testing.T
 	require.NoError(t, err)
 	require.NotNil(t, first)
 	assert.Equal(t, group, selectedGroup)
-	assert.Equal(t, int64(20), first.GetPriority())
-	assert.NotEqual(t, 91106, first.Id)
-	assert.False(t, ctx.GetBool(ginKeyChannelAffinityUsed))
+	assert.Equal(t, 91106, first.Id)
+	assert.Equal(t, int64(10), first.GetPriority())
+	assert.True(t, ctx.GetBool(ginKeyChannelAffinityUsed))
 
 	require.NoError(t, cache.SetWithTTL(cacheKey, first.Id, time.Minute))
 	param.MarkAttempted(first.Id)
