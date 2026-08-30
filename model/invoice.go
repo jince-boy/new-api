@@ -33,6 +33,7 @@ var (
 	ErrInvoicePaymentOrderNotFound  = errors.New("invoice payment order not found")
 	ErrInvoicePaymentOrderInvalid   = errors.New("invoice payment order status invalid")
 	ErrInvoicePaymentMethodMismatch = errors.New("invoice payment method mismatch")
+	ErrWalletQuotaInsufficient      = errors.New("wallet quota insufficient")
 )
 
 type InvoiceApplication struct {
@@ -241,4 +242,37 @@ func UpdateInvoicePaymentOrder(tradeNo string, update func(*gorm.DB, *InvoicePay
 		}
 		return update(tx, &order)
 	})
+}
+
+// ChargeUserQuotaTx atomically checks and deducts wallet quota in an existing
+// transaction. The caller must update its business record in the same tx.
+func ChargeUserQuotaTx(tx *gorm.DB, userId int, quota int) error {
+	if tx == nil || userId <= 0 || quota <= 0 {
+		return errors.New("invalid wallet quota charge")
+	}
+	var user User
+	if err := lockForUpdate(tx).Select("id", "quota").Where("id = ?", userId).First(&user).Error; err != nil {
+		return err
+	}
+	if user.Quota < quota {
+		return ErrWalletQuotaInsufficient
+	}
+	result := tx.Model(&User{}).Where("id = ? AND quota >= ?", userId, quota).
+		Update("quota", gorm.Expr("quota - ?", quota))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected != 1 {
+		return ErrWalletQuotaInsufficient
+	}
+	return nil
+}
+
+// SyncUserQuotaCacheDelta applies a committed wallet delta to Redis when enabled.
+func SyncUserQuotaCacheDelta(userId int, delta int) error {
+	if !common.RedisEnabled || delta == 0 {
+		return nil
+	}
+	_, err := cacheApplyUserQuotaDelta(userId, int64(delta))
+	return err
 }

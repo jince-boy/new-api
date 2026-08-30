@@ -18,6 +18,7 @@ const t = ((key: string) => key) as TFunction
 
 const baseRules = {
   enabled: true,
+  supplementPaymentMethod: 'epay',
   taxBurdenMode: 'supplement_by_customer',
   minimumAmount: 0,
   applicationWindowDays: 365,
@@ -64,6 +65,20 @@ describe('invoice rule validation', () => {
     assert.equal(result.success, false)
     if (!result.success) {
       assert.deepEqual(result.error.issues[0]?.path, ['currency'])
+    }
+  })
+
+  test('rejects an unsupported invoice supplement payment method', () => {
+    const result = createInvoiceRuleSchema(t).safeParse({
+      ...baseRules,
+      supplementPaymentMethod: 'manual_transfer',
+    })
+
+    assert.equal(result.success, false)
+    if (!result.success) {
+      assert.deepEqual(result.error.issues[0]?.path, [
+        'supplementPaymentMethod',
+      ])
     }
   })
 })

@@ -155,6 +155,7 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
     (application.status === 'approved' || application.status === 'issued')
   const emailAction = getInvoiceEmailAction(application, props.isAdmin)
   const orders = application.orders ?? []
+  const payingFromBalance = paymentMethod === 'balance'
 
   return (
     <Dialog open onOpenChange={props.onOpenChange}>
@@ -414,6 +415,16 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
                 application.currency
               )}
             </p>
+            {payingFromBalance ? (
+              <Alert>
+                <AlertTitle>{t('Balance payment')}</AlertTitle>
+                <AlertDescription>
+                  {t(
+                    'The supplement will be deducted immediately. Payment fails without changing the invoice when the balance is insufficient.'
+                  )}
+                </AlertDescription>
+              </Alert>
+            ) : null}
             {props.paymentMethods.length > 0 ? (
               <div className='flex flex-col gap-3 sm:flex-row sm:items-end'>
                 <Field className='flex-1'>
@@ -421,7 +432,10 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
                   <Select
                     items={props.paymentMethods.map((method) => ({
                       value: method.type,
-                      label: method.name,
+                      label:
+                        method.type === 'balance'
+                          ? t('Pay from balance')
+                          : method.name,
                     }))}
                     value={paymentMethod}
                     onValueChange={setPaymentMethod}
@@ -433,7 +447,9 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
                       <SelectGroup>
                         {props.paymentMethods.map((method) => (
                           <SelectItem key={method.type} value={method.type}>
-                            {method.name}
+                            {method.type === 'balance'
+                              ? t('Pay from balance')
+                              : method.name}
                           </SelectItem>
                         ))}
                       </SelectGroup>
@@ -448,7 +464,7 @@ export function InvoiceDetailsDialog(props: InvoiceDetailsDialogProps) {
                     icon={Payment01Icon}
                     data-icon='inline-start'
                   />
-                  {t('Pay now')}
+                  {payingFromBalance ? t('Deduct from balance') : t('Pay now')}
                 </Button>
               </div>
             ) : (

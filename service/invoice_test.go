@@ -13,6 +13,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/invoice_setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -278,6 +279,93 @@ func TestInvoiceReviewThenOnlinePaymentCompletesWithoutCreatingTopUp(t *testing.
 	var topUpCount int64
 	require.NoError(t, model.DB.Model(&model.TopUp{}).Where("trade_no = ?", "invoice-payment-test").Count(&topUpCount).Error)
 	assert.Zero(t, topUpCount, "invoice supplement payment must never credit wallet quota")
+}
+
+func TestInvoiceSupplementBalancePaymentChecksAndDeductsWalletAtomically(t *testing.T) {
+	require.NoError(t, model.DB.AutoMigrate(&model.User{}, &model.InvoiceApplication{}, &model.InvoicePaymentOrder{}))
+	setting := invoice_setting.GetInvoiceSetting()
+	originalSetting := *setting
+	originalQuotaPerUnit := common.QuotaPerUnit
+	originalExchangeRate := operation_setting.USDExchangeRate
+	setting.SupplementPaymentMethod = invoice_setting.SupplementPaymentMethodBalance
+	common.QuotaPerUnit = 500_000
+	operation_setting.USDExchangeRate = 7.3
+
+	user := model.User{Username: fmt.Sprintf("invoice-balance-%d", time.Now().UnixNano()), AffCode: fmt.Sprintf("invoice-balance-code-%d", time.Now().UnixNano()), Quota: 500_000}
+	require.NoError(t, model.DB.Create(&user).Error)
+	application := model.InvoiceApplication{
+		UserId: user.Id, Status: model.InvoiceStatusPendingPayment,
+		PaymentStatus: model.InvoicePaymentPending, FinalSupplementCents: 730,
+		Currency: "CNY", CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+	}
+	require.NoError(t, model.DB.Create(&application).Error)
+
+	t.Cleanup(func() {
+		*setting = originalSetting
+		common.QuotaPerUnit = originalQuotaPerUnit
+		operation_setting.USDExchangeRate = originalExchangeRate
+		model.LOG_DB.Where("request_id LIKE ?", fmt.Sprintf("INVBALUSR%dNO%%", user.Id)).Delete(&model.Log{})
+		model.DB.Where("application_id = ?", application.Id).Delete(&model.InvoicePaymentOrder{})
+		model.DB.Delete(&model.InvoiceApplication{}, application.Id)
+		model.DB.Delete(&model.User{}, user.Id)
+	})
+
+	order, err := PayInvoiceSupplementWithBalance(application.Id, user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, model.PaymentProviderBalance, order.PaymentProvider)
+	assert.Equal(t, "charged_quota=500000", order.ProviderPayload)
+
+	quota, err := model.GetUserQuota(user.Id, true)
+	require.NoError(t, err)
+	assert.Zero(t, quota)
+	paid, err := model.GetInvoiceApplication(application.Id, user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, model.InvoiceStatusApproved, paid.Status)
+	assert.Equal(t, model.InvoicePaymentPaid, paid.PaymentStatus)
+	assert.Equal(t, model.PaymentMethodBalance, paid.PaymentMethod)
+
+	_, err = PayInvoiceSupplementWithBalance(application.Id, user.Id)
+	assert.ErrorIs(t, err, model.ErrInvoiceStatusInvalid)
+	quota, err = model.GetUserQuota(user.Id, true)
+	require.NoError(t, err)
+	assert.Zero(t, quota, "a repeated payment must not deduct the wallet twice")
+}
+
+func TestInvoiceSupplementBalancePaymentLeavesInvoicePendingWhenBalanceIsInsufficient(t *testing.T) {
+	require.NoError(t, model.DB.AutoMigrate(&model.User{}, &model.InvoiceApplication{}, &model.InvoicePaymentOrder{}))
+	setting := invoice_setting.GetInvoiceSetting()
+	originalSetting := *setting
+	originalQuotaPerUnit := common.QuotaPerUnit
+	originalExchangeRate := operation_setting.USDExchangeRate
+	setting.SupplementPaymentMethod = invoice_setting.SupplementPaymentMethodBalance
+	common.QuotaPerUnit = 500_000
+	operation_setting.USDExchangeRate = 7.3
+
+	user := model.User{Username: fmt.Sprintf("invoice-low-balance-%d", time.Now().UnixNano()), AffCode: fmt.Sprintf("invoice-low-balance-code-%d", time.Now().UnixNano()), Quota: 499_999}
+	require.NoError(t, model.DB.Create(&user).Error)
+	application := model.InvoiceApplication{
+		UserId: user.Id, Status: model.InvoiceStatusPendingPayment,
+		PaymentStatus: model.InvoicePaymentPending, FinalSupplementCents: 730,
+		Currency: "CNY", CreatedAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(),
+	}
+	require.NoError(t, model.DB.Create(&application).Error)
+	t.Cleanup(func() {
+		*setting = originalSetting
+		common.QuotaPerUnit = originalQuotaPerUnit
+		operation_setting.USDExchangeRate = originalExchangeRate
+		model.DB.Delete(&model.InvoiceApplication{}, application.Id)
+		model.DB.Delete(&model.User{}, user.Id)
+	})
+
+	_, err := PayInvoiceSupplementWithBalance(application.Id, user.Id)
+	assert.ErrorIs(t, err, model.ErrWalletQuotaInsufficient)
+	quota, err := model.GetUserQuota(user.Id, true)
+	require.NoError(t, err)
+	assert.Equal(t, 499_999, quota)
+	pending, err := model.GetInvoiceApplication(application.Id, user.Id)
+	require.NoError(t, err)
+	assert.Equal(t, model.InvoiceStatusPendingPayment, pending.Status)
+	assert.Equal(t, model.InvoicePaymentPending, pending.PaymentStatus)
 }
 
 func TestCreateInvoiceApplicationRejectsApplicantNoteOverLimit(t *testing.T) {

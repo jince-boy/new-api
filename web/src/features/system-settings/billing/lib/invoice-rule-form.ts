@@ -18,6 +18,7 @@ export function createInvoiceRuleSchema(t: TFunction) {
 
   return z.object({
     enabled: z.boolean(),
+    supplementPaymentMethod: z.enum(['epay', 'balance']),
     taxBurdenMode: z.enum(['included', 'supplement_by_customer']),
     minimumAmount: z.coerce
       .number()

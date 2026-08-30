@@ -110,16 +110,29 @@ export function Invoices() {
         detailsTarget.id,
         paymentMethod
       )
-      if (!response.success || !response.url || !response.data) {
+      if (!response.success) {
         throw new Error(response.message || t('Payment request failed'))
       }
-      return { url: response.url, data: response.data }
+      if (response.settled) return { settled: true as const }
+      if (!response.url || !response.data) {
+        throw new Error(response.message || t('Payment request failed'))
+      }
+      return { settled: false as const, url: response.url, data: response.data }
     },
-    onSuccess: ({ url, data }) => {
-      submitPaymentForm(url, data)
+    onSuccess: async (result) => {
+      if (result.settled) {
+        toast.success(t('Invoice supplement paid from balance.'))
+        setDetailsTarget(null)
+        await refreshApplications()
+        return
+      }
+      submitPaymentForm(result.url, result.data)
       toast.success(t('Redirecting to payment page...'))
     },
-    onError: () => toast.error(t('Payment request failed')),
+    onError: (error) =>
+      toast.error(
+        error instanceof Error ? t(error.message) : t('Payment request failed')
+      ),
   })
 
   const sendMutation = useMutation({

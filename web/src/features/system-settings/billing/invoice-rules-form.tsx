@@ -131,6 +131,48 @@ export function InvoiceRulesForm(props: InvoiceRulesFormProps) {
 
               <Controller
                 control={props.form.control}
+                name='supplementPaymentMethod'
+                render={({ field }) => (
+                  <Field>
+                    <FieldLabel>
+                      {t('Invoice supplement payment method')}
+                    </FieldLabel>
+                    <Select
+                      items={[
+                        { value: 'epay', label: t('Online payment link') },
+                        {
+                          value: 'balance',
+                          label: t('User balance deduction'),
+                        },
+                      ]}
+                      value={field.value}
+                      onValueChange={field.onChange}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent alignItemWithTrigger={false}>
+                        <SelectGroup>
+                          <SelectItem value='epay'>
+                            {t('Online payment link')}
+                          </SelectItem>
+                          <SelectItem value='balance'>
+                            {t('User balance deduction')}
+                          </SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FieldDescription>
+                      {t(
+                        'Choose whether users pay the final tax supplement online or from their wallet balance.'
+                      )}
+                    </FieldDescription>
+                  </Field>
+                )}
+              />
+
+              <Controller
+                control={props.form.control}
                 name='pitWithholdingEnabled'
                 render={({ field }) => (
                   <Field orientation='horizontal'>

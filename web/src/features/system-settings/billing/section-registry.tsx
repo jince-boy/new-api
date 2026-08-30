@@ -217,6 +217,10 @@ const BILLING_SECTIONS = [
       <InvoiceManagementSection
         defaultValues={{
           enabled: settings['invoice_setting.enabled'],
+          supplementPaymentMethod:
+            settings['invoice_setting.supplement_payment_method'] === 'balance'
+              ? 'balance'
+              : 'epay',
           taxBurdenMode: settings['invoice_setting.tax_burden_mode'],
           minimumAmount: settings['invoice_setting.minimum_amount'],
           applicationWindowDays:

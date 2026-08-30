@@ -17,6 +17,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
+	"github.com/QuantumNous/new-api/setting/invoice_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/samber/lo"
@@ -57,6 +58,10 @@ func GetInvoiceConfig(c *gin.Context) {
 }
 
 func GetInvoicePaymentMethods(c *gin.Context) {
+	if invoice_setting.GetInvoiceSetting().SupplementPaymentMethod == invoice_setting.SupplementPaymentMethodBalance {
+		common.ApiSuccess(c, []map[string]string{{"name": "Balance", "type": model.PaymentMethodBalance}})
+		return
+	}
 	methods := operation_setting.PayMethods
 	if !operation_setting.IsPaymentComplianceConfirmed() || GetEpayClient() == nil {
 		methods = []map[string]string{}
@@ -279,11 +284,25 @@ func AdminDeleteInvoiceApplication(c *gin.Context) {
 }
 
 func RequestInvoiceSupplementPayment(c *gin.Context) {
-	if !requirePaymentCompliance(c) {
-		return
-	}
 	id, ok := invoiceApplicationId(c)
 	if !ok {
+		return
+	}
+	userId := c.GetInt("id")
+	if invoice_setting.GetInvoiceSetting().SupplementPaymentMethod == invoice_setting.SupplementPaymentMethodBalance {
+		order, err := service.PayInvoiceSupplementWithBalance(id, userId)
+		if err != nil {
+			if errors.Is(err, model.ErrWalletQuotaInsufficient) {
+				common.ApiErrorMsg(c, "Insufficient balance")
+				return
+			}
+			common.ApiErrorMsg(c, err.Error())
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"success": true, "message": "success", "data": gin.H{"payment_method": model.PaymentMethodBalance}, "settled": true, "trade_no": order.TradeNo})
+		return
+	}
+	if !requirePaymentCompliance(c) {
 		return
 	}
 	var request invoicePaymentRequest
@@ -296,7 +315,6 @@ func RequestInvoiceSupplementPayment(c *gin.Context) {
 		common.ApiErrorMsg(c, "payment gateway is not configured")
 		return
 	}
-	userId := c.GetInt("id")
 	tradeNo := fmt.Sprintf("INVUSR%dNO%s%d", userId, common.GetRandomString(6), time.Now().UnixNano())
 	order, err := service.CreateInvoicePaymentOrder(id, userId, tradeNo, request.PaymentMethod, model.PaymentProviderEpay)
 	if err != nil {

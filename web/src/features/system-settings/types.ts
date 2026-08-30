@@ -366,6 +366,7 @@ export type BillingSettings = {
   'checkin_setting.min_quota': number
   'checkin_setting.max_quota': number
   'invoice_setting.enabled': boolean
+  'invoice_setting.supplement_payment_method': 'epay' | 'balance' | string
   'invoice_setting.tax_burden_mode': 'included' | 'supplement_by_customer'
   'invoice_setting.minimum_amount': number
   'invoice_setting.application_window_days': number

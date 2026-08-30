@@ -44,6 +44,10 @@ export function InvoiceManagementSection(props: InvoiceManagementSectionProps) {
     mutationFn: async (values: InvoiceRuleFormValues) => {
       const updates = [
         ['invoice_setting.enabled', values.enabled],
+        [
+          'invoice_setting.supplement_payment_method',
+          values.supplementPaymentMethod,
+        ],
         ['invoice_setting.tax_burden_mode', values.taxBurdenMode],
         ['invoice_setting.minimum_amount', values.minimumAmount],
         [

@@ -5,6 +5,10 @@ import "github.com/QuantumNous/new-api/setting/config"
 const (
 	TaxBurdenIncluded   = "included"
 	TaxBurdenSupplement = "supplement_by_customer"
+
+	SupplementPaymentMethodEpay      = "epay"
+	SupplementPaymentMethodBalance   = "balance"
+	SupplementPaymentMethodOptionKey = "invoice_setting.supplement_payment_method"
 )
 
 // InvoiceSetting describes the tax-estimation policy used when an individual
@@ -13,6 +17,7 @@ const (
 // defaults never rewrites an existing application.
 type InvoiceSetting struct {
 	Enabled                            bool    `json:"enabled"`
+	SupplementPaymentMethod            string  `json:"supplement_payment_method"`
 	TaxBurdenMode                      string  `json:"tax_burden_mode"`
 	MinimumAmount                      float64 `json:"minimum_amount"`
 	ApplicationWindowDays              int     `json:"application_window_days"`
@@ -33,6 +38,7 @@ type InvoiceSetting struct {
 
 var invoiceSetting = InvoiceSetting{
 	Enabled:                            false,
+	SupplementPaymentMethod:            SupplementPaymentMethodEpay,
 	TaxBurdenMode:                      TaxBurdenSupplement,
 	MinimumAmount:                      0,
 	ApplicationWindowDays:              365,
@@ -56,6 +62,9 @@ func init() {
 }
 
 func GetInvoiceSetting() *InvoiceSetting {
+	if invoiceSetting.SupplementPaymentMethod != SupplementPaymentMethodBalance {
+		invoiceSetting.SupplementPaymentMethod = SupplementPaymentMethodEpay
+	}
 	if invoiceSetting.InvoiceItemName == "技术服务费" {
 		invoiceSetting.InvoiceItemName = "AI Agent服务"
 	}

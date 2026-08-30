@@ -113,6 +113,7 @@ const defaultBillingSettings: BillingSettings = {
   'checkin_setting.min_quota': 1000,
   'checkin_setting.max_quota': 10000,
   'invoice_setting.enabled': false,
+  'invoice_setting.supplement_payment_method': 'epay',
   'invoice_setting.tax_burden_mode': 'supplement_by_customer',
   'invoice_setting.minimum_amount': 0,
   'invoice_setting.application_window_days': 365,

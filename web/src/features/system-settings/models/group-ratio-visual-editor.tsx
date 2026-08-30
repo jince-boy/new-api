@@ -161,6 +161,7 @@ function buildGroupPricingRows(
     ...Object.keys(usableMap),
     ...Object.keys(descriptionMap),
   ])
+  names.delete('auto')
 
   return [...names].map((name) => ({
     _id: createGroupPricingId(),
@@ -207,10 +208,14 @@ function sourceGroupPricingSignature(
   userUsableGroups: string,
   groupDescriptions: string
 ): string {
+  const descriptions = parseUsableMap(groupDescriptions)
+  const usableGroups = parseUsableMap(userUsableGroups)
+  delete descriptions.auto
+  delete usableGroups.auto
   return JSON.stringify({
     groupRatio: parseRatioMap(groupRatio),
-    groupDescriptions: parseUsableMap(groupDescriptions),
-    userUsableGroups: parseUsableMap(userUsableGroups),
+    groupDescriptions: descriptions,
+    userUsableGroups: usableGroups,
   })
 }
 
@@ -344,10 +349,12 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
       ...Object.keys(usableMap),
       ...Object.keys(descriptionMap),
     ])
-    return [...names].map((name) => ({
-      name,
-      ratio: normalizeRatio(ratioMap[name]),
-    }))
+    return [...names]
+      .filter((name) => name !== 'auto')
+      .map((name) => ({
+        name,
+        ratio: normalizeRatio(ratioMap[name]),
+      }))
   }, [groupRatio, userUsableGroups, groupDescriptions])
 
   const registryNames = useMemo(
@@ -366,6 +373,32 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
       context: 'auto groups',
     })
   }, [autoGroups])
+  const autoSelectable = useMemo(
+    () => Object.hasOwn(parseUsableMap(userUsableGroups), 'auto'),
+    [userUsableGroups]
+  )
+  const autoDescription = useMemo(() => {
+    const descriptions = parseUsableMap(groupDescriptions)
+    const usableGroups = parseUsableMap(userUsableGroups)
+    return descriptions.auto ?? usableGroups.auto ?? ''
+  }, [groupDescriptions, userUsableGroups])
+
+  const handleAutoSelectableChange = useCallback(
+    (checked: boolean) => {
+      const usableGroups = parseUsableMap(userUsableGroups)
+      const descriptions = parseUsableMap(groupDescriptions)
+      if (checked) {
+        const description = descriptions.auto ?? usableGroups.auto ?? 'Auto'
+        usableGroups.auto = description
+        descriptions.auto = description
+      } else {
+        delete usableGroups.auto
+      }
+      onChange('UserUsableGroups', JSON.stringify(usableGroups, null, 2))
+      onChange('GroupDescriptions', JSON.stringify(descriptions, null, 2))
+    },
+    [groupDescriptions, onChange, userUsableGroups]
+  )
 
   const handleAutoGroupAdd = useCallback(
     (name: string) => {
@@ -411,6 +444,8 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
         groupRatio={groupRatio}
         userUsableGroups={userUsableGroups}
         groupDescriptions={groupDescriptions}
+        autoSelectable={autoSelectable}
+        autoDescription={autoDescription}
         onChange={onChange}
         onShowDetail={setDetailGroup}
       />
@@ -434,6 +469,26 @@ export const GroupRatioVisualEditor = memo(function GroupRatioVisualEditor({
         </CardHeader>
         <CardContent>
           <div className='space-y-4'>
+            <div className='flex items-start gap-3 rounded-md border p-3'>
+              <Checkbox
+                id='auto-group-selectable'
+                checked={autoSelectable}
+                onCheckedChange={(checked) =>
+                  handleAutoSelectableChange(checked === true)
+                }
+                aria-label={t('Allow users to select Auto')}
+              />
+              <div className='space-y-1'>
+                <Label htmlFor='auto-group-selectable'>
+                  {t('Allow users to select Auto')}
+                </Label>
+                <p className='text-muted-foreground text-sm'>
+                  {t(
+                    'Auto is a virtual routing group. It follows the assignment order below and has no billing ratio of its own.'
+                  )}
+                </p>
+              </div>
+            </div>
             {maxTokenAutoGroupsField}
             <GroupNameSelect
               options={autoGroupCandidates}
@@ -679,6 +734,8 @@ type GroupPricingTableProps = {
   groupRatio: string
   userUsableGroups: string
   groupDescriptions: string
+  autoSelectable: boolean
+  autoDescription: string
   onChange: (field: string, value: string) => void
   onShowDetail: (name: string) => void
 }
@@ -687,6 +744,8 @@ function GroupPricingTable({
   groupRatio,
   userUsableGroups,
   groupDescriptions,
+  autoSelectable,
+  autoDescription,
   onChange,
   onShowDetail,
 }: GroupPricingTableProps) {
@@ -717,11 +776,19 @@ function GroupPricingTable({
     (nextRows: GroupPricingRow[]) => {
       setRows(nextRows)
       const serialized = serializeGroupPricingRows(nextRows)
+      const nextDescriptions = parseUsableMap(serialized.GroupDescriptions)
+      if (autoDescription !== '') {
+        nextDescriptions.auto = autoDescription
+      }
+      const nextUsableGroups = parseUsableMap(serialized.UserUsableGroups)
+      if (autoSelectable) {
+        nextUsableGroups.auto = autoDescription
+      }
       onChange('GroupRatio', serialized.GroupRatio)
-      onChange('GroupDescriptions', serialized.GroupDescriptions)
-      onChange('UserUsableGroups', serialized.UserUsableGroups)
+      onChange('GroupDescriptions', JSON.stringify(nextDescriptions, null, 2))
+      onChange('UserUsableGroups', JSON.stringify(nextUsableGroups, null, 2))
     },
-    [onChange]
+    [autoDescription, autoSelectable, onChange]
   )
 
   const updateRow = useCallback(
@@ -811,6 +878,7 @@ function GroupPricingTable({
                 cell: (row) => (
                   <Input
                     value={row.name}
+                    aria-label={t('Service group name')}
                     onChange={(event) =>
                       updateRow(row._id, 'name', event.target.value)
                     }

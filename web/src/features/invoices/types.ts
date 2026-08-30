@@ -18,6 +18,7 @@ export type InvoicePaymentStatus = 'not_required' | 'pending' | 'paid'
 
 export type InvoiceConfig = {
   enabled: boolean
+  supplement_payment_method: 'epay' | 'balance' | string
   minimum_amount: number
   currency: string
   vat_threshold_cents: number
@@ -118,6 +119,7 @@ export type InvoicePaymentResponse = InvoiceApiResponse<
 > & {
   url?: string
   trade_no?: string
+  settled?: boolean
 }
 
 export type InvoiceApiResponse<T> = {

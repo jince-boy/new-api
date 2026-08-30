@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/invoice_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/setting/performance_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -295,6 +296,10 @@ func validateOptionValue(key string, value string) error {
 		return operation_setting.ValidateAutoRecoveryInterval(value)
 	case "MaxTokenAutoGroups":
 		return setting.ValidateMaxTokenAutoGroups(value)
+	case invoice_setting.SupplementPaymentMethodOptionKey:
+		if value != invoice_setting.SupplementPaymentMethodEpay && value != invoice_setting.SupplementPaymentMethodBalance {
+			return fmt.Errorf("unsupported invoice supplement payment method")
+		}
 	}
 	return nil
 }

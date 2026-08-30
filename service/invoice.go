@@ -16,6 +16,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/invoice_setting"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
@@ -164,12 +165,13 @@ func InvoiceSupplementPaymentName(userId int, applicationId int) string {
 }
 
 type InvoicePublicConfig struct {
-	Enabled            bool    `json:"enabled"`
-	MinimumAmount      float64 `json:"minimum_amount"`
-	Currency           string  `json:"currency"`
-	VATThresholdCents  int64   `json:"vat_threshold_cents"`
-	VATRateBasisPoints int     `json:"vat_rate_basis_points"`
-	PolicyNotice       string  `json:"policy_notice"`
+	Enabled                 bool    `json:"enabled"`
+	SupplementPaymentMethod string  `json:"supplement_payment_method"`
+	MinimumAmount           float64 `json:"minimum_amount"`
+	Currency                string  `json:"currency"`
+	VATThresholdCents       int64   `json:"vat_threshold_cents"`
+	VATRateBasisPoints      int     `json:"vat_rate_basis_points"`
+	PolicyNotice            string  `json:"policy_notice"`
 }
 
 type CreateInvoiceApplicationInput struct {
@@ -183,12 +185,13 @@ type CreateInvoiceApplicationInput struct {
 func GetInvoiceConfig() InvoicePublicConfig {
 	setting := invoice_setting.GetInvoiceSetting()
 	return InvoicePublicConfig{
-		Enabled:            setting.Enabled,
-		MinimumAmount:      setting.MinimumAmount,
-		Currency:           setting.Currency,
-		VATThresholdCents:  setting.VATThresholdCents,
-		VATRateBasisPoints: setting.VATRateBasisPoints,
-		PolicyNotice:       setting.PolicyNotice,
+		Enabled:                 setting.Enabled,
+		SupplementPaymentMethod: setting.SupplementPaymentMethod,
+		MinimumAmount:           setting.MinimumAmount,
+		Currency:                setting.Currency,
+		VATThresholdCents:       setting.VATThresholdCents,
+		VATRateBasisPoints:      setting.VATRateBasisPoints,
+		PolicyNotice:            setting.PolicyNotice,
 	}
 }
 
@@ -524,6 +527,85 @@ func CreateInvoicePaymentOrder(applicationId int, userId int, tradeNo string, pa
 	return &created, nil
 }
 
+func invoiceSupplementQuota(amountCents int64, currency string) (int, error) {
+	if strings.ToUpper(strings.TrimSpace(currency)) != "CNY" || amountCents <= 0 ||
+		common.QuotaPerUnit <= 0 || math.IsNaN(common.QuotaPerUnit) || math.IsInf(common.QuotaPerUnit, 0) ||
+		operation_setting.USDExchangeRate <= 0 || math.IsNaN(operation_setting.USDExchangeRate) || math.IsInf(operation_setting.USDExchangeRate, 0) {
+		return 0, errors.New("invoice supplement amount cannot be converted to wallet quota")
+	}
+	quota := decimal.NewFromInt(amountCents).
+		Div(decimal.NewFromInt(100)).
+		Div(decimal.NewFromFloat(operation_setting.USDExchangeRate)).
+		Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
+		Ceil()
+	return common.WalletQuotaFromDecimalStrict(quota)
+}
+
+// PayInvoiceSupplementWithBalance settles an approved invoice supplement from
+// the user's wallet and records a paid invoice payment order atomically.
+func PayInvoiceSupplementWithBalance(applicationId int, userId int) (*model.InvoicePaymentOrder, error) {
+	if invoice_setting.GetInvoiceSetting().SupplementPaymentMethod != invoice_setting.SupplementPaymentMethodBalance {
+		return nil, errors.New("invoice balance payment is disabled")
+	}
+	var created model.InvoicePaymentOrder
+	chargedQuota := 0
+	tradeNo := fmt.Sprintf("INVBALUSR%dNO%s%d", userId, common.GetRandomString(6), time.Now().UnixNano())
+	err := model.DB.Transaction(func(tx *gorm.DB) error {
+		application, err := model.GetInvoiceApplicationForUpdate(tx, applicationId)
+		if err != nil {
+			return err
+		}
+		if application.UserId != userId {
+			return model.ErrInvoiceNotFound
+		}
+		if application.Status != model.InvoiceStatusPendingPayment || application.PaymentStatus != model.InvoicePaymentPending || application.FinalSupplementCents <= 0 {
+			return model.ErrInvoiceStatusInvalid
+		}
+		quota, err := invoiceSupplementQuota(application.FinalSupplementCents, application.Currency)
+		if err != nil {
+			return err
+		}
+		if err := model.ChargeUserQuotaTx(tx, userId, quota); err != nil {
+			return err
+		}
+		chargedQuota = quota
+		now := time.Now().Unix()
+		if err := tx.Model(application).Updates(map[string]interface{}{
+			"status": model.InvoiceStatusApproved, "payment_status": model.InvoicePaymentPaid,
+			"payment_trade_no": tradeNo, "payment_method": model.PaymentMethodBalance,
+			"payment_confirmed_at": now, "updated_at": now,
+		}).Error; err != nil {
+			return err
+		}
+		created = model.InvoicePaymentOrder{ApplicationId: applicationId, UserId: userId, TradeNo: tradeNo,
+			AmountCents: application.FinalSupplementCents, Currency: application.Currency,
+			PaymentMethod: model.PaymentMethodBalance, PaymentProvider: model.PaymentProviderBalance,
+			Status: model.InvoicePaymentOrderPaid, ProviderPayload: fmt.Sprintf("charged_quota=%d", quota),
+			CreateTime: now, CompleteTime: now}
+		return tx.Create(&created).Error
+	})
+	if err != nil {
+		return nil, err
+	}
+	if err := model.SyncUserQuotaCacheDelta(userId, -chargedQuota); err != nil {
+		common.SysLog("failed to decrease user quota cache after invoice balance payment: " + err.Error())
+	}
+	if err := recordInvoiceSupplementPaymentLog(&created); err != nil {
+		common.SysError("failed to record invoice balance payment log: " + err.Error())
+		return &created, nil
+	}
+	_ = model.DB.Model(&model.InvoicePaymentOrder{}).Where("trade_no = ?", created.TradeNo).Update("usage_log_recorded_at", time.Now().Unix()).Error
+	return &created, nil
+}
+
+func recordInvoiceSupplementPaymentLog(order *model.InvoicePaymentOrder) error {
+	language := model.GetUserLanguage(order.UserId)
+	copy := invoiceLocalizedCopies[normalizeInvoiceLanguage(language)]
+	amount := decimal.NewFromInt(order.AmountCents).Shift(-2).StringFixed(2)
+	content := fmt.Sprintf(copy.SupplementPaymentLogContent, order.ApplicationId, amount, order.Currency)
+	return model.RecordInvoiceSupplementLog(order.UserId, order.ApplicationId, order.TradeNo, order.AmountCents, order.Currency, order.PaymentMethod, order.PaymentProvider, content)
+}
+
 func FailInvoicePaymentOrder(tradeNo string) {
 	_ = model.DB.Model(&model.InvoicePaymentOrder{}).
 		Where("trade_no = ? AND status = ?", tradeNo, model.InvoicePaymentOrderPending).
@@ -589,25 +671,7 @@ func CompleteInvoicePaymentOrder(tradeNo string, providerPayload string, expecte
 		return err
 	}
 
-	language := model.GetUserLanguage(completedOrder.UserId)
-	copy := invoiceLocalizedCopies[normalizeInvoiceLanguage(language)]
-	amount := decimal.NewFromInt(completedOrder.AmountCents).Shift(-2).StringFixed(2)
-	content := fmt.Sprintf(
-		copy.SupplementPaymentLogContent,
-		completedOrder.ApplicationId,
-		amount,
-		completedOrder.Currency,
-	)
-	if err := model.RecordInvoiceSupplementLog(
-		completedOrder.UserId,
-		completedOrder.ApplicationId,
-		completedOrder.TradeNo,
-		completedOrder.AmountCents,
-		completedOrder.Currency,
-		completedOrder.PaymentMethod,
-		completedOrder.PaymentProvider,
-		content,
-	); err != nil {
+	if err := recordInvoiceSupplementPaymentLog(&completedOrder); err != nil {
 		return err
 	}
 
