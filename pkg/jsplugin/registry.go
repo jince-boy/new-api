@@ -20,7 +20,6 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/logger"
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 )
 
@@ -1448,7 +1447,7 @@ func validateUsageExampleValue(value any, field UsageFieldSchema) error {
 	if math.IsNaN(number) || math.IsInf(number, 0) || number < 0 {
 		return fmt.Errorf("must be a finite non-negative number")
 	}
-	limit := float64(relaycommon.MaxTaskDurationSeconds)
+	limit := float64(constant.MaxTaskDurationSeconds)
 	if field.Unit == "count" {
 		limit = float64(dto.MaxImageN)
 	} else if field.Unit == "token" || field.Unit == "credit" {

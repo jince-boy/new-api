@@ -241,14 +241,6 @@ function getCodeMirrorLanguageExtension(language: BundledLanguage | string) {
     return markdown()
   }
 
-  if (requestedLanguage === 'javascript' || requestedLanguage === 'jsx') {
-    return javascript({ jsx: requestedLanguage === 'jsx' })
-  }
-
-  if (requestedLanguage === 'typescript' || requestedLanguage === 'tsx') {
-    return javascript({ jsx: requestedLanguage === 'tsx', typescript: true })
-  }
-
   return []
 }
 

@@ -6,10 +6,10 @@ import (
 	"sort"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/samber/lo"
 )
@@ -21,6 +21,7 @@ const (
 	BillingModeField      = "billing_mode"
 	BillingExprField      = "billing_expr"
 	PerSecondRulesField   = "per_second_rules"
+	maxTaskExprSmokeTests = 64
 )
 
 // BillingSetting is managed by config.GlobalConfig.Register.
@@ -175,7 +176,7 @@ func taskUsageSmokeVectors(schema map[string]jsplugin.UsageFieldSchema) []map[st
 			dimensions = append(dimensions, usageSmokeDimension{name: name, values: []any{false, true}})
 			continue
 		}
-		limit := relaycommon.MaxTaskDurationSeconds
+		limit := constant.MaxTaskDurationSeconds
 		if field.Unit == "count" {
 			limit = dto.MaxImageN
 		}

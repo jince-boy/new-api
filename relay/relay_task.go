@@ -24,6 +24,7 @@ import (
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/sjson"
 )
@@ -35,6 +36,7 @@ type TaskSubmitResult struct {
 	Platform       constant.TaskPlatform
 	Quota          int
 	TaskRoute      *relaykitdto.AdvancedCustomRoute
+	Immediate      *relaycommon.TaskInfo
 	//PerCallPrice   types.PriceData
 }
 
@@ -306,13 +308,21 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	// 5. 计费估算：让适配器根据用户请求提供 OtherRatios（时长、分辨率等）
 	//    必须在 ModelPriceHelperPerCall 之后调用（它会重建 PriceData）。
 	//    ResolveOriginTask 可能已在 remix 路径中预设了 OtherRatios，此处合并。
-	estimatedRatios := adaptor.EstimateBilling(c, info)
-	estimatedRatios = filterConditionalPerSecondRatios(estimatedRatios, hasPerSecondRules)
-	estimatedRatios, err = prepareTaskBillingRatios(c, modelName, estimatedRatios)
-	if err != nil {
-		return nil, service.TaskErrorWrapperLocal(err, "invalid_billing_duration", http.StatusBadRequest)
-	}
-	if len(estimatedRatios) > 0 {
+	if info.TieredBillingSnapshot == nil {
+		var estimatedRatios map[string]float64
+		if validatedProvider, ok := adaptor.(channel.TaskValidatedBillingProvider); ok {
+			estimatedRatios, err = validatedProvider.EstimateBillingValidated(c, info)
+			if err != nil {
+				return nil, service.TaskErrorWrapperLocal(err, "plugin_usage_invalid", http.StatusBadRequest)
+			}
+		} else {
+			estimatedRatios = adaptor.EstimateBilling(c, info)
+		}
+		estimatedRatios = filterConditionalPerSecondRatios(estimatedRatios, hasPerSecondRules)
+		estimatedRatios, err = prepareTaskBillingRatios(c, modelName, estimatedRatios)
+		if err != nil {
+			return nil, service.TaskErrorWrapperLocal(err, "invalid_billing_duration", http.StatusBadRequest)
+		}
 		for k, v := range estimatedRatios {
 			info.PriceData.AddOtherRatio(k, v)
 		}
@@ -381,14 +391,16 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 
 	// 11. 提交后计费调整：让适配器根据上游实际返回调整 OtherRatios
 	finalQuota := info.PriceData.Quota
-	adjustedRatios := adaptor.AdjustBillingOnSubmit(info, taskData)
-	adjustedRatios = filterConditionalPerSecondRatios(adjustedRatios, hasPerSecondRules)
-	if len(adjustedRatios) > 0 {
-		if adjustedQuota, ok := recalcQuotaFromRatios(info, adjustedRatios); ok {
-			// 基于调整后的 ratios 重新计算 quota
-			finalQuota = adjustedQuota
-			info.PriceData.ReplaceOtherRatios(adjustedRatios)
-			info.PriceData.Quota = finalQuota
+	if info.TieredBillingSnapshot == nil {
+		adjustedRatios := adaptor.AdjustBillingOnSubmit(info, parsed.TaskData)
+		adjustedRatios = filterConditionalPerSecondRatios(adjustedRatios, hasPerSecondRules)
+		if len(adjustedRatios) > 0 {
+			if adjustedQuota, ok := recalcQuotaFromRatios(info, adjustedRatios); ok {
+				// 基于调整后的 ratios 重新计算 quota
+				finalQuota = adjustedQuota
+				info.PriceData.ReplaceOtherRatios(adjustedRatios)
+				info.PriceData.Quota = finalQuota
+			}
 		}
 	}
 
@@ -396,7 +408,7 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	if provider, ok := adaptor.(channel.TaskRouteSnapshotProvider); ok {
 		taskRoute = provider.TaskRouteSnapshot()
 	}
-	storedTaskData := taskData
+	storedTaskData := parsed.TaskData
 	if taskRoute != nil && taskRoute.Task != nil {
 		taskIDPath := strings.TrimSpace(taskRoute.Task.SubmitResponse.TaskIDPath)
 		if taskIDPath != "" {
@@ -407,11 +419,13 @@ func RelayTaskSubmit(c *gin.Context, info *relaycommon.RelayInfo) (*TaskSubmitRe
 	}
 
 	return &TaskSubmitResult{
-		UpstreamTaskID: upstreamTaskID,
+		UpstreamTaskID: parsed.UpstreamTaskID,
 		TaskData:       storedTaskData,
+		ClientResponse: parsed.ClientResponse,
 		Platform:       platform,
 		Quota:          finalQuota,
 		TaskRoute:      taskRoute,
+		Immediate:      parsed.Immediate,
 	}, nil
 }
 

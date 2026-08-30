@@ -185,7 +185,9 @@ export interface LogOtherData {
       content_type?: string
       body?: string
     }
+    task_plugin?: TaskPluginInfo
   }
+  root_info?: { task_plugin?: TaskPluginRuntimeInfo; upstream_task_id?: string; node_name?: string }
   // Language-independent operation descriptor (audit/login logs).
   // Frontend renders localized content from action + params via i18n templates.
   op?: {
@@ -362,6 +364,7 @@ export interface TaskLog {
   data?: unknown
   fail_reason?: string
   result_url?: string
+  legacy_video_available?: boolean
   status: string // NOT_START, SUBMITTED, IN_PROGRESS, SUCCESS, FAILURE, QUEUED, UNKNOWN
   admin_info?: {
     request_id?: string

@@ -60,8 +60,7 @@ function getColumnVisibilityStorageKey(
   logCategory: LogCategory,
   viewAccess: LogsViewAccess
 ): string {
-  const scope = isAdmin ? 'admin' : 'user'
-  return `usage-logs:${logCategory}:${scope}:column-visibility`
+  return `usage-logs:${logCategory}:${viewAccess}:column-visibility`
 }
 
 function deserializeLogTypeFilter(value: unknown): unknown[] {

@@ -3,15 +3,10 @@ package model
 import (
 	"testing"
 
-	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/stretchr/testify/assert"
 )
 
 func TestToOpenAIVideoHidesPrivateUpstreamResultURL(t *testing.T) {
-	originalServerAddress := system_setting.ServerAddress
-	t.Cleanup(func() { system_setting.ServerAddress = originalServerAddress })
-	system_setting.ServerAddress = "https://gateway.example.com"
-
 	task := &Task{
 		TaskID: "task_public_123",
 		Status: TaskStatusSuccess,
@@ -22,8 +17,7 @@ func TestToOpenAIVideoHidesPrivateUpstreamResultURL(t *testing.T) {
 
 	video := task.ToOpenAIVideo()
 
-	assert.Equal(t, "https://gateway.example.com/v1/videos/task_public_123/content", video.Metadata["url"])
-	assert.NotContains(t, video.Metadata["url"], "private-upstream")
+	assert.Nil(t, video.Metadata)
 }
 
 func TestToOpenAIVideoOmitsContentURLBeforeSuccess(t *testing.T) {

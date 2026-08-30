@@ -11,8 +11,8 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/dto"
+	"github.com/QuantumNous/new-api/logger"
 	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 )
@@ -212,6 +212,24 @@ func GetRandomSatisfiedChannel(
 	}
 	// return null if no channel is not found
 	return nil, errors.New("channel not found")
+}
+
+func filterChannelsByRequestPathAndModel(channels []int, requestPath string, modelName string) []int {
+	if requestPath == "" || len(channels) == 0 {
+		return channels
+	}
+	filtered := make([]int, 0, len(channels))
+	for _, channelID := range channels {
+		channel, ok := channelsIDM[channelID]
+		if !ok || channel.Type != constant.ChannelTypeAdvancedCustom {
+			filtered = append(filtered, channelID)
+			continue
+		}
+		if config := channel2advancedCustomConfig[channelID]; config != nil && config.SupportsPathForModel(requestPath, modelName) {
+			filtered = append(filtered, channelID)
+		}
+	}
+	return filtered
 }
 
 func CacheGetChannel(id int) (*Channel, error) {

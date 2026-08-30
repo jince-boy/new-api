@@ -394,7 +394,11 @@ func GetUserTask(c *gin.Context) {
 	common.ApiSuccess(c, pageInfo)
 }
 
-func tasksToDto(tasks []*model.Task, fillUser bool, viewerRole int) []*dto.TaskDto {
+func tasksToDto(tasks []*model.Task, fillUser bool, viewerRoles ...int) []*dto.TaskDto {
+	viewerRole := common.RoleCommonUser
+	if len(viewerRoles) > 0 {
+		viewerRole = viewerRoles[0]
+	}
 	var userIDMap map[int]*model.UserBase
 	if fillUser {
 		userIDMap = make(map[int]*model.UserBase)
@@ -416,6 +420,39 @@ func tasksToDto(tasks []*model.Task, fillUser bool, viewerRole int) []*dto.TaskD
 			}
 		}
 		taskDto := relay.TaskModel2Dto(task)
+		taskDto.LegacyVideoAvailable = legacyVideoAvailable(task)
+		if task.Status == model.TaskStatusSuccess {
+			taskDto.ResultURL = ""
+			if taskFailReasonIsLegacyResultURL(task.FailReason) {
+				taskDto.FailReason = ""
+			}
+		}
+		if viewerRole >= common.RoleAdminUser {
+			adminInfo := &dto.TaskAdminInfo{}
+			if execution := task.PrivateData.Execution; execution != nil {
+				adminInfo.RequestID = execution.RequestID
+				adminInfo.RequestPath = execution.RequestPath
+				if snapshot := execution.TaskPlugin; snapshot != nil {
+					adminInfo.TaskPlugin = &dto.TaskPluginInfo{Key: snapshot.Key, Name: snapshot.Name, Version: snapshot.Version}
+					if snapshot.Author != nil {
+						adminInfo.TaskPlugin.Author = &dto.TaskPluginAuthorInfo{Name: snapshot.Author.Name, URL: snapshot.Author.URL}
+					}
+				}
+			}
+			if adminInfo.RequestID != "" || adminInfo.RequestPath != "" || adminInfo.TaskPlugin != nil {
+				taskDto.AdminInfo = adminInfo
+			}
+		}
+		if viewerRole >= common.RoleRootUser {
+			rootInfo := &dto.TaskRootInfo{UpstreamTaskID: task.PrivateData.UpstreamTaskID, NodeName: task.PrivateData.NodeName}
+			if execution := task.PrivateData.Execution; execution != nil && execution.TaskPlugin != nil {
+				snapshot := execution.TaskPlugin
+				rootInfo.TaskPlugin = &dto.TaskPluginRuntimeInfo{Key: snapshot.Key, Version: snapshot.Version, APIVersion: snapshot.APIVersion, Generation: snapshot.Generation}
+			}
+			if rootInfo.TaskPlugin != nil || rootInfo.UpstreamTaskID != "" || rootInfo.NodeName != "" {
+				taskDto.RootInfo = rootInfo
+			}
+		}
 		if !fillUser {
 			taskDto.FailReason = ""
 			taskDto.ResultURL = ""

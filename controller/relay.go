@@ -526,6 +526,9 @@ func shouldRetry(c *gin.Context, relayInfo *relaycommon.RelayInfo, openaiErr *ty
 	if _, ok := c.Get("specific_channel_id"); ok {
 		return false
 	}
+	if service.GetChannelConstraints(c).SuppressesRetry() {
+		return false
+	}
 	usingGroup := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
 	if service.IsIntelligentSchedulingForGroup(usingGroup) {
 		return retryTimes > 0 && service.ShouldRetryIntelligentSchedulingError(
@@ -1016,37 +1019,9 @@ func executeTaskSubmissionWith(
 		logger.LogInfo(c, retryLogStr)
 	}
 
-	// ── 成功：结算 + 日志 + 插入任务 ──
-	if taskErr == nil {
-		if settleErr := service.SettleBilling(c, relayInfo, result.Quota); settleErr != nil {
-			common.SysError("settle task billing error: " + settleErr.Error())
-		}
-		service.LogTaskConsumption(c, relayInfo)
-
-		task := model.InitTask(result.Platform, relayInfo)
-		task.Ip = c.ClientIP()
-		task.PrivateData.UpstreamTaskID = result.UpstreamTaskID
-		task.PrivateData.TaskRoute = result.TaskRoute
-		task.PrivateData.BillingSource = relayInfo.BillingSource
-		task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
-		task.PrivateData.TokenId = relayInfo.TokenId
-		task.PrivateData.NodeName = common.NodeName
-		task.PrivateData.BillingContext = service.NewTaskBillingContext(relayInfo)
-		task.Quota = result.Quota
-		task.Data = result.TaskData
-		task.Action = relayInfo.Action
-		if insertErr := task.Insert(); insertErr != nil {
-			common.SysError("insert task error: " + insertErr.Error())
-		}
-	}
-
 	if taskErr != nil {
-		platform := constant.TaskPlatform(c.GetString("platform"))
-		if platform == "" {
-			platform = relay.GetTaskPlatform(c)
-		}
-		service.RecordTaskSubmissionFailure(c, relayInfo, platform, taskErr)
-		respondTaskError(c, taskErr)
+		diagnostics.failed(stage, "task_error", taskErr, false)
+		return nil, taskErr
 	}
 	if result == nil {
 		taskErr = service.TaskErrorWrapperLocal(errors.New("task submission returned no result"), "task_submit_failed", http.StatusInternalServerError)
@@ -1085,15 +1060,8 @@ func executeTaskSubmissionWith(
 	task.PrivateData.SubscriptionId = relayInfo.SubscriptionId
 	task.PrivateData.TokenId = relayInfo.TokenId
 	task.PrivateData.NodeName = common.NodeName
-	task.PrivateData.BillingContext = &model.TaskBillingContext{
-		ModelPrice:      relayInfo.PriceData.ModelPrice,
-		GroupRatio:      relayInfo.PriceData.GroupRatioInfo.GroupRatio,
-		ModelRatio:      relayInfo.PriceData.ModelRatio,
-		OtherRatios:     relayInfo.PriceData.OtherRatios(),
-		OriginModelName: relayInfo.OriginModelName,
-		PerCallBilling:  common.StringsContains(constant.TaskPricePatches, relayInfo.OriginModelName) || relayInfo.PriceData.UsePrice,
-		TieredSnapshot:  relayInfo.TieredBillingSnapshot,
-	}
+	task.PrivateData.BillingContext = service.NewTaskBillingContext(relayInfo)
+	task.PrivateData.BillingContext.TieredSnapshot = relayInfo.TieredBillingSnapshot
 	task.Quota = result.Quota
 	task.Data = result.TaskData
 	task.Action = relayInfo.Action

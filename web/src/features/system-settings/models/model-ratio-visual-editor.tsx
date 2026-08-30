@@ -65,7 +65,10 @@ import {
   isBasePricingUnset,
   type ModelRow,
 } from './model-pricing-snapshots'
-import { buildModelRatioColumns } from './model-ratio-table-columns'
+import {
+  buildModelRatioColumns,
+  TASK_PRICING_MODE_FILTER,
+} from './model-ratio-table-columns'
 import {
   serializePerSecondRules,
   type PerSecondRuleConfig,
@@ -313,8 +316,9 @@ const ModelRatioVisualEditorComponent = forwardRef<
           'per-request': 0,
           'per-second': 0,
           tiered_expr: 0,
+          [TASK_PRICING_MODE_FILTER]: 0,
         } as Record<
-          'per-token' | 'per-request' | 'per-second' | 'tiered_expr',
+          'per-token' | 'per-request' | 'per-second' | 'tiered_expr' | typeof TASK_PRICING_MODE_FILTER,
           number
         >
       ),

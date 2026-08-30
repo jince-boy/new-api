@@ -30,6 +30,19 @@ type ModelRequest struct {
 	Group string `json:"group,omitempty"`
 }
 
+// channelSupportsRequestPath keeps affinity selection consistent with the
+// request-path constraint applied to normal channel candidates.
+func channelSupportsRequestPath(channel *model.Channel, requestPath, modelName string) bool {
+	if channel == nil {
+		return false
+	}
+	satisfied, _ := model.ChannelSatisfiesFilters(channel, modelName, []taskdto.ChannelFilter{{
+		Kind:        taskdto.FilterRequestPath,
+		RequestPath: requestPath,
+	}})
+	return satisfied
+}
+
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var channel *model.Channel

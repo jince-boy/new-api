@@ -32,6 +32,9 @@ var TaskPluginEnabled = true
 // used instead; the factory layer is unaffected.
 var TaskPluginOverrideEnabled = true
 
+// MaxTaskDurationSeconds caps task duration before it becomes a billing multiplier.
+const MaxTaskDurationSeconds = 3600
+
 // NormalizeTaskAction maps persisted legacy action names to the canonical task
 // action vocabulary. Unknown platform-specific actions pass through unchanged.
 func NormalizeTaskAction(action string) string {

@@ -93,6 +93,41 @@ type OpenAIVideoConverter interface {
 	ConvertToOpenAIVideo(originTask *model.Task) ([]byte, error)
 }
 
+type TaskArtifact = hosttypes.TaskArtifact
+
+type TaskArtifactClientRequest struct {
+	Method  string            `json:"method"`
+	Headers map[string]string `json:"headers,omitempty"`
+}
+
+type TaskArtifactProvider interface {
+	ListArtifacts(task *model.Task) ([]TaskArtifact, error)
+}
+
+type TaskContentRequest struct {
+	URL            string
+	Method         string
+	Headers        map[string]string
+	Body           []byte
+	Credentialless bool
+}
+
+type TaskContentRequestProvider interface {
+	BuildContentRequest(task *model.Task, artifactKey string, clientRequest TaskArtifactClientRequest) (*TaskContentRequest, error)
+}
+
+type TaskUsageFactsProvider interface {
+	ExtractUsageFacts(c *gin.Context, info *relaycommon.RelayInfo) map[string]any
+}
+
+type TaskValidatedBillingProvider interface {
+	EstimateBillingValidated(c *gin.Context, info *relaycommon.RelayInfo) (map[string]float64, error)
+}
+
+type TaskValidatedUsageFactsProvider interface {
+	ExtractUsageFactsValidated(c *gin.Context, info *relaycommon.RelayInfo) (map[string]any, error)
+}
+
 // TaskRouteSnapshotProvider exposes the exact advanced-custom route selected
 // for a submitted task. Persisting this snapshot keeps in-flight tasks
 // pollable even when the channel configuration is edited later.

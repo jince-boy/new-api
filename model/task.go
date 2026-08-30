@@ -110,6 +110,9 @@ type TaskPrivateData struct {
 	UpstreamTaskID string                   `json:"upstream_task_id,omitempty"` // 上游真实 task ID
 	ResultURL      string                   `json:"result_url,omitempty"`       // 任务成功后的结果 URL（视频地址等）
 	TaskRoute      *dto.AdvancedCustomRoute `json:"advanced_custom_task_route,omitempty"`
+	// Execution records safe, immutable request provenance. It lives next to
+	// other private task state so public task DTOs cannot expose it by accident.
+	Execution *TaskExecutionSnapshot `json:"execution,omitempty"`
 	// 计费上下文：用于异步退款/差额结算（轮询阶段读取）
 	BillingSource  string              `json:"billing_source,omitempty"`  // "wallet" 或 "subscription"
 	SubscriptionId int                 `json:"subscription_id,omitempty"` // 订阅 ID，用于订阅退款
@@ -147,16 +150,17 @@ type TaskPluginAuthorSnapshot struct {
 
 // TaskBillingContext 记录任务提交时的计费参数，以便轮询阶段可以重新计算额度。
 type TaskBillingContext struct {
-	ModelPrice                  float64            `json:"model_price,omitempty"`       // 模型单价
-	UserGroup                   string             `json:"user_group,omitempty"`        // 用户分组，用于特殊倍率规则
-	GroupRatio                  float64            `json:"group_ratio,omitempty"`       // 分组倍率
-	ModelRatio                  float64            `json:"model_ratio,omitempty"`       // 模型倍率
-	OtherRatios                 map[string]float64 `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
-	OriginModelName             string             `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
-	BillingMode                 string             `json:"billing_mode,omitempty"`
-	PerSecondPricingRule        string             `json:"per_second_pricing_rule,omitempty"`
-	PerSecondPricingRuleMatched bool               `json:"per_second_pricing_rule_matched,omitempty"`
-	PerCallBilling              bool               `json:"per_call_billing,omitempty"` // 按次计费：跳过轮询阶段的差额结算
+	ModelPrice                  float64                      `json:"model_price,omitempty"`       // 模型单价
+	UserGroup                   string                       `json:"user_group,omitempty"`        // 用户分组，用于特殊倍率规则
+	GroupRatio                  float64                      `json:"group_ratio,omitempty"`       // 分组倍率
+	ModelRatio                  float64                      `json:"model_ratio,omitempty"`       // 模型倍率
+	OtherRatios                 map[string]float64           `json:"other_ratios,omitempty"`      // 附加倍率（时长、分辨率等）
+	OriginModelName             string                       `json:"origin_model_name,omitempty"` // 模型名称，必须为OriginModelName
+	BillingMode                 string                       `json:"billing_mode,omitempty"`
+	PerSecondPricingRule        string                       `json:"per_second_pricing_rule,omitempty"`
+	PerSecondPricingRuleMatched bool                         `json:"per_second_pricing_rule_matched,omitempty"`
+	PerCallBilling              bool                         `json:"per_call_billing,omitempty"` // 按次计费：跳过轮询阶段的差额结算
+	TieredSnapshot              *billingexpr.BillingSnapshot `json:"tiered_snapshot,omitempty"`
 }
 
 // GetUpstreamTaskID 获取上游真实 task ID（用于与 provider 通信）
@@ -440,6 +444,17 @@ func GetByTaskIdsForPlatforms(userID int, platforms []constant.TaskPlatform, tas
 	return tasks, nil
 }
 
+// GetByTaskIds keeps the legacy multi-task query used by the Suno-compatible
+// endpoint while newer plugin APIs use the platform-scoped variant above.
+func GetByTaskIds(userID int, taskIDs []any) ([]*Task, error) {
+	if len(taskIDs) == 0 {
+		return nil, nil
+	}
+	var tasks []*Task
+	err := DB.Where("user_id = ? AND task_id IN ?", userID, taskIDs).Find(&tasks).Error
+	return tasks, err
+}
+
 // GetTaskForProtocolObservation reloads one public task through the ownership
 // boundary used by long-lived plugin protocol observers. A missing task,
 // foreign user, and wrong plugin platform are deliberately indistinguishable.
@@ -611,9 +626,12 @@ func (t *Task) ToOpenAIVideo() *dto.OpenAIVideo {
 	openAIVideo.Model = t.Properties.OriginModelName
 	openAIVideo.SetProgressStr(t.Progress)
 	openAIVideo.CreatedAt = t.CreatedAt
-	openAIVideo.CompletedAt = t.UpdatedAt
 	if t.Status == TaskStatusSuccess {
-		openAIVideo.SetMetadata("url", t.GetPublicVideoURL())
+		if t.FinishTime != 0 {
+			openAIVideo.CompletedAt = t.FinishTime
+		} else {
+			openAIVideo.CompletedAt = t.UpdatedAt
+		}
 	}
 	return openAIVideo
 }

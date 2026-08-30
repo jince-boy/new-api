@@ -18,7 +18,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/logger"
 	"github.com/QuantumNous/new-api/model"
-	advancedcustom "github.com/QuantumNous/new-api/relay/channel/advancedcustom"
+	relaychannel "github.com/QuantumNous/new-api/relay/channel"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/system_setting"
 	"github.com/gin-gonic/gin"
@@ -118,136 +118,7 @@ func VideoProxy(c *gin.Context) {
 			})
 			return
 		}
-	}
-
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, c.Request.Method, "", nil)
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to create request: %s", err.Error()))
-		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy request")
-		return
-	}
-
-	switch channel.Type {
-	case constant.ChannelTypeGemini:
-		apiKey := task.PrivateData.Key
-		if apiKey == "" {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("Missing stored API key for Gemini task %s", taskID))
-			videoProxyError(c, http.StatusInternalServerError, "server_error", "API key not stored for task")
-			return
-		}
-		videoURL, err = getGeminiVideoURL(channel, task, apiKey)
-		if err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to resolve Gemini video URL for task %s: %s", taskID, err.Error()))
-			videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to resolve Gemini video URL")
-			return
-		}
-		req.Header.Set("x-goog-api-key", apiKey)
-	case constant.ChannelTypeVertexAi:
-		videoURL, err = getVertexVideoURL(channel, task)
-		if err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to resolve Vertex video URL for task %s: %s", taskID, err.Error()))
-			videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to resolve Vertex video URL")
-			return
-		}
-	case constant.ChannelTypeOpenAI, constant.ChannelTypeSora:
-		videoURL = fmt.Sprintf("%s/v1/videos/%s/content", baseURL, task.GetUpstreamTaskID())
-		req.Header.Set("Authorization", "Bearer "+channel.Key)
-	case constant.ChannelTypeAdvancedCustom:
-		videoURL = task.GetResultURL()
-		apiKey := task.PrivateData.Key
-		if apiKey == "" {
-			apiKey = channel.Key
-		}
-		if route := task.PrivateData.TaskRoute; route != nil && route.Task != nil {
-			videoURL, err = advancedcustom.ApplyTaskDownloadURL(videoURL, route.Task.Download, apiKey)
-			if err == nil {
-				err = advancedcustom.ApplyTaskDownloadHeaders(req.Header, route.Task.Download, apiKey, task.Properties.UpstreamModelName, task.GetUpstreamTaskID())
-			}
-			if err != nil {
-				logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to configure advanced custom video download for task %s: %s", taskID, err.Error()))
-				videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to configure video download")
-				return
-			}
-		}
-	default:
-		// Video URL is stored in PrivateData.ResultURL (fallback to FailReason for old data)
-		videoURL = task.GetResultURL()
-	}
-
-	videoURL = strings.TrimSpace(videoURL)
-	if videoURL == "" {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Video URL is empty for task %s", taskID))
-		videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to fetch video content")
-		return
-	}
-
-	if strings.HasPrefix(videoURL, "data:") {
-		if err := writeVideoDataURL(c, videoURL); err != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to decode video data URL for task %s: %s", taskID, err.Error()))
-			videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to fetch video content")
-		}
-		return
-	}
-
-	var validateErr error
-	if proxy == "" {
-		validateErr = service.ValidateSSRFProtectedFetchURL(videoURL)
-	} else {
-		fetchSetting := system_setting.GetFetchSetting()
-		validateErr = common.ValidateURLWithFetchSetting(videoURL, fetchSetting.EnableSSRFProtection, fetchSetting.AllowPrivateIp, fetchSetting.DomainFilterMode, fetchSetting.IpFilterMode, fetchSetting.DomainList, fetchSetting.IpList, fetchSetting.AllowedPorts, fetchSetting.ApplyIPFilterForDomain)
-	}
-	if validateErr != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Video URL blocked for task %s: %v", taskID, validateErr))
-		videoProxyError(c, http.StatusForbidden, "server_error", fmt.Sprintf("request blocked: %v", validateErr))
-		return
-	}
-
-	if system_setting.EnableVideoWorker() {
-		workerURL, workerErr := service.BuildVideoWorkerURL(videoURL, req.Header)
-		if workerErr != nil {
-			logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to build video worker URL for task %s: %s", taskID, workerErr.Error()))
-			videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create video download URL")
-			return
-		}
-		c.Header("Cache-Control", "private, no-store")
-		c.Header("Referrer-Policy", "no-referrer")
-		c.Redirect(http.StatusTemporaryRedirect, workerURL)
-		return
-	}
-
-	req.URL, err = url.Parse(videoURL)
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to parse URL %s: %s", videoURL, err.Error()))
-		videoProxyError(c, http.StatusInternalServerError, "server_error", "Failed to create proxy request")
-		return
-	}
-	for _, name := range []string{"Range", "If-Range", "If-None-Match", "If-Modified-Since"} {
-		if value := c.Request.Header.Get(name); value != "" {
-			req.Header.Set(name, value)
-		}
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Failed to fetch video from %s: %s", videoURL, err.Error()))
-		videoProxyError(c, http.StatusBadGateway, "server_error", "Failed to fetch video content")
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusNotModified {
-		logger.LogError(c.Request.Context(), fmt.Sprintf("Upstream returned status %d for %s", resp.StatusCode, videoURL))
-		videoProxyError(c, http.StatusBadGateway, "server_error",
-			fmt.Sprintf("Upstream service returned status %d", resp.StatusCode))
-		return
-	}
-
-	for key, values := range resp.Header {
-		for _, value := range values {
-			c.Writer.Header().Add(key, value)
-		}
+		descriptor = &relaychannel.TaskContentRequest{URL: resultURL, Method: c.Request.Method, Credentialless: true}
 	}
 	if err := proxyTaskMedia(c, task, descriptor); err != nil {
 		writeTaskMediaProxyError(c, err)

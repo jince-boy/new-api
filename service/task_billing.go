@@ -75,6 +75,15 @@ func LogTaskConsumption(c *gin.Context, info *relaycommon.RelayInfo, task *model
 	attachChannelRateLimitQueueTime(other, info)
 	attachSmartProtectionReviewTime(other, info)
 	attachTaskUpstreamDiagnostics(other, info.TaskUpstreamDiagnostics)
+	if snap := info.TieredBillingSnapshot; snap != nil {
+		other["billing_mode"] = "tiered_expr"
+		other["expr_b64"] = base64.StdEncoding.EncodeToString([]byte(snap.ExprString))
+		other["matched_tier"] = snap.EstimatedTier
+		if len(snap.UsageFacts) > 0 {
+			other["usage_facts"] = snap.UsageFacts
+		}
+	}
+	appendTaskLogInfo(task, other)
 	attachQuotaSaturation(c, info, other)
 	model.RecordConsumeLog(c, info.UserId, model.RecordConsumeLogParams{
 		ChannelId: info.ChannelId,
@@ -476,7 +485,7 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 		var hasRatioSetting bool
 		modelRatio, hasRatioSetting, _ = ratio_setting.GetModelRatio(modelName)
 		if !hasRatioSetting || modelRatio <= 0 {
-			return
+			return false
 		}
 
 		group := task.Group
@@ -499,7 +508,7 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 			}
 		}
 		if group == "" {
-			return
+			return false
 		}
 
 		finalGroupRatio = ratio_setting.GetGroupRatio(group)

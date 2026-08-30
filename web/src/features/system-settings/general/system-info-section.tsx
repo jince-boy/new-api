@@ -49,6 +49,7 @@ import { LogoUploadField } from './logo-upload-field'
 const _systemInfoSchema = z.object({
   SystemName: z.string().min(1),
   ServerAddress: z.string().optional(),
+  TaskPublicAddress: z.string().optional(),
   Logo: z.string().optional(),
   Footer: z.string().optional(),
   About: z.string().optional(),
@@ -93,6 +94,7 @@ export function SystemInfoSection({ defaultValues }: SystemInfoSectionProps) {
       error: () => t('System name is required'),
     }),
     ServerAddress: z.string().optional(),
+    TaskPublicAddress: z.string().optional(),
     Logo: z.string().optional(),
     Footer: z.string().optional(),
     About: z.string().optional(),

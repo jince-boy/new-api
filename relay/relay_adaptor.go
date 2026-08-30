@@ -36,17 +36,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/channel/siliconflow"
 	"github.com/QuantumNous/new-api/relay/channel/sub2api"
 	"github.com/QuantumNous/new-api/relay/channel/submodel"
-	taskadvancedcustom "github.com/QuantumNous/new-api/relay/channel/task/advancedcustom"
-	taskali "github.com/QuantumNous/new-api/relay/channel/task/ali"
-	taskdoubao "github.com/QuantumNous/new-api/relay/channel/task/doubao"
-	taskGemini "github.com/QuantumNous/new-api/relay/channel/task/gemini"
-	"github.com/QuantumNous/new-api/relay/channel/task/hailuo"
-	taskjimeng "github.com/QuantumNous/new-api/relay/channel/task/jimeng"
-	"github.com/QuantumNous/new-api/relay/channel/task/kling"
-	tasksora "github.com/QuantumNous/new-api/relay/channel/task/sora"
-	"github.com/QuantumNous/new-api/relay/channel/task/suno"
-	taskvertex "github.com/QuantumNous/new-api/relay/channel/task/vertex"
-	taskVidu "github.com/QuantumNous/new-api/relay/channel/task/vidu"
+	jspluginadaptor "github.com/QuantumNous/new-api/relay/channel/task/jsplugin"
 	"github.com/QuantumNous/new-api/relay/channel/tencent"
 	"github.com/QuantumNous/new-api/relay/channel/vertex"
 	"github.com/QuantumNous/new-api/relay/channel/volcengine"
@@ -167,28 +157,9 @@ func ResolveTaskPluginForPlatform(generation *pluginruntime.RoutingGeneration, p
 	if generation == nil {
 		return nil, false
 	}
-	if channelType, err := strconv.ParseInt(string(platform), 10, 64); err == nil {
-		switch channelType {
-		case constant.ChannelTypeAli:
-			return &taskali.TaskAdaptor{}
-		case constant.ChannelTypeKling:
-			return &kling.TaskAdaptor{}
-		case constant.ChannelTypeJimeng:
-			return &taskjimeng.TaskAdaptor{}
-		case constant.ChannelTypeVertexAi:
-			return &taskvertex.TaskAdaptor{}
-		case constant.ChannelTypeVidu:
-			return &taskVidu.TaskAdaptor{}
-		case constant.ChannelTypeDoubaoVideo, constant.ChannelTypeVolcEngine:
-			return &taskdoubao.TaskAdaptor{}
-		case constant.ChannelTypeSora, constant.ChannelTypeOpenAI:
-			return &tasksora.TaskAdaptor{}
-		case constant.ChannelTypeGemini:
-			return &taskGemini.TaskAdaptor{}
-		case constant.ChannelTypeMiniMax:
-			return &hailuo.TaskAdaptor{}
-		case constant.ChannelTypeAdvancedCustom:
-			return &taskadvancedcustom.TaskAdaptor{}
+	if key, ok := taskPluginKeys[platform]; ok {
+		if plugin, found := generation.Get(key); found {
+			return plugin, true
 		}
 	}
 	return generation.Get(string(platform))

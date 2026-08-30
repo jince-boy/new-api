@@ -8,7 +8,9 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
+	kitdto "github.com/QuantumNous/new-api/relaykit/dto"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -28,6 +30,39 @@ type Ability struct {
 type AbilityWithChannel struct {
 	Ability
 	ChannelType int `json:"channel_type"`
+}
+
+func filterAbilitiesByRequestPathAndModel(abilities []Ability, requestPath string, modelName string) []Ability {
+	if requestPath == "" || len(abilities) == 0 {
+		return abilities
+	}
+	channelIDs := make([]int, 0, len(abilities))
+	seen := make(map[int]struct{}, len(abilities))
+	for _, ability := range abilities {
+		if _, ok := seen[ability.ChannelId]; ok {
+			continue
+		}
+		seen[ability.ChannelId] = struct{}{}
+		channelIDs = append(channelIDs, ability.ChannelId)
+	}
+	var channels []*Channel
+	if err := DB.Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
+		return abilities
+	}
+	advancedConfigs := make(map[int]*kitdto.AdvancedCustomConfig)
+	for _, channel := range channels {
+		if channel.Type == constant.ChannelTypeAdvancedCustom {
+			advancedConfigs[channel.Id] = channel.GetOtherSettings().AdvancedCustom
+		}
+	}
+	filtered := make([]Ability, 0, len(abilities))
+	for _, ability := range abilities {
+		config, advanced := advancedConfigs[ability.ChannelId]
+		if !advanced || (config != nil && config.SupportsPathForModel(requestPath, modelName)) {
+			filtered = append(filtered, ability)
+		}
+	}
+	return filtered
 }
 
 func GetAllEnableAbilityWithChannels() ([]AbilityWithChannel, error) {

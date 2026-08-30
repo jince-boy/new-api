@@ -304,6 +304,7 @@ function buildTypeDetailSegments(
 
 export function useCommonLogsColumns(
   isAdmin: boolean,
+  isRoot = false,
   enabled = true
 ): ColumnDef<UsageLog>[] {
   const { t } = useTranslation()
@@ -926,6 +927,7 @@ export function useCommonLogsColumns(
           <DetailsDialog
             log={log}
             isAdmin={isAdmin}
+            isRoot={isRoot}
             open={dialogOpen}
             onOpenChange={setDialogOpen}
           />

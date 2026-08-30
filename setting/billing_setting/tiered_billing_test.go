@@ -5,9 +5,9 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/relaykit/dto"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/pkg/jsplugin"
-	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,7 +39,7 @@ func TestSmokeTestTaskExprValidatesDeclaredUsageVectors(t *testing.T) {
 		{
 			name:          "negative duration boundary",
 			schema:        videoSchema,
-			expression:    fmt.Sprintf(`u("seconds") == %d ? -1 : 0`, relaycommon.MaxTaskDurationSeconds),
+			expression:    fmt.Sprintf(`u("seconds") == %d ? -1 : 0`, constant.MaxTaskDurationSeconds),
 			expectedError: "result must be finite and non-negative",
 		},
 		{

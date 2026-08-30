@@ -36,7 +36,7 @@ export function useColumnsByCategory(
   isRoot: boolean
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): ColumnDef<any>[] {
-  const commonColumns = useCommonLogsColumns(isAdmin, logCategory === 'common')
+  const commonColumns = useCommonLogsColumns(isAdmin, isRoot, logCategory === 'common')
   const drawingColumns = useDrawingLogsColumns(
     isAdmin,
     logCategory === 'drawing'

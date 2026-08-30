@@ -17,7 +17,9 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/config"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -137,7 +139,7 @@ func TestLogTaskConsumptionRecordsResolvedPerSecondTier(t *testing.T) {
 	info.PriceData.GroupRatioInfo.GroupRatio = 1
 	info.PriceData.AddOtherRatio("seconds", 8)
 
-	LogTaskConsumption(context, info)
+	LogTaskConsumption(context, info, nil)
 
 	var logEntry model.Log
 	require.NoError(t, model.DB.Where("request_id = ?", "req-per-second-tier").First(&logEntry).Error)
@@ -526,7 +528,7 @@ func TestLogTaskConsumptionWithoutSnapshotKeepsRatioMode(t *testing.T) {
 	require.NoError(t, common.UnmarshalJsonStr(log.Other, &other))
 	assert.Equal(t, true, other["is_task"])
 	assert.Equal(t, "/v1/videos", other["request_path"])
-	assert.NotContains(t, other, "billing_mode")
+	assert.Equal(t, billing_setting.BillingModeRatio, other["billing_mode"])
 	assert.NotContains(t, other, "expr_b64")
 	assert.NotContains(t, other, "matched_tier")
 	assert.NotContains(t, other, "usage_facts")

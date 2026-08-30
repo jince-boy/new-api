@@ -74,6 +74,16 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
   const hasCachedPrice = isTokenBased && props.model.cache_ratio != null
   const fixedPriceUnit =
     props.model.billing_mode === 'per_second' ? t('second') : t('request')
+  const dynamicPriceOptions = {
+    tokenUnit,
+    showRechargePrice,
+    priceRate,
+    usdExchangeRate,
+    groupRatioMultiplier: getDynamicDisplayGroupRatio(
+      props.model,
+      props.selectedGroup
+    ),
+  }
   const dynamicSummary = isDynamicPricing
     ? getDynamicPricingSummary(props.model, dynamicPriceOptions)
     : null
