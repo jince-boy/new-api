@@ -607,3 +607,10 @@ func DoTaskApiRequestWithMethod(a TaskAdaptor, c *gin.Context, info *common.Rela
 	}
 	return resp, nil
 }
+
+func newTaskAPIRequest(c *gin.Context, fullRequestURL string, requestBody io.Reader) (*http.Request, error) {
+	if c == nil || c.Request == nil {
+		return nil, errors.New("task client request is missing")
+	}
+	return http.NewRequestWithContext(c.Request.Context(), c.Request.Method, fullRequestURL, requestBody)
+}

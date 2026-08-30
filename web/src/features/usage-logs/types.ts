@@ -243,6 +243,7 @@ export interface LogOtherData {
   per_second_pricing_rule_matched?: boolean
   seconds?: number
   request_rules?: RequestRuleTrace[]
+  usage_facts?: Record<string, string | number>
   reasoning_effort?: string
   image?: boolean
   image_ratio?: number
@@ -362,9 +363,61 @@ export interface TaskLog {
   fail_reason?: string
   result_url?: string
   status: string // NOT_START, SUBMITTED, IN_PROGRESS, SUCCESS, FAILURE, QUEUED, UNKNOWN
-  other?: string
+  admin_info?: {
+    request_id?: string
+    request_path?: string
+    task_plugin?: TaskPluginInfo
+  }
+  root_info?: {
+    task_plugin?: TaskPluginRuntimeInfo
+    upstream_task_id?: string
+    node_name?: string
+  }
   created_at?: number
   updated_at?: number
+}
+
+export interface TaskPluginInfo {
+  key: string
+  name: string
+  version?: string
+  author?: TaskPluginAuthor
+}
+
+export interface TaskPluginAuthor {
+  name: string
+  url?: string
+}
+
+export interface TaskPluginRuntimeInfo {
+  key: string
+  version: string
+  api_version: number
+  generation: number
+}
+
+export type TaskArtifactType = 'image' | 'video' | 'audio' | 'file'
+
+export interface TaskArtifact {
+  key: string
+  type: TaskArtifactType
+  mime_type?: string
+  content_url: string
+}
+
+export interface TaskArtifactProjection {
+  artifacts: TaskArtifact[]
+  legacyContentUrl?: string
+}
+
+export interface TaskArtifactsResponse {
+  success: boolean
+  message?: string
+  code?: string
+  data?: {
+    artifacts?: unknown
+    legacy_content_url?: unknown
+  }
 }
 
 // ============================================================================

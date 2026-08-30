@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 
 	"sync"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/pkg/jsplugin"
 	"github.com/QuantumNous/new-api/relaykit/dto"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -393,6 +395,7 @@ func updatePricing() {
 	}
 
 	pricingMap = make([]Pricing, 0)
+	pluginGeneration := jsplugin.DefaultRegistry.Generation()
 	for model, groups := range modelGroupsMap {
 		modelEndpointInfo := make(map[string]common.EndpointInfo)
 		for _, endpointType := range modelSupportEndpointTypes[model] {
@@ -460,6 +463,27 @@ func updatePricing() {
 		} else if billingMode == billing_setting.BillingModePerSecond {
 			pricing.BillingMode = billingMode
 			pricing.PerSecondRules = billing_setting.GetPerSecondRules(model)
+		}
+		if plugin, ok := pluginGeneration.GetByModel(model); ok && len(plugin.Meta.UsageSchema) > 0 {
+			pricing.BillingUsageSchema = make(map[string]jsplugin.UsageFieldSchema, len(plugin.Meta.UsageSchema))
+			for key, field := range plugin.Meta.UsageSchema {
+				field.Enum = append([]string(nil), field.Enum...)
+				field.Description = maps.Clone(field.Description)
+				pricing.BillingUsageSchema[key] = field
+			}
+			if len(plugin.Meta.UsageExamples) > 0 {
+				pricing.BillingUsageExamples = make([]jsplugin.UsageExample, len(plugin.Meta.UsageExamples))
+				for index, example := range plugin.Meta.UsageExamples {
+					facts := make(map[string]any, len(example.Facts))
+					for key, value := range example.Facts {
+						facts[key] = value
+					}
+					pricing.BillingUsageExamples[index] = jsplugin.UsageExample{
+						Label: example.Label,
+						Facts: facts,
+					}
+				}
+			}
 		}
 		pricingMap = append(pricingMap, pricing)
 	}

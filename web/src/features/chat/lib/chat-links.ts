@@ -302,6 +302,16 @@ export function resolveChatUrl({
     url = replaceTemplateVariable(url, 'deepchatConfig', encoded)
   }
 
+  if (url.includes('{aqbotConfig}')) {
+    const query = [
+      `name=${encodeURIComponent('New API')}`,
+      `baseurl=${encodeURIComponent(safeServerAddress)}`,
+      `apikey=${encodeURIComponent(safeApiKey)}`,
+      'type=openai',
+    ].join('&')
+    return replaceToken(url, '{aqbotConfig}', query)
+  }
+
   if (safeServerAddress) {
     const encodedAddress = encodeURIComponent(safeServerAddress)
     url = replaceTemplateVariable(url, 'address', encodedAddress)
