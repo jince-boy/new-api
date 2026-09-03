@@ -41,8 +41,8 @@ services:
 #      UMAMI_SCRIPT_URL: "https://analytics.umami.is/script.js"
 
     networks:
-      - my_network
+      - my-network
 
 networks:
-  my_network:
+  my-network:
     external: true
