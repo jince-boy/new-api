@@ -60,9 +60,9 @@ func TestProcessChannelErrorAlwaysRecordsSmartProtectionBlock(t *testing.T) {
 		types.ErrOptionWithSkipRetry(),
 	)
 
-	processChannelError(context, relayInfo, types.ChannelError{
+	processChannelError(context, types.ChannelError{
 		ChannelId: 7, ChannelType: 1, ChannelName: "protected-channel",
-	}, blockErr)
+	}, blockErr, relayInfo)
 
 	var log model.Log
 	require.NoError(t, logDB.Where("request_id = ?", "req-smart-protection-block").Take(&log).Error)

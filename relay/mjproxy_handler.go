@@ -79,18 +79,15 @@ func RelayMidjourneyImage(c *gin.Context) {
 		maskedBody := service.UpstreamErrorBodyForAdmin(string(responseBody))
 		logger.LogError(c, fmt.Sprintf("midjourney image upstream error: channel=%d status=%d body=%s", midjourneyTask.ChannelId, resp.StatusCode, maskedBody))
 		if constant.ErrorLogEnabled {
-			other := map[string]interface{}{
-				"request_path": c.Request.URL.Path,
-				"status_code":  http.StatusInternalServerError,
-				"admin_info": map[string]interface{}{
-					"upstream_error": map[string]interface{}{
-						"channel_id":   midjourneyTask.ChannelId,
-						"status_code":  resp.StatusCode,
-						"content_type": resp.Header.Get("Content-Type"),
-						"body":         maskedBody,
-					},
-				},
-			}
+			other := model.NewLogOther()
+			other.SetPublic("request_path", c.Request.URL.Path)
+			other.SetPublic("status_code", http.StatusInternalServerError)
+			other.SetAdmin("upstream_error", map[string]interface{}{
+				"channel_id":   midjourneyTask.ChannelId,
+				"status_code":  resp.StatusCode,
+				"content_type": resp.Header.Get("Content-Type"),
+				"body":         maskedBody,
+			})
 			model.RecordErrorLog(c, midjourneyTask.UserId, midjourneyTask.ChannelId, midjourneyTask.Action, "", "当前模型不可用", midjourneyTask.TokenId, 0, false, "", other)
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{

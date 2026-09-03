@@ -308,6 +308,206 @@ docker run -d --name new-api --restart unless-stopped \
 使用 GitHub Actions 自动发布时，在仓库的 **Settings -> Secrets and variables -> Actions** 中添加 `DOCKERHUB_USERNAME` 和 `DOCKERHUB_TOKEN`（Docker Hub Access Token，不要使用密码）。工作流默认发布到 `${DOCKERHUB_USERNAME}/new-api`；如需其他仓库名，添加仓库变量 `DOCKERHUB_IMAGE` 覆盖它。
 
 也可以分开执行本地构建和推送：
+---
+
+🎉 After deployment is complete, visit `http://localhost:3000` to start using!
+
+> [!WARNING]
+> When operating this project as a public generative AI service or API resale service, users should first complete all required filing, licensing, content safety, real-name verification, log retention, tax, payment, and upstream authorization obligations.
+
+📖 For more deployment methods, please refer to [Deployment Guide](https://docs.newapi.pro/en/docs/installation)
+
+---
+
+## 📚 Documentation
+
+<div align="center">
+
+### 📖 [Official Documentation](https://docs.newapi.pro/en/docs) | [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/QuantumNous/new-api)
+
+</div>
+
+**Quick Navigation:**
+
+| Category | Link |
+|------|------|
+| 🚀 Deployment Guide | [Installation Documentation](https://docs.newapi.pro/en/docs/installation) |
+| ⚙️ Environment Configuration | [Environment Variables](https://docs.newapi.pro/en/docs/installation/config-maintenance/environment-variables) |
+| 📡 API Documentation | [API Documentation](https://docs.newapi.pro/en/docs/api) |
+| ❓ FAQ | [FAQ](https://docs.newapi.pro/en/docs/support/faq) |
+| 💬 Community Interaction | [Communication Channels](https://docs.newapi.pro/en/docs/support/community-interaction) |
+
+---
+
+## ✨ Key Features
+
+> For detailed features, please refer to [Features Introduction](https://docs.newapi.pro/en/docs/guide/wiki/basic-concepts/features-introduction)
+
+### 🎨 Core Functions
+
+| Feature | Description |
+|------|------|
+| 🎨 New UI | Modern user interface design |
+| 🌍 Multi-language | Supports Simplified Chinese, Traditional Chinese, English, French, Japanese |
+| 🔄 Data Compatibility | Fully compatible with the original One API database |
+| 📈 Data Dashboard | Visual console and statistical analysis |
+| 🔒 Permission Management | Token grouping, model restrictions, user management |
+
+### 💰 Authorized Usage Accounting and Billing
+
+- ✅ Internal top-up and quota allocation for lawful authorized scenarios (EPay, Stripe)
+- ✅ Organization-level per-request, usage-based, and cache-hit cost accounting
+- ✅ Cache billing statistics for OpenAI, Azure, DeepSeek, Claude, Qwen, and supported models
+- ✅ Flexible billing policies for internal management or authorized enterprise customers
+
+### 🔐 Authorization and Security
+
+- 😈 Discord authorization login
+- 🤖 LinuxDO authorization login
+- 📱 Telegram authorization login
+- 🔑 OIDC unified authentication
+- 🔍 Key quota query usage (with [new-api-key-tool](https://github.com/Calcium-Ion/new-api-key-tool))
+
+### 🚀 Advanced Features
+
+**API Format Support:**
+- ⚡ [OpenAI Responses](https://docs.newapi.pro/en/docs/api/ai-model/chat/openai/create-response)
+- ⚡ [OpenAI Realtime API](https://docs.newapi.pro/en/docs/api/ai-model/realtime/create-realtime-session) (including Azure)
+- ⚡ [Claude Messages](https://docs.newapi.pro/en/docs/api/ai-model/chat/create-message)
+- ⚡ [Google Gemini](https://doc.newapi.pro/en/api/google-gemini-chat)
+- 🔄 [Rerank Models](https://docs.newapi.pro/en/docs/api/ai-model/rerank/create-rerank) (Cohere, Jina)
+
+**Intelligent Routing:**
+- ⚖️ Channel weighted random
+- 🔄 Automatic retry on failure
+- 🚦 User-level model rate limiting
+
+**Format Conversion:**
+- 🔄 **OpenAI Compatible ⇄ Claude Messages**
+- 🔄 **OpenAI Compatible → Google Gemini**
+- 🔄 **Google Gemini → OpenAI Compatible** - Text only, function calling not supported yet
+- 🚧 **OpenAI Compatible ⇄ OpenAI Responses** - In development
+- 🔄 **Thinking-to-content functionality**
+
+**Reasoning Effort Support:**
+
+<details>
+<summary>View detailed configuration</summary>
+
+**OpenAI series models:**
+- `o3-mini-high` - High reasoning effort
+- `o3-mini-medium` - Medium reasoning effort
+- `o3-mini-low` - Low reasoning effort
+- `gpt-5-high` - High reasoning effort
+- `gpt-5-medium` - Medium reasoning effort
+- `gpt-5-low` - Low reasoning effort
+
+**Claude thinking models:**
+- `claude-3-7-sonnet-20250219-thinking` - Enable thinking mode
+
+**Google Gemini series models:**
+- `gemini-2.5-flash-thinking` - Enable thinking mode
+- `gemini-2.5-flash-nothinking` - Disable thinking mode
+- `gemini-2.5-pro-thinking` - Enable thinking mode
+- `gemini-2.5-pro-thinking-128` - Enable thinking mode with thinking budget of 128 tokens
+- You can also append `-low`, `-medium`, or `-high` to any Gemini model name to request the corresponding reasoning effort (no extra thinking-budget suffix needed).
+
+</details>
+
+---
+
+## 🤖 Model Support
+
+> For details, please refer to [API Documentation - Gateway Interface](https://docs.newapi.pro/en/docs/api)
+
+| Model Type | Description | Documentation |
+|---------|------|------|
+| 🤖 OpenAI-Compatible | OpenAI compatible models | [Documentation](https://docs.newapi.pro/en/docs/api/ai-model/chat/openai/createchatcompletion) |
+| 🤖 OpenAI Responses | OpenAI Responses format | [Documentation](https://docs.newapi.pro/en/docs/api/ai-model/chat/openai/createresponse) |
+| 🎨 Midjourney-Proxy | [Midjourney-Proxy(Plus)](https://github.com/novicezk/midjourney-proxy) | [Documentation](https://doc.newapi.pro/api/midjourney-proxy-image) |
+| 🎵 Suno-API | [Suno API](https://github.com/Suno-API/Suno-API) | [Documentation](https://doc.newapi.pro/api/suno-music) |
+| 🔄 Rerank | Cohere, Jina | [Documentation](https://docs.newapi.pro/en/docs/api/ai-model/rerank/creatererank) |
+| 💬 Claude | Messages format | [Documentation](https://docs.newapi.pro/en/docs/api/ai-model/chat/createmessage) |
+| 🌐 Gemini | Google Gemini format | [Documentation](https://docs.newapi.pro/en/docs/api/ai-model/chat/gemini/geminirelayv1beta) |
+| 🔧 Dify | ChatFlow mode | - |
+| 🎯 Custom upstream | Supports configuring legally authorized upstream endpoints | - |
+
+### 📡 Supported Interfaces
+
+<details>
+<summary>View complete interface list</summary>
+
+- [Chat Interface (Chat Completions)](https://docs.newapi.pro/en/docs/api/ai-model/chat/openai/createchatcompletion)
+- [Response Interface (Responses)](https://docs.newapi.pro/en/docs/api/ai-model/chat/openai/createresponse)
+- [Image Interface (Image)](https://docs.newapi.pro/en/docs/api/ai-model/images/openai/post-v1-images-generations)
+- [Audio Interface (Audio)](https://docs.newapi.pro/en/docs/api/ai-model/audio/openai/create-transcription)
+- [Video Interface (Video)](https://docs.newapi.pro/en/docs/api/ai-model/videos/sora/createvideo)
+- [Embedding Interface (Embeddings)](https://docs.newapi.pro/en/docs/api/ai-model/embeddings/createembedding)
+- [Rerank Interface (Rerank)](https://docs.newapi.pro/en/docs/api/ai-model/rerank/creatererank)
+- [Realtime Conversation (Realtime)](https://docs.newapi.pro/en/docs/api/ai-model/realtime/createrealtimesession)
+- [Claude Chat](https://docs.newapi.pro/en/docs/api/ai-model/chat/createmessage)
+- [Google Gemini Chat](https://docs.newapi.pro/en/docs/api/ai-model/chat/gemini/geminirelayv1beta)
+
+</details>
+
+---
+
+## 🚢 Deployment
+
+> [!TIP]
+> **Latest Docker image:** `calciumion/new-api:latest`
+
+### 📋 Deployment Requirements
+
+| Component | Requirement |
+|------|------|
+| **Local database** | SQLite (Docker must mount `/data` directory)|
+| **Remote database** | MySQL ≥ 5.7.8 or PostgreSQL ≥ 9.6 |
+| **Container engine** | Docker / Docker Compose |
+| **System architecture** | 64-bit only (amd64 / arm64); 32-bit systems are not supported |
+
+### ⚙️ Environment Variable Configuration
+
+<details>
+<summary>Common environment variable configuration</summary>
+
+| Variable Name | Description | Default Value |
+|--------|------|--------|
+| `SESSION_SECRET` | Authentication signing secret; must be identical on every node | - |
+| `SESSION_COOKIE_SECURE` | `false`/unset disables the refresh/logout OriginGuard for local HTTP dev proxies; `true` enables the Secure cookie and strict Origin checks | `false` |
+| `SESSION_COOKIE_TRUSTED_URL` | Required with Secure mode: comma-separated exact HTTPS Origins allowed to call refresh/logout; not a relay CORS allowlist | - |
+| `TRUSTED_PROXIES` | Unset/blank trusts loopback, RFC 1918 and IPv6 ULA with a startup warning; `none` trusts no proxies; an explicit proxy IP/CIDR list replaces the defaults | `127.0.0.0/8, ::1, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7` |
+| `USER_SESSION_ACTIVE_LIMIT` | Maximum active login Sessions per user | `50` |
+| `USER_SESSION_ISSUANCE_LIMIT` | Maximum Sessions created per user within the issuance window, including revoked Sessions | `100` |
+| `USER_SESSION_ISSUANCE_WINDOW_SECONDS` | Per-user Session issuance window; clamped to the revoked retention period when configured higher | `86400` |
+| `USER_SESSION_REVOKED_RETENTION_DAYS` | Days to retain revoked Session rows for audit and issuance accounting | `7` |
+| `USER_SESSION_HOURLY_ALERT_THRESHOLD` | Global Sessions created per hour that triggers an alert only; it never blocks login | `5000` |
+| `CRYPTO_SECRET` | HMAC secret for cache keys; nodes sharing Redis must use the same effective value | Defaults to `SESSION_SECRET` |
+| `SQL_DSN` | Database connection string | - |
+| `REDIS_CONN_STRING` | Redis connection string | - |
+| `RELAY_IDLE_CONN_TIMEOUT` | Idle keep-alive timeout for relay HTTP clients, seconds. Defaults to Go standard library behavior; set `0` to disable | `90` |
+| `RELAY_RESPONSE_HEADER_TIMEOUT` | How long the relay waits for upstream **response headers**, seconds; set `0` to disable. Only bounds the header wait -- streaming after the headers arrive is unaffected. Note that non-streaming upstreams usually send headers only once generation finishes, so leave headroom | `1800` |
+| `STREAMING_TIMEOUT` | Streaming timeout (seconds) | `300` |
+| `STREAM_SCANNER_MAX_BUFFER_MB` | Max per-line buffer (MB) for the stream scanner; increase when upstream sends huge image/base64 payloads | `64` |
+| `MAX_REQUEST_BODY_MB` | Max request body size (MB, counted **after decompression**; prevents huge requests/zip bombs from exhausting memory). Exceeding it returns `413` | `32` |
+| `AZURE_DEFAULT_API_VERSION` | Azure API version | `2025-04-01-preview` |
+| `ERROR_LOG_ENABLED` | Error log switch | `false` |
+| `PYROSCOPE_URL` | Pyroscope server address | - |
+| `PYROSCOPE_APP_NAME` | Pyroscope application name | `new-api` |
+| `PYROSCOPE_BASIC_AUTH_USER` | Pyroscope basic auth user | - |
+| `PYROSCOPE_BASIC_AUTH_PASSWORD` | Pyroscope basic auth password | - |
+| `PYROSCOPE_MUTEX_RATE` | Pyroscope mutex sampling rate | `5` |
+| `PYROSCOPE_BLOCK_RATE` | Pyroscope block sampling rate | `5` |
+| `HOSTNAME` | Hostname tag for Pyroscope | `new-api` |
+
+📖 **Complete configuration:** [Environment Variables Documentation](https://docs.newapi.pro/en/docs/installation/config-maintenance/environment-variables)
+
+</details>
+
+### 🔧 Deployment Methods
+
+<details>
+<summary><strong>Method 1: Docker Compose (Recommended)</strong></summary>
 
 ```bash
 make docker-build DOCKER_REGISTRY=docker.io DOCKER_IMAGE=yourdockerhubuser/new-api DOCKER_TAG=latest

@@ -31,16 +31,17 @@ func TestGenerateTextOtherInfoUsesUpstreamTTFTAndKeepsInternalTimingAdminOnly(t 
 	}
 
 	other := GenerateTextOtherInfo(ctx, info, 1, 1, 1, 0, 0, 0, 1)
+	otherMap := other.Snapshot()
 
-	assert.Equal(t, float64(1000), other["frt"])
-	adminInfo, ok := other["admin_info"].(map[string]interface{})
+	assert.Equal(t, float64(1000), otherMap["frt"])
+	adminInfo, ok := otherMap["admin_info"].(map[string]interface{})
 	require.True(t, ok)
 	assert.Equal(t, int64(5000), adminInfo["channel_rate_limit_queue_ms"])
 	assert.Equal(t, int64(1500), adminInfo["smart_protection_review_ms"])
 	assert.Equal(t, []string{"Controversial"}, adminInfo["smart_protection_safeties"])
 	assert.Equal(t, []string{"Jailbreak"}, adminInfo["smart_protection_categories"])
 	assert.Equal(t, "Safety: Controversial\nCategories: [Jailbreak]", adminInfo["smart_protection_review_raw"])
-	assert.NotContains(t, other, "smart_protection_review_ms")
+	assert.NotContains(t, otherMap, "smart_protection_review_ms")
 }
 
 func TestAttachSmartProtectionReviewTimeKeepsCachedClassification(t *testing.T) {

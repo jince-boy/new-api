@@ -457,7 +457,8 @@ func updatePricing() {
 			audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(model)
 			pricing.AudioCompletionRatio = &audioCompletionRatio
 		}
-		if billingMode := billing_setting.GetBillingMode(model); billingMode == billing_setting.BillingModeTieredExpr {
+		billingMode := billing_setting.GetBillingMode(model)
+		if billingMode == billing_setting.BillingModeTieredExpr {
 			if expr, ok := billing_setting.GetBillingExpr(model); ok && strings.TrimSpace(expr) != "" {
 				pricing.BillingMode = billingMode
 				pricing.BillingExpr = expr
@@ -465,8 +466,25 @@ func updatePricing() {
 		} else if billingMode == billing_setting.BillingModePerSecond {
 			pricing.BillingMode = billingMode
 			pricing.PerSecondRules = billing_setting.GetPerSecondRules(model)
+		} else if target, resolved := ResolveTaskModelAlias(pluginGeneration, model); resolved && target.Declared != "" {
+			tailMode := billing_setting.GetBillingMode(target.Declared)
+			if tailMode == billing_setting.BillingModeTieredExpr {
+				if expr, ok := billing_setting.GetBillingExpr(target.Declared); ok && strings.TrimSpace(expr) != "" {
+					pricing.BillingMode = tailMode
+					pricing.BillingExpr = expr
+				}
+			} else if tailMode == billing_setting.BillingModePerSecond {
+				pricing.BillingMode = tailMode
+				pricing.PerSecondRules = billing_setting.GetPerSecondRules(target.Declared)
+			}
 		}
-		if plugin, ok := pluginGeneration.GetByModel(model); ok && len(plugin.Meta.UsageSchema) > 0 {
+		plugin, ok := pluginGeneration.GetByModel(model)
+		if !ok {
+			if target, resolved := ResolveTaskModelAlias(pluginGeneration, model); resolved {
+				plugin, ok = pluginGeneration.Get(target.PluginKey)
+			}
+		}
+		if ok && plugin != nil && len(plugin.Meta.UsageSchema) > 0 {
 			pricing.BillingUsageSchema = make(map[string]jsplugin.UsageFieldSchema, len(plugin.Meta.UsageSchema))
 			for key, field := range plugin.Meta.UsageSchema {
 				field.Enum = append([]string(nil), field.Enum...)

@@ -185,6 +185,8 @@ export interface LogOtherData {
       content_type?: string
       body?: string
     }
+    // Reject / intercept reason (admin only)
+    reject_reason?: string
     task_plugin?: TaskPluginInfo
   }
   root_info?: { task_plugin?: TaskPluginRuntimeInfo; upstream_task_id?: string; node_name?: string }
@@ -279,8 +281,6 @@ export interface LogOtherData {
   violation_fee_code?: string
   violation_fee_marker?: string
   fee_quota?: number
-  // Reject / intercept reason (admin)
-  reject_reason?: string
   // Task-related fields (for refund logs, type=6)
   is_task?: boolean
   task_id?: string
